@@ -1,0 +1,28 @@
+name: PhotoExportApp
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  PhotoExportApp:
+    type: application
+    platform: macOS
+    sources:
+      - PhotoExportApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.PhotoExportApp
+        PRODUCT_NAME: PhotoExportApp
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Photo Export
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Photo Export reads your photo library so it can copy your photos and videos to the folder you choose.
+        CODE_SIGN_ENTITLEMENTS: PhotoExportApp/PhotoExportApp.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
