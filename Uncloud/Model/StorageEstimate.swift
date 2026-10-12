@@ -36,6 +36,21 @@ struct AssetSizeTable: Equatable, Sendable {
         case heuristic
     }
 
+    /// A walk of the library in progress, kept (and saved) across interruptions until it reaches
+    /// the end, so that its end can tell which items it saw.
+    struct Walk: Equatable, Sendable {
+        /// Where it started: 0 for a pass over the whole library, or just before the old end when
+        /// the library grew.
+        var start: Int
+        /// The library's size while walking; -1 until the first page reports it.
+        var libraryCount: Int
+        /// Every item the walk has seen, with a size or without.
+        var seen: Set<String> = []
+        /// False once the library's size changed during the walk: offsets shifted, so the walk may
+        /// have skipped items, and only a walk from the start can be trusted again.
+        var isValid = true
+    }
+
     /// The selected part of the table.
     struct Sum: Equatable, Sendable {
         var bytes: Int64
@@ -54,6 +69,8 @@ struct AssetSizeTable: Equatable, Sendable {
     var scannedThrough = 0
     /// Every item was covered by a scan that reached the end of the library.
     var isComplete = false
+    /// The walk in progress, if any.
+    var walk: Walk?
 
     init(kind: Kind) {
         self.kind = kind
@@ -157,13 +174,20 @@ struct AssetSizeTable: Equatable, Sendable {
 
     private static let magic = "uncloud-sizes"
 
-    /// A header line (`uncloud-sizes 1 kind libraryCount scannedThrough complete`), then one
-    /// `bytes<TAB>id` line per item: about 50 bytes per item.
+    /// A header line (`uncloud-sizes 2 kind libraryCount scannedThrough complete walk`, where `walk`
+    /// is `-` or `start,libraryCount,valid`), then one `bytes<TAB>seen<TAB>id` line per item, where
+    /// `seen` is 1 for items the walk has seen and `bytes` is `-` for a seen item without a size:
+    /// about 50 bytes per item. Version 1 files (`bytes<TAB>id`, no walk) still load.
     func encoded() -> Data {
-        var text = "\(Self.magic) 1 \(kind.rawValue) \(libraryCount) \(scannedThrough) \(isComplete ? 1 : 0)\n"
+        let walkField = walk.map { "\($0.start),\($0.libraryCount),\($0.isValid ? 1 : 0)" } ?? "-"
+        var text = "\(Self.magic) 2 \(kind.rawValue) \(libraryCount) \(scannedThrough) \(isComplete ? 1 : 0) \(walkField)\n"
         text.reserveCapacity(text.utf8.count + sizes.count * 50)
+        let seen = walk?.seen ?? []
         for (id, size) in sizes {
-            text += "\(size)\t\(id)\n"
+            text += "\(size)\t\(seen.contains(id) ? 1 : 0)\t\(id)\n"
+        }
+        for id in seen where sizes[id] == nil {
+            text += "-\t1\t\(id)\n"
         }
         return Data(text.utf8)
     }
@@ -173,19 +197,37 @@ struct AssetSizeTable: Equatable, Sendable {
         var lines = text.split(separator: "\n", omittingEmptySubsequences: true)[...]
         guard let header = lines.popFirst() else { return nil }
         let fields = header.split(separator: " ")
-        guard fields.count == 6, fields[0] == Self.magic, fields[1] == "1",
+        guard fields.count >= 6, fields[0] == Self.magic, let version = Int(fields[1]),
+              version == 1 && fields.count == 6 || version == 2 && fields.count == 7,
               let kind = Kind(rawValue: String(fields[2])),
               let libraryCount = Int(fields[3]), let scannedThrough = Int(fields[4]) else { return nil }
         self.init(kind: kind)
         self.libraryCount = libraryCount
         self.scannedThrough = scannedThrough
         isComplete = fields[5] == "1"
+        if version == 2, fields[6] != "-" {
+            let parts = fields[6].split(separator: ",")
+            guard parts.count == 3, let start = Int(parts[0]), let count = Int(parts[1]) else { return nil }
+            walk = Walk(start: start, libraryCount: count, isValid: parts[2] == "1")
+        }
         sizes.reserveCapacity(lines.count)
         for line in lines {
-            guard let tab = line.firstIndex(of: "\t"), let size = Int64(line[..<tab]) else { continue }
-            let id = line[line.index(after: tab)...]
+            guard let tab = line.firstIndex(of: "\t") else { continue }
+            var rest = line[line.index(after: tab)...]
+            var isSeen = false
+            if version == 2 {
+                guard let flagEnd = rest.firstIndex(of: "\t") else { continue }
+                isSeen = rest[..<flagEnd] == "1"
+                rest = rest[rest.index(after: flagEnd)...]
+            }
+            let id = String(rest)
             guard !id.isEmpty else { continue }
-            set(size, for: String(id))
+            if isSeen {
+                walk?.seen.insert(id)
+            }
+            if let size = Int64(line[..<tab]) {
+                set(size, for: id)
+            }
         }
     }
 }

@@ -33,6 +33,7 @@ struct UncloudApp: App {
         let settings = AutoBackupSettings()
         let controller = AutoBackupController(model: model, settings: settings)
         controller.start()
+        AppDelegate.model = model
         #if DEBUG
         HelperProbe.runIfRequested()
         #endif
@@ -79,8 +80,43 @@ struct UncloudApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// The app's model, so quitting can stop its export first.
+    @MainActor static weak var model: ExportModel?
+    /// How long quitting waits for the export to stop and record where it got to.
+    static let exportStopTimeout: Duration = .seconds(3)
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // While automatic backup is on, the app keeps running in the menu bar.
         !AutoBackupSettings.isEnabledInDefaults
+    }
+
+    /// Quitting mid-export or while paused must not leave icloudpd downloading, or stopped with
+    /// SIGSTOP, after the app is gone. Stops the export and every helper and bridge first, in a few
+    /// seconds at most, then quits. The run stays marked unfinished, so it resumes after relaunch.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let engine = Self.model?.stopForTermination()
+        guard engine != nil || ICloudProcesses.areRunning else { return .terminateNow }
+        Task { @MainActor in
+            await Self.shutDown(engine: engine)
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Normally nothing is left by now; kill whatever is, such as a helper started meanwhile.
+        ICloudHelperProcess.runningHelpers.forEach { $0.terminate(); $0.kill() }
+        ICloudBridge.runningBridges.forEach { $0.terminate(); $0.kill() }
+    }
+
+    /// Stops an export's engine (cancelled already) and every helper and bridge process, each wait
+    /// bounded: the engine records what it finished as it stops, and the processes get SIGCONT and
+    /// SIGTERM, then SIGKILL.
+    static func shutDown(engine: Task<Void, Never>?) async {
+        async let processes: Void = ICloudProcesses.shutDownAll()
+        if let engine {
+            _ = await engine.value(timeout: exportStopTimeout)
+        }
+        await processes
     }
 }

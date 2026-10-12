@@ -10,6 +10,8 @@ Fake options:
   --child               start a child process that lives as long as this one, like PyInstaller's bootloader
   --child-ignores-term  the child ignores SIGTERM, so only SIGKILL stops it
   --launch-log PATH     append "<pid> <args>" to PATH at start
+  --term-delay S        on SIGTERM, keep running S seconds before exiting (status 143), like a slow
+                        shutdown; with --launch-log, append "<pid> exited" right before exiting
 
 Behaves like icloudpd where the app depends on it: log lines on stdout as
 "YYYY-MM-DD HH:MM:SS LEVEL    message", "Downloading N ... to DEST ..." once, then per item
@@ -31,7 +33,8 @@ def log(level: str, message: str) -> None:
 
 
 def parse(argv):
-    fake = {"total": 100, "rate": 50.0, "prepare_delay": 0.0, "child": False, "child_ignores_term": False, "launch_log": None}
+    fake = {"total": 100, "rate": 50.0, "prepare_delay": 0.0, "child": False, "child_ignores_term": False,
+            "launch_log": None, "term_delay": None}
     if "--" in argv:
         split = argv.index("--")
         own, rest = argv[:split], argv[split + 1:]
@@ -48,6 +51,8 @@ def parse(argv):
             fake["prepare_delay"] = float(own[index + 1]); index += 2
         elif flag == "--launch-log":
             fake["launch_log"] = own[index + 1]; index += 2
+        elif flag == "--term-delay":
+            fake["term_delay"] = float(own[index + 1]); index += 2
         elif flag == "--child":
             fake["child"] = True; index += 1
         elif flag == "--child-ignores-term":
@@ -77,11 +82,24 @@ def item_path(dest: str, index: int) -> str:
     return os.path.join(dest, f"{year:04d}", f"{month:02d}", f"IMG_{index:06d}.JPG")
 
 
+def slow_exit(delay: float, launch_log):
+    def handler(_signum, _frame):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        time.sleep(delay)
+        if launch_log:
+            with open(launch_log, "a") as handle:
+                handle.write(f"{os.getpid()} exited\n")
+        os._exit(143)
+    return handler
+
+
 def main(argv) -> int:
     fake, real = parse(argv)
     if fake["launch_log"]:
         with open(fake["launch_log"], "a") as handle:
             handle.write(f"{os.getpid()} icloudpd {' '.join(argv)}\n")
+    if fake["term_delay"] is not None:
+        signal.signal(signal.SIGTERM, slow_exit(fake["term_delay"], fake["launch_log"]))
     child = start_child(fake["child_ignores_term"], fake["launch_log"] or "") if fake["child"] else None
     if child is not None and fake["launch_log"]:
         with open(fake["launch_log"], "a") as handle:

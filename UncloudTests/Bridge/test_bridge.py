@@ -396,6 +396,188 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(page["event"], "page")
         self.assertEqual(len(bridge._deferred), 1)  # the second download waits its turn
 
+    def big_download(self, bridge, session, on_chunk, chunks=40):
+        """Makes ID02's original `chunks` download chunks long and calls `on_chunk(n)` as each is read."""
+        url = "https://fake.example/ID02/original"
+        session.by_url[url] = bytes(range(256)) * (chunks * pb.DOWNLOAD_CHUNK // 256)
+        original_get = session.get
+        read = {"n": 0}
+
+        def get(url, headers=None, stream=False):
+            response = original_get(url, headers=headers, stream=stream)
+            inner = response.iter_content
+
+            def iter_content(chunk_size=1024):
+                for chunk in inner(chunk_size):
+                    read["n"] += 1
+                    on_chunk(read["n"])
+                    yield chunk
+
+            response.iter_content = iter_content
+            return response
+
+        session.get = get
+        return url, read
+
+    def test_cancel_stops_inside_a_file_and_removes_the_partial(self):
+        bridge, channel, session = make_bridge()
+
+        def on_chunk(n):
+            if n == 3:
+                channel.feed('{"cmd":"cancel","target":9}')
+
+        url, read = self.big_download(bridge, session, on_chunk)
+        events = self.download(bridge, mode="only", ids=["ID02", "ID03"])
+        self.assertEqual(events[-1]["event"], "done")
+        self.assertTrue(events[-1]["cancelled"])
+        self.assertEqual(events[-1]["downloaded"], 0)
+        self.assertEqual(events[-1]["failed"], 0)
+        self.assertNotIn("downloaded", [e["event"] for e in events])
+        # Stopped after the chunk that saw the cancel, not at the end of the file or the next item.
+        self.assertLessEqual(read["n"], 4)
+        self.assertEqual(tree(self.root), {})
+        self.assertEqual(session.downloads, [url])
+
+    def test_pause_holds_inside_a_file_answers_browsing_and_resumes(self):
+        bridge, channel, session = make_bridge()
+        resumed = threading.Event()
+
+        def resume_after_page():
+            for _ in range(500):
+                if any(m.get("id") == 50 for m in channel.messages):
+                    break
+                threading.Event().wait(0.01)
+            # The download held while the page was answered.
+            resumed.read_while_paused = read["n"]
+            channel.feed('{"cmd":"resume","target":9}')
+            resumed.set()
+
+        def on_chunk(n):
+            if n == 5:
+                channel.feed('{"cmd":"pause","target":9}')
+                channel.feed('{"id":50,"cmd":"page","offset":0,"limit":2}')
+                channel.feed('{"id":51,"cmd":"ping"}')
+                threading.Thread(target=resume_after_page, daemon=True).start()
+
+        url, read = self.big_download(bridge, session, on_chunk)
+        events = self.download(bridge, mode="only", ids=["ID02"])
+        self.assertTrue(resumed.is_set())
+        self.assertEqual(resumed.read_while_paused, 5)
+        self.assertEqual(events[-1]["event"], "done")
+        self.assertFalse(events[-1]["cancelled"])
+        self.assertEqual(events[-1]["downloaded"], 1)
+        page = next(m for m in channel.messages if m.get("id") == 50)
+        self.assertEqual(len(page["items"]), 2)
+        self.assertIn({"id": 51, "event": "pong"}, channel.messages)
+        # The rest was asked for again from where the file stopped, and the file is whole.
+        self.assertEqual(session.downloads, [url, url])
+        self.assertEqual(tree(self.root), {"2024/01/IMG_0002.JPG": session.by_url[url]})
+
+    def test_resume_after_pause_starts_over_when_the_server_ignores_the_range(self):
+        bridge, channel, session = make_bridge()
+
+        def get(url, headers=None, stream=False):
+            response = first_get(url, headers=headers, stream=stream)
+            if headers and headers.get("Range", "bytes=0-") != "bytes=0-":
+                # A server that ignores Range answers 200 with the whole file.
+                response = FakeResponse(session.by_url[url])
+                response.status_code = 200
+            return response
+
+        def resume_after_page():
+            for _ in range(500):
+                if any(m.get("id") == 50 for m in channel.messages):
+                    break
+                threading.Event().wait(0.01)
+            channel.feed('{"cmd":"resume","target":9}')
+
+        def on_chunk(n):
+            if n == 5:
+                channel.feed('{"cmd":"pause","target":9}')
+                channel.feed('{"id":50,"cmd":"page","offset":0,"limit":2}')
+                threading.Thread(target=resume_after_page, daemon=True).start()
+
+        url, _ = self.big_download(bridge, session, on_chunk)
+        first_get = session.get
+        session.get = get
+        events = self.download(bridge, mode="only", ids=["ID02"])
+        self.assertEqual(events[-1]["event"], "done")
+        self.assertEqual(events[-1]["downloaded"], 1)
+        self.assertEqual(len(session.downloads), 2)
+        # The whole file, not the part before the pause followed by the whole file again.
+        self.assertEqual(tree(self.root), {"2024/01/IMG_0002.JPG": session.by_url[url]})
+
+    def test_pause_on_the_last_chunk_finishes_the_file_without_asking_again(self):
+        bridge, channel, session = make_bridge()
+
+        def resume_after_page():
+            for _ in range(500):
+                if any(m.get("id") == 50 for m in channel.messages):
+                    break
+                threading.Event().wait(0.01)
+            channel.feed('{"cmd":"resume","target":9}')
+
+        def on_chunk(n):
+            if n == 40:
+                channel.feed('{"cmd":"pause","target":9}')
+                channel.feed('{"id":50,"cmd":"page","offset":0,"limit":2}')
+                threading.Thread(target=resume_after_page, daemon=True).start()
+
+        url, _ = self.big_download(bridge, session, on_chunk)
+        first_get = session.get
+        data = session.by_url[url]
+
+        def get(url, headers=None, stream=False):
+            start = int((headers or {}).get("Range", "bytes=0-")[6:-1] or 0)
+            if start >= len(data):
+                # Asking for bytes past the end gets 416, as iCloud answers it.
+                response = FakeResponse(b"")
+                response.ok = False
+                response.status_code = 416
+                return response
+            response = first_get(url, headers=headers, stream=stream)
+            response.headers = {"Content-Length": str(len(data) - start)}
+            return response
+
+        session.get = get
+        events = self.download(bridge, mode="only", ids=["ID02"])
+        self.assertEqual(events[-1]["event"], "done")
+        self.assertEqual(events[-1]["downloaded"], 1)
+        self.assertEqual(events[-1]["failed"], 0)
+        self.assertEqual(len(session.downloads), 1)
+        self.assertEqual(tree(self.root), {"2024/01/IMG_0002.JPG": data})
+
+    def test_pause_holds_between_items_and_cancel_ends_the_hold(self):
+        bridge, channel, session = make_bridge()
+        channel.feed('{"cmd":"pause","target":9}')
+        channel.feed('{"id":52,"cmd":"count"}')
+
+        def cancel_after_count():
+            for _ in range(500):
+                if any(m.get("id") == 52 for m in channel.messages):
+                    break
+                threading.Event().wait(0.01)
+            channel.feed('{"cmd":"cancel","target":9}')
+
+        threading.Thread(target=cancel_after_count, daemon=True).start()
+        events = self.download(bridge, mode="allExcept", ids=[])
+        self.assertTrue(events[-1]["cancelled"])
+        self.assertEqual(events[-1]["downloaded"], 0)
+        self.assertEqual(session.downloads, [])
+        self.assertEqual(next(m for m in channel.messages if m.get("id") == 52)["count"], 6)
+        # A finished request's pause and cancel are forgotten.
+        self.assertFalse(channel.is_paused(9))
+        self.assertFalse(channel.is_cancelled(9))
+
+    def test_ping_is_answered_when_idle_and_between_items(self):
+        bridge, channel, session = make_bridge()
+        channel.feed('{"id":60,"cmd":"ping"}')
+        bridge.handle(channel.poll_request(), downloading=False)
+        self.assertEqual(channel.messages, [{"id": 60, "event": "pong"}])
+        channel.feed('{"id":61,"cmd":"ping"}')
+        self.download(bridge, mode="only", ids=["ID02"])
+        self.assertEqual(channel.messages.count({"id": 61, "event": "pong"}), 1)
+
     def test_failure_is_reported_per_item(self):
         bridge, channel, session = make_bridge()
         def broken(url, headers=None, stream=False):
@@ -434,6 +616,7 @@ class StatsTests(unittest.TestCase):
         sizes = {}
         for event in progress:
             sizes.update(event["sizes"])
+            self.assertEqual(event["unsized"], [])
         self.assertEqual(sizes, expected)
         # The Live Photos count their movie too.
         self.assertGreater(sizes["ID01"], SAMPLES[0][0]["fields"]["resOriginalRes"]["value"]["size"])

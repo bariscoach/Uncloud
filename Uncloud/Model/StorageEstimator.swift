@@ -19,6 +19,14 @@ final class StorageEstimator {
         case iCloud(String)
     }
 
+    /// Walks an account's library into the index; `ICloudSizeScanner.scan` through the account's bridge.
+    typealias Scan = @Sendable (
+        _ account: String,
+        _ index: AssetSizeIndex,
+        _ libraryCount: Int?,
+        _ onProgress: @escaping @Sendable () async -> Void
+    ) async -> ICloudSizeScanner.Outcome
+
     /// Reports a new estimate (nil while unknown) and whether work toward one is under way.
     var onChange: ((StorageEstimate?, _ isEstimating: Bool) -> Void)?
 
@@ -34,25 +42,39 @@ final class StorageEstimator {
     private var prepareTask: Task<Void, Never>?
     private var recomputeTask: Task<Void, Never>?
     private var scanTask: Task<Void, Never>?
+    /// Identifies the current walk, so a cancelled walk that ends late can't touch a newer one.
+    private var scanToken = 0
     private var retryTask: Task<Void, Never>?
     private var scanFailures = 0
     private let store: AssetSizeStore
     /// Off when unit tests host the app: the walk would read the user's real iCloud library.
     private let allowsScanning: Bool
+    private let scan: Scan
+    /// How long after an export, or a walk the bridge stopped, before the walk starts again.
+    private let resumeDelay: Duration
 
     /// How long selection changes settle before the estimate is summed again.
     private static let recomputeDelay: Duration = .milliseconds(250)
-    /// How long after an export, or a walk the bridge stopped, before the walk starts again.
-    private static let resumeDelay: Duration = .seconds(5)
     private static let retryDelay: Duration = .seconds(30)
     private static let maxScanFailures = 3
 
     init(
         store: AssetSizeStore = AssetSizeStore(),
-        allowsScanning: Bool = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+        allowsScanning: Bool = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+        resumeDelay: Duration = .seconds(5),
+        scan: @escaping Scan = { account, index, libraryCount, onProgress in
+            await ICloudSizeScanner.scan(
+                bridge: .shared(appleID: account),
+                index: index,
+                libraryCount: libraryCount,
+                onProgress: onProgress
+            )
+        }
     ) {
         self.store = store
         self.allowsScanning = allowsScanning
+        self.resumeDelay = resumeDelay
+        self.scan = scan
     }
 
     /// Starts over for a source and account. `browser` is nil while iCloud is signed out.
@@ -135,7 +157,7 @@ final class StorageEstimator {
         let generation = generation
         retryTask?.cancel()
         retryTask = Task {
-            try? await Task.sleep(for: Self.resumeDelay)
+            try? await Task.sleep(for: resumeDelay)
             guard !Task.isCancelled, generation == self.generation else { return }
             switch owner {
             case .photosLibrary:
@@ -246,20 +268,21 @@ final class StorageEstimator {
         retryTask?.cancel()
         let generation = generation
         let count = libraryCount
+        scanToken += 1
+        let token = scanToken
+        let scan = scan
         isScanning = true
         report()
         scanTask = Task(priority: .background) { [weak self] in
-            let outcome = await ICloudSizeScanner.scan(
-                bridge: .shared(appleID: account),
-                index: index,
-                libraryCount: count,
-                onProgress: { [weak self] in
-                    await self?.scanDidProgress(generation: generation)
-                }
-            )
-            self?.scanDidEnd(outcome, generation: generation)
+            let outcome = await scan(account, index, count) { [weak self] in
+                await self?.scanDidProgress(generation: generation)
+            }
+            self?.scanDidEnd(outcome, generation: generation, token: token)
         }
     }
+
+    /// True while a walk of the library runs, for tests.
+    var isScanRunning: Bool { scanTask != nil }
 
     private func scanDidProgress(generation: Int) {
         guard generation == self.generation else { return }
@@ -267,8 +290,9 @@ final class StorageEstimator {
         recompute(after: .zero)
     }
 
-    private func scanDidEnd(_ outcome: ICloudSizeScanner.Outcome, generation: Int) {
-        guard generation == self.generation else { return }
+    private func scanDidEnd(_ outcome: ICloudSizeScanner.Outcome, generation: Int, token: Int) {
+        // A walk cancelled by an export that has since finished can end after a newer walk started.
+        guard generation == self.generation, token == scanToken else { return }
         let wasCancelled = scanTask == nil
         scanTask = nil
         isScanning = false
@@ -284,7 +308,7 @@ final class StorageEstimator {
             // The bridge yielded to a download or restarted; try again shortly. A walk that keeps
             // stopping without progress gives up after a few tries, like a failing one.
             scanFailures += 1
-            delay = Self.resumeDelay
+            delay = resumeDelay
         case .failed(let error):
             if let error = error as? ICloudError, error == .signInRequired { return }
             scanFailures += 1

@@ -6,6 +6,8 @@ enum ICloudError: LocalizedError, Equatable {
     case signInRequired
     case failed(ICloudFailure)
     case exited(Int32, lastMessage: String?)
+    /// The bridge stopped answering and was restarted; whatever it was doing can be tried again.
+    case interrupted
 
     var errorDescription: String? {
         switch self {
@@ -19,6 +21,8 @@ enum ICloudError: LocalizedError, Equatable {
             "The iCloud download stopped unexpectedly: \(lastMessage)"
         case .exited(let status, nil):
             "The iCloud download stopped unexpectedly (code \(status))."
+        case .interrupted:
+            "The connection to iCloud was interrupted. Choose Resume to continue."
         }
     }
 }
@@ -46,6 +50,13 @@ final class ICloudHelperProcess: Sendable {
 
     private static let terminateGrace = DispatchTimeInterval.seconds(5)
     private static let readChunk = 64 * 1024
+    /// Every helper whose process runs, for `ICloudProcesses.shutDownAll`.
+    private static let running = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: ICloudHelperProcess]())
+
+    /// Helpers whose process is running.
+    static var runningHelpers: [ICloudHelperProcess] {
+        running.withLock { Array($0.values) }
+    }
 
     let arguments: [String]
     let executableURL: URL?
@@ -169,6 +180,7 @@ final class ICloudHelperProcess: Sendable {
             throw error
         }
 
+        Self.running.withLock { $0[ObjectIdentifier(self)] = self }
         let pid = process.processIdentifier
         if pid > 0, getpgid(pid) == pid {
             state.withLock { $0.processGroup = pid }
@@ -235,7 +247,7 @@ final class ICloudHelperProcess: Sendable {
         sendSignal(SIGCONT)
     }
 
-    /// Stops the helper: closes stdin and sends SIGTERM to its process group, then SIGKILL
+    /// Stops the helper: closes stdin and sends SIGCONT and SIGTERM to its process group, then SIGKILL
     /// after 5 seconds to whatever of the group is still running, even if the helper itself exited.
     ///
     /// icloudpd has no SIGINT handling of its own, and PyInstaller's bootloader often leaves its
@@ -257,15 +269,20 @@ final class ICloudHelperProcess: Sendable {
         guard shouldSignal else {
             return
         }
-        // SIGTERM stays pending on a stopped (paused) process; SIGCONT then delivers it.
-        sendSignal(SIGTERM)
+        // A stopped (paused) process acts on SIGTERM only once it continues.
         sendSignal(SIGCONT)
+        sendSignal(SIGTERM)
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.terminateGrace) { [self] in
-            if !sendSignal(SIGKILL), let group = state.withLock({ $0.processGroup }) {
-                // The helper exited, but a process it started may still be running in its group.
-                // A group ID isn't reused while the group has members, so this reaches only them.
-                killpg(group, SIGKILL)
-            }
+            kill()
+        }
+    }
+
+    /// Sends SIGKILL to the helper's process group now, even if the helper itself exited: a process
+    /// it started may still be running in its group. A group ID isn't reused while the group has
+    /// members, so this reaches only them. For app shutdown after `terminate()`.
+    func kill() {
+        if !sendSignal(SIGKILL), let group = state.withLock({ $0.processGroup }) {
+            killpg(group, SIGKILL)
         }
     }
 
@@ -310,10 +327,12 @@ final class ICloudHelperProcess: Sendable {
     // MARK: - Signals
 
     /// Sends a signal while the helper is still running. Returns false if it already exited.
+    /// `Process.isRunning` turns false as soon as the process is reaped, before `processExited`
+    /// records it, which keeps a reused process ID from being signalled in between.
     @discardableResult
     private func sendSignal(_ number: Int32) -> Bool {
         state.withLock { state in
-            guard let process = state.process, state.exitStatus == nil else {
+            guard let process = state.process, state.exitStatus == nil, process.isRunning else {
                 return false
             }
             let pid = process.processIdentifier
@@ -323,7 +342,7 @@ final class ICloudHelperProcess: Sendable {
             if getpgid(pid) == pid {
                 killpg(pid, number)
             } else {
-                kill(pid, number)
+                Darwin.kill(pid, number)
             }
             return true
         }
@@ -398,6 +417,11 @@ final class ICloudHelperProcess: Sendable {
 
     /// Runs on `queue`.
     private func processExited(_ status: Int32) {
+        Self.running.withLock { running in
+            if running[ObjectIdentifier(self)] === self {
+                running[ObjectIdentifier(self)] = nil
+            }
+        }
         let (waiters, sources) = state.withLock { state in
             state.exitStatus = status
             state.process?.terminationHandler = nil

@@ -15,8 +15,8 @@ struct BackupFilesTests {
         }
     }
 
-    @Test func rejectsEscapesAndOddPaths() throws {
-        try withTemporaryDirectory { destination in
+    @Test func rejectsEscapesAndOddPaths() {
+        withTemporaryDirectory { destination in
             for path in ["", "/etc/passwd", "~/secret", "../outside.jpg", "2024/../../outside.jpg",
                          "2024/./IMG.jpg", "2024//IMG.jpg", ".photo-export/exported.tsv", "a/..", ".."] {
                 #expect(BackupFiles.containedURL(for: path, in: destination) == nil, "\(path) should be rejected")

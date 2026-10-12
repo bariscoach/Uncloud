@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import os
 import Photos
 import Testing
 @testable import Uncloud
@@ -75,13 +77,188 @@ struct StorageEstimateTests {
         let decoded = try #require(AssetSizeTable(decoding: table.encoded()))
         #expect(decoded == table)
         #expect(AssetSizeTable(decoding: Data("nonsense".utf8)) == nil)
+
+        // A walk in progress keeps what it has seen, including items without a size.
+        table.walk = AssetSizeTable.Walk(start: 0, libraryCount: 10, seen: ["b", "no-size"], isValid: false)
+        #expect(AssetSizeTable(decoding: table.encoded()) == table)
+
+        // Version 1 files still load.
+        let version1 = "uncloud-sizes 1 measured 10 3 0\n5\ta\n6\tb\n"
+        let old = try #require(AssetSizeTable(decoding: Data(version1.utf8)))
+        #expect(old.total == 11)
+        #expect(old.walk == nil)
+        #expect(old.scannedThrough == 3)
+    }
+
+    // MARK: - Walks the library changes under
+
+    private static func page(_ ids: [String]) -> [String: Int64] {
+        Dictionary(uniqueKeysWithValues: ids.map { ($0, Int64(100)) })
+    }
+
+    @Test func anInterruptedWalkFromTheStartStillDropsDeletedItems() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let store = AssetSizeStore(directory: root.appending(path: "sizes", directoryHint: .isDirectory))
+            // Complete for a library of a, b, c, d; then d was deleted.
+            try store.save(Self.table(Self.page(["a", "b", "c", "d"])), account: "x")
+            let index = AssetSizeIndex(table: AssetSizeTable(kind: .measured), store: store, account: "x")
+            await index.loadSaved()
+            let start = try #require(await index.scanStart(libraryCount: 3))
+            #expect(start == 0)
+            await index.beginScan(from: start, libraryCount: 3)
+            await index.recordScan(sizes: Self.page(["a"]), unsized: ["b"], scannedThrough: 2, libraryCount: 3)
+            #expect(await index.endScan(complete: false, libraryCount: nil) == false)
+
+            // After a relaunch: the walk resumes where it stopped, with what it had seen.
+            let resumed = AssetSizeIndex(table: AssetSizeTable(kind: .measured), store: store, account: "x")
+            await resumed.loadSaved()
+            let next = try #require(await resumed.scanStart(libraryCount: 3))
+            #expect(next == 2)
+            await resumed.beginScan(from: next, libraryCount: 3)
+            await resumed.recordScan(sizes: Self.page(["c"]), scannedThrough: 3, libraryCount: 3)
+            #expect(await resumed.endScan(complete: true, libraryCount: 3))
+            let table = await resumed.table
+            // d is gone; b, seen without a size this time, keeps the size it had.
+            #expect(table.size(of: "d") == nil)
+            #expect(table.size(of: "b") == 100)
+            #expect(table.total == 300)
+            #expect(table.isComplete)
+            #expect(await resumed.estimate(for: .everything, libraryCount: 3) == StorageEstimate(bytes: 300, isExact: true, basis: .scanned))
+        }
+    }
+
+    @Test func aWalkTheLibraryShrankUnderStartsOverInsteadOfCompleting() async throws {
+        let index = AssetSizeIndex(table: AssetSizeTable(kind: .measured))
+        // Walking a library of a, b, c, d: interrupted after a and b.
+        await index.beginScan(from: 0, libraryCount: 4)
+        await index.recordScan(sizes: Self.page(["a", "b"]), scannedThrough: 2, libraryCount: 4)
+        await index.endScan(complete: false, libraryCount: nil)
+        // a was deleted, so c and d moved to offsets 1 and 2: resuming at 2 would skip c.
+        #expect(await index.scanStart(libraryCount: 3) == 0)
+
+        // Resumed without knowing the size, the walk learns it changed and doesn't complete.
+        await index.beginScan(from: 2, libraryCount: nil)
+        await index.recordScan(sizes: Self.page(["d"]), scannedThrough: 3, libraryCount: 3)
+        #expect(await index.endScan(complete: true, libraryCount: 3) == false)
+        #expect(await index.table.isComplete == false)
+        #expect(await index.scanStart(libraryCount: 3) == 0)
+
+        // The walk from the start completes, and a is gone.
+        await index.beginScan(from: 0, libraryCount: 3)
+        await index.recordScan(sizes: Self.page(["b", "c", "d"]), scannedThrough: 3, libraryCount: 3)
+        #expect(await index.endScan(complete: true, libraryCount: 3))
+        #expect(await index.table.size(of: "a") == nil)
+        #expect(await index.table.total == 300)
+        #expect(await index.scanStart(libraryCount: 3) == nil)
+    }
+
+    // MARK: - Walks and exports
+
+    /// Scans that each run until the test releases them, ignoring cancellation like a walk whose
+    /// bridge is slow to answer.
+    private final class ScriptedScans: Sendable {
+        private struct State {
+            var started = 0
+            var waiting: [Int: CheckedContinuation<ICloudSizeScanner.Outcome, Never>] = [:]
+            var released: [Int: ICloudSizeScanner.Outcome] = [:]
+        }
+
+        private let state = OSAllocatedUnfairLock(uncheckedState: State())
+
+        var started: Int { state.withLockUnchecked { $0.started } }
+
+        func run() async -> ICloudSizeScanner.Outcome {
+            await withCheckedContinuation { continuation in
+                let outcome = state.withLockUnchecked { state -> ICloudSizeScanner.Outcome? in
+                    state.started += 1
+                    if let outcome = state.released[state.started] {
+                        return outcome
+                    }
+                    state.waiting[state.started] = continuation
+                    return nil
+                }
+                if let outcome {
+                    continuation.resume(returning: outcome)
+                }
+            }
+        }
+
+        func release(_ number: Int, with outcome: ICloudSizeScanner.Outcome) {
+            let continuation = state.withLockUnchecked { state in
+                state.released[number] = outcome
+                return state.waiting.removeValue(forKey: number)
+            }
+            continuation?.resume(returning: outcome)
+        }
+    }
+
+    @MainActor
+    private final class EmptyBackend: LibraryBrowserBackend {
+        func loadCount() async throws -> Int { 0 }
+        func loadPage(_ index: Int, pageSize: Int) async throws -> [Uncloud.LibraryItem] { [] }
+        func thumbnail(for item: Uncloud.LibraryItem, pixelSize: CGSize) async -> NSImage? { nil }
+        func rankHints(for ids: Set<String>) async -> [String: Int] { [:] }
+        func knownBytes() async -> [String: Int64] { [:] }
+        func reset() async {}
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor func aCancelledWalkThatEndsLateLeavesTheNewerWalkAlone() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let scans = ScriptedScans()
+            let estimator = StorageEstimator(
+                store: AssetSizeStore(directory: root.appending(path: "sizes", directoryHint: .isDirectory)),
+                allowsScanning: true,
+                resumeDelay: .milliseconds(20),
+                scan: { _, _, _, _ in await scans.run() }
+            )
+            let browser = LibraryBrowser(source: .iCloud, backend: EmptyBackend())
+            estimator.configure(source: .iCloud, account: "fake@example.invalid", browser: browser, selection: .everything)
+            try await Self.waitUntil { scans.started == 1 }
+
+            // An export stops walk 1, which goes on until its bridge answers; the export finishes
+            // and walk 2 starts.
+            estimator.exportDidStart()
+            estimator.exportDidFinish()
+            try await Self.waitUntil { scans.started == 2 }
+
+            // Walk 1 ends late: walk 2 is still the current walk, and no third one starts.
+            scans.release(1, with: .interrupted)
+            try await Task.sleep(for: .milliseconds(300))
+            #expect(scans.started == 2)
+            #expect(estimator.isScanRunning)
+
+            scans.release(2, with: .complete)
+            try await Self.waitUntil { !estimator.isScanRunning }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(scans.started == 2)
+        }
+    }
+
+    @MainActor
+    private static func waitUntil(_ condition: @MainActor () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !condition() {
+            guard ContinuousClock.now < deadline else {
+                Issue.record("Timed out")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
     }
 
     @Test func scanStartResumesExtendsOrRestarts() async {
         var partial = Self.table(["a": 1], complete: false)
         partial.scannedThrough = 400
+        partial.walk = AssetSizeTable.Walk(start: 0, libraryCount: 1000, seen: ["a"])
         #expect(await AssetSizeIndex(table: partial).scanStart(libraryCount: 1000) == 400)
+        // The library changed size since the walk started: items moved, so it starts over.
+        #expect(await AssetSizeIndex(table: partial).scanStart(libraryCount: 400) == 0)
+        partial.walk?.libraryCount = 400
+        partial.scannedThrough = 400
         #expect(await AssetSizeIndex(table: partial).scanStart(libraryCount: 400) == 300)
+        // An incomplete table with no walk to resume (such as one saved before walks were kept).
+        partial.walk = nil
+        #expect(await AssetSizeIndex(table: partial).scanStart(libraryCount: 1000) == 0)
 
         var complete = Self.table(["a": 1])
         complete.libraryCount = 1000
@@ -232,6 +409,32 @@ struct StorageEstimateTests {
             }
             let expected = Int64((0..<total).reduce(0) { $0 + 1000 + $1 })
             #expect(await index.estimate(for: .everything, libraryCount: total) == StorageEstimate(bytes: expected, isExact: true, basis: .scanned))
+        }
+    }
+
+    @Test func sizeTablesStayPerAccountAndSignOutForgetsThemAll() throws {
+        try withTemporaryDirectory { root in
+            let store = AssetSizeStore(directory: root.appending(path: "sizes", directoryHint: .isDirectory))
+            var first = AssetSizeTable(kind: .measured)
+            first.set(111, for: "asset-1")
+            var second = AssetSizeTable(kind: .measured)
+            second.set(222, for: "asset-2")
+
+            // The Apple ID never appears in the file name; the case of the ID doesn't change its file.
+            #expect(!store.fileURL(account: "Someone@Example.com").lastPathComponent.contains("someone"))
+            #expect(store.fileURL(account: "Someone@Example.com") == store.fileURL(account: " someone@example.com "))
+            #expect(store.fileURL(account: "a@example.com") != store.fileURL(account: "b@example.com"))
+
+            try store.save(first, account: "a@example.com")
+            try store.save(second, account: "b@example.com")
+            #expect(store.load(account: "a@example.com")?.size(of: "asset-1") == 111)
+            #expect(store.load(account: "a@example.com")?.size(of: "asset-2") == nil)
+            #expect(store.load(account: "b@example.com")?.size(of: "asset-2") == 222)
+
+            // Sign-out removes every account's sizes.
+            store.removeAll()
+            #expect(store.load(account: "a@example.com") == nil)
+            #expect(store.load(account: "b@example.com") == nil)
         }
     }
 }

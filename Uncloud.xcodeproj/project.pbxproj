@@ -10,6 +10,7 @@
 		00E6F5203A5C04B1D23CA606 /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 655C300B76FB724B130CF7D1 /* MenuBarContent.swift */; };
 		05F26E3428DD3FDC8C402567 /* ActivitySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4684CBB84E2FD289A7FFC70 /* ActivitySection.swift */; };
 		0632BCA610969ADBB48D3526 /* AssetFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD6AEDB8709BB238DAF496E /* AssetFiles.swift */; };
+		26C4E054F2E1A68CFB77F237 /* ICloudProcesses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */; };
 		2A80ED1A29712BF61EE17069 /* ICloudExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BE68EB07867A8CBB3BD1F /* ICloudExportEngine.swift */; };
 		2C74C7DA063286F03A2A6DDC /* ExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D4FFC1BF5BB484D16F27D0 /* ExportModel.swift */; };
 		2C9CC05761B43445BDB14846 /* ActivityEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D976AD3361BC8BA501CFFA21 /* ActivityEntry.swift */; };
@@ -118,6 +119,7 @@
 		5893FF275C08AA53373F056D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		593CD78B3D2E6A5842C9F9FB /* ICloudHelperProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudHelperProcess.swift; sourceTree = "<group>"; };
 		5A62D4FFC9408C3EEF874AA8 /* ICloudOutputParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudOutputParser.swift; sourceTree = "<group>"; };
+		5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudProcesses.swift; sourceTree = "<group>"; };
 		5DC92839A6433C9E3A2A7894 /* ExportRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRun.swift; sourceTree = "<group>"; };
 		5EB9A26D65807CE3C93CA56E /* HelperProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProbe.swift; sourceTree = "<group>"; };
 		655C300B76FB724B130CF7D1 /* MenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarContent.swift; sourceTree = "<group>"; };
@@ -272,6 +274,7 @@
 				27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */,
 				5A62D4FFC9408C3EEF874AA8 /* ICloudOutputParser.swift */,
 				2A14EF6C191BC2FD24D44985 /* ICloudPageCache.swift */,
+				5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */,
 				87F242D7D8C735C12BFF2E8E /* ICloudSignIn.swift */,
 			);
 			path = ICloud;
@@ -512,6 +515,7 @@
 				6E0E9F89A336214A74DB9F45 /* ICloudLibrary.swift in Sources */,
 				8934AFAF5D4F45FD34987B85 /* ICloudOutputParser.swift in Sources */,
 				7E6FAF6ADB32C2C64BB22C4D /* ICloudPageCache.swift in Sources */,
+				26C4E054F2E1A68CFB77F237 /* ICloudProcesses.swift in Sources */,
 				D41675A00F291037B8D005D0 /* ICloudSignIn.swift in Sources */,
 				9D7BFDF0CACC0459B63B424F /* ICloudSignInSheet.swift in Sources */,
 				8FC27F1CFD11C51F3A1C9B89 /* IconTile.swift in Sources */,

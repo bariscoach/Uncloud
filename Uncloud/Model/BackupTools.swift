@@ -29,7 +29,7 @@ final class BackupTools {
     }
 
     var canOpenVerify: Bool {
-        sheet == nil && !model.isExporting && model.destination != nil && model.destinationIssue == nil
+        sheet == nil && !model.isExporting && !model.isEngineRunning && model.destination != nil && model.destinationIssue == nil
     }
 
     var canOpenFreeUpSpace: Bool {

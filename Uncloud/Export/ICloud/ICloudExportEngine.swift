@@ -102,6 +102,7 @@ struct ICloudExportEngine: Sendable {
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
 
         let (helper, events) = ICloudHelperProcess.nonInteractive(arguments: run.arguments, appleID: appleID)
+        // icloudpd is this run's own process, so pausing stops it with SIGSTOP.
         let gate = gate
         let pauseTask = Task {
             for await _ in gate.changes() {
@@ -110,7 +111,7 @@ struct ICloudExportEngine: Sendable {
                     while helper.processIdentifier == nil, helper.exitStatus == nil, !Task.isCancelled {
                         try? await Task.sleep(for: .milliseconds(100))
                     }
-                    if gate.isPaused {
+                    if gate.isPaused, !Task.isCancelled, !helper.isTerminating {
                         helper.suspend()
                     }
                 } else {
@@ -118,7 +119,13 @@ struct ICloudExportEngine: Sendable {
                 }
             }
         }
-        defer { pauseTask.cancel() }
+        /// Ends the pause task before the run does, so a late pause can't stop the helper, and
+        /// leaves the helper running if it was stopped.
+        func endPausing() async {
+            pauseTask.cancel()
+            await pauseTask.value
+            helper.resume()
+        }
 
         var downloadsSinceScan = 0
         do {
@@ -148,14 +155,15 @@ struct ICloudExportEngine: Sendable {
             }
             try Task.checkCancellation()
         } catch {
-            if Task.isCancelled {
-                // Report the end only once icloudpd has stopped, so a new run can't overlap it.
-                // SIGKILL follows SIGTERM after 5 seconds, so this doesn't wait longer than that.
-                helper.terminate()
-                _ = await helper.waitUntilExit(timeout: .seconds(6))
-            }
+            await endPausing()
+            // Whatever ended the run (cancel, a failed write or scan, or the helper itself), icloudpd is
+            // stopped and waited for before the error propagates: the run only ends once it has exited,
+            // so a new run can't overlap it. SIGKILL follows SIGTERM after 5 seconds, so this is bounded.
+            helper.terminate()
+            _ = await helper.waitUntilExit(timeout: .seconds(6))
             throw error
         }
+        await endPausing()
         try scanner.scan(folderURL, settledBefore: nil)
     }
 
@@ -203,59 +211,36 @@ struct ICloudExportEngine: Sendable {
                 hints: layout == .album || mode != "only" ? nil : rankHints
             )
 
+            let download = try await bridge.download(request)
+            // The bridge is shared with browsing, so it's never stopped with a signal: the download
+            // is held between chunks instead, and browsing goes on.
             let gate = gate
             let pauseTask = Task {
                 for await _ in gate.changes() {
                     if gate.isPaused {
-                        bridge.suspend()
+                        bridge.pauseDownload(download.id)
                     } else {
-                        bridge.resume()
+                        bridge.resumeDownload(download.id)
                     }
                 }
-            }
-            defer {
-                pauseTask.cancel()
-                bridge.resume()
             }
 
-            var runTotal = 0
-            var downloadsSinceScan = 0
-            // Cancelling ends this loop, which asks the bridge to stop the download after the
-            // current item. The bridge keeps running: browsing shares it, and restarting it would
-            // mean signing in again. It's stopped only if it doesn't finish the request in time.
-            for try await message in try await bridge.download(request) {
-                switch message.event {
-                case "progress":
-                    let total = message.total ?? 0
-                    if !isPrepared {
-                        isPrepared = true
-                        emit(.prepared(total: total, alreadyExported: 0))
-                    } else if total != runTotal {
-                        emit(.totalIncreased(by: total - runTotal))
-                    }
-                    runTotal = total
-                case "downloaded":
-                    let paths = message.paths ?? message.path.map { [$0] } ?? []
-                    emit(.exported(name: message.filename ?? Self.displayName(of: message.path ?? ""), fileCount: max(1, paths.count)))
-                    downloadsSinceScan += 1
-                    if downloadsSinceScan >= Self.scanInterval {
-                        downloadsSinceScan = 0
-                        try scanner.scan(folderURL, settledBefore: Date.now.addingTimeInterval(-10))
-                    }
-                case "skipped":
-                    emit(.skipped)
-                case "failed":
-                    let reason = message.reason ?? "iCloud reported a problem."
-                    try checkDestination(after: reason)
-                    failures += 1
-                    emit(.failed(name: message.filename ?? message.asset ?? "an item", reason: reason))
-                case "done" where message.cancelled == true:
-                    throw CancellationError()
-                default:
-                    break
-                }
+            do {
+                try await receive(download, folderURL: folderURL, scanner: scanner, isPrepared: &isPrepared,
+                                  failures: &failures, emit: emit)
+                try Task.checkCancellation()
+            } catch {
+                pauseTask.cancel()
+                // However the run ended, leaving the stream asks the bridge to stop the download after its
+                // current chunk (removing that file's partial download). Report the end once it has, so a
+                // new run can't overlap it. The bridge keeps running: browsing shares it, and restarting it
+                // would mean signing in again.
+                await bridge.waitUntilEnded(download.id, timeout: .seconds(5))
+                await pauseTask.value
+                throw error
             }
-            try Task.checkCancellation()
+            pauseTask.cancel()
+            await pauseTask.value
             try scanner.scan(folderURL, settledBefore: nil)
         }
         if !isPrepared {
@@ -264,6 +249,51 @@ struct ICloudExportEngine: Sendable {
         // Leave the run marked incomplete when items failed, so Resume retries them.
         if failures == 0 {
             manifest.markRunFinished()
+        }
+    }
+
+    /// Turns one bridge download's messages into export events.
+    private func receive(
+        _ download: ICloudBridgeDownload,
+        folderURL: URL,
+        scanner: ICloudChecksumScanner,
+        isPrepared: inout Bool,
+        failures: inout Int,
+        emit: @escaping @Sendable (ExportEvent) -> Void
+    ) async throws {
+        var runTotal = 0
+        var downloadsSinceScan = 0
+        for try await message in download.messages {
+            switch message.event {
+            case "progress":
+                let total = message.total ?? 0
+                if !isPrepared {
+                    isPrepared = true
+                    emit(.prepared(total: total, alreadyExported: 0))
+                } else if total != runTotal {
+                    emit(.totalIncreased(by: total - runTotal))
+                }
+                runTotal = total
+            case "downloaded":
+                let paths = message.paths ?? message.path.map { [$0] } ?? []
+                emit(.exported(name: message.filename ?? Self.displayName(of: message.path ?? ""), fileCount: max(1, paths.count)))
+                downloadsSinceScan += 1
+                if downloadsSinceScan >= Self.scanInterval {
+                    downloadsSinceScan = 0
+                    try scanner.scan(folderURL, settledBefore: Date.now.addingTimeInterval(-10))
+                }
+            case "skipped":
+                emit(.skipped)
+            case "failed":
+                let reason = message.reason ?? "iCloud reported a problem."
+                try checkDestination(after: reason)
+                failures += 1
+                emit(.failed(name: message.filename ?? message.asset ?? "an item", reason: reason))
+            case "done" where message.cancelled == true:
+                throw CancellationError()
+            default:
+                break
+            }
         }
     }
 

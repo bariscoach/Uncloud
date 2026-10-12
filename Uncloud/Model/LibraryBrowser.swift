@@ -102,7 +102,7 @@ final class LibraryBrowser {
                     guard generation == self.generation else { return }
                     count = total
                     state = .ready
-                } catch is CancellationError where !Task.isCancelled && attempt < Self.interruptedRetries {
+                } catch where Self.isInterruption(error) && !Task.isCancelled && attempt < Self.interruptedRetries {
                     // The bridge stopped while counting (it signs in again on the next request).
                     attempt += 1
                     try? await Task.sleep(for: Self.interruptedRetryDelay)
@@ -167,7 +167,7 @@ final class LibraryBrowser {
                 failedPages[pageIndex] = .now
                 if case .signInRequired = Self.state(for: error) {
                     state = .signInRequired
-                } else if error is CancellationError, interruptedRetries > 0 {
+                } else if Self.isInterruption(error), interruptedRetries > 0 {
                     // The bridge stopped mid-request. Nothing redraws the tiles that wait for this
                     // page, so try again without waiting for them to ask.
                     try? await Task.sleep(for: Self.interruptedRetryDelay)
@@ -195,10 +195,16 @@ final class LibraryBrowser {
         if let error = error as? ICloudError, error == .signInRequired {
             return .signInRequired
         }
-        if error is CancellationError {
+        if isInterruption(error) {
             return .failed(interruptedMessage)
         }
         return .failed(error.localizedDescription)
+    }
+
+    /// The bridge stopped mid-request, by sign-out or because it stopped answering and was
+    /// restarted; the request can simply be made again.
+    private static func isInterruption(_ error: Error) -> Bool {
+        error is CancellationError || (error as? ICloudError) == .interrupted
     }
 
     // MARK: - Thumbnails and export support

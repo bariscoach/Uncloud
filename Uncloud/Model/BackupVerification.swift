@@ -53,7 +53,7 @@ final class BackupVerification {
     }
 
     var canStart: Bool {
-        !isBusy && !model.isExporting && model.destination != nil && model.destinationIssue == nil
+        !isBusy && !model.isExporting && !model.isEngineRunning && model.destination != nil && model.destinationIssue == nil
     }
 
     /// Clears an earlier result so the sheet opens at the start.
@@ -136,7 +136,7 @@ final class BackupVerification {
 
     var canReexport: Bool {
         guard case let .finished(summary) = state else { return false }
-        return !summary.reexportIDs.isEmpty && !model.isExporting
+        return !summary.reexportIDs.isEmpty && !model.isExporting && !model.isEngineRunning
             && model.destination?.url == summary.destination && model.destinationIssue == nil
     }
 
@@ -156,7 +156,7 @@ final class BackupVerification {
             }.value
 
             // Back on the main actor, no export can start until this finishes.
-            guard !model.isExporting, model.destination?.url == destination else {
+            guard !model.isExporting, !model.isEngineRunning, model.destination?.url == destination else {
                 state = .reexported(
                     message: "An export started while old files were being removed, so the backup records weren’t changed. When it finishes, choose Verify Backup again.",
                     isProblem: true

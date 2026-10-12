@@ -20,7 +20,10 @@ func writeFile(_ text: String, to relativePath: String, in folder: URL) throws -
 }
 
 /// The async version, for tests whose closure awaits.
-func withTemporaryDirectoryAsync<T>(_ body: (URL) async throws -> T) async rethrows -> T {
+func withTemporaryDirectoryAsync<T>(
+    isolation: isolated (any Actor)? = #isolation,
+    _ body: (URL) async throws -> T
+) async rethrows -> T {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "uncloud-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

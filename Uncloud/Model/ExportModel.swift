@@ -95,6 +95,12 @@ final class ExportModel {
     @ObservationIgnored private var exportTask: Task<Void, Never>?
     /// The engine of the running export; cancelling it stops the export.
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    /// The engine of the last export until it has really ended (its helper has exited), which can be
+    /// after the export shows as cancelled. No new export starts before then.
+    @ObservationIgnored private let engine = EngineTracker()
+
+    /// True while the last export's engine hasn't ended.
+    var isEngineRunning: Bool { engine.isRunning }
     /// Identifies the current run, so a run that was given up on can't change the screen later.
     @ObservationIgnored private var runNumber = 0
     @ObservationIgnored private var gate: PauseGate?
@@ -280,6 +286,12 @@ final class ExportModel {
         [.preparing, .running, .paused, .cancelling].contains(phase)
     }
 
+    /// True when the export shows as ended but its engine is still stopping, such as an icloudpd
+    /// that takes a few seconds to exit after Cancel. The next export waits for it.
+    var isFinishingUp: Bool {
+        isEngineRunning && !isExporting
+    }
+
     var hasPhotosAccess: Bool {
         authorization == .authorized || authorization == .limited
     }
@@ -305,7 +317,7 @@ final class ExportModel {
 
     var canStart: Bool {
         if phase == .paused { return true }
-        return !isExporting && !isExportBlocked()
+        return !isExporting && !isEngineRunning && !isExportBlocked()
             && destination != nil && destinationIssue == nil && isSourceReady
     }
 
@@ -377,14 +389,16 @@ final class ExportModel {
 
     /// Whether the primary action can run. Without a folder it only needs a ready source.
     func primaryExportEnabled(total: Int?) -> Bool {
-        if destination == nil { return !isExporting && !isExportBlocked() && isSourceReady }
+        if destination == nil { return !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady }
         if phase == .paused { return canStart }
         return canStart && selection.selectedCount(total: total ?? 0) > 0
     }
 
-    /// Whether Export All Photos can run. Without a folder, it asks for one first.
+    /// Whether Export All Photos can run. Without a folder, it asks for one first. Not while paused: Resume
+    /// continues the paused run, and starting another export over it would replace it.
     var canExportAll: Bool {
-        destination == nil ? !isExporting && !isExportBlocked() && isSourceReady : canStart
+        if phase == .paused { return false }
+        return destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady : canStart
     }
 
     private func startRun(selection: LibrarySelection?) {
@@ -394,14 +408,25 @@ final class ExportModel {
         } else {
             // Ask first when the estimate says it won't fit. Export All covers at least the selection,
             // so the selection's warning holds for it too.
-            let warning = storageWarning
-            // Stays on the current pane, so the user can keep browsing; progress is in the Library toolbar and Backup.
-            Task {
-                if let warning, await !confirmExport(despite: warning) { return }
-                await startExport(selection: selection)
+            if let warning = storageWarning {
+                // One question at a time: a second Export from the menu while it's showing does nothing.
+                guard !isConfirmingStorageWarning else { return }
+                isConfirmingStorageWarning = true
+                // Stays on the current pane, so the user can keep browsing; progress is in the Library toolbar and Backup.
+                Task {
+                    let proceed = await confirmExport(despite: warning)
+                    isConfirmingStorageWarning = false
+                    guard proceed else { return }
+                    await startExport(selection: selection)
+                }
+            } else {
+                Task { await startExport(selection: selection) }
             }
         }
     }
+
+    /// True while the "may not be enough space" question is showing.
+    @ObservationIgnored private var isConfirmingStorageWarning = false
 
     /// Asks whether to export although the destination looks too small.
     private func confirmExport(despite warning: String) async -> Bool {
@@ -428,13 +453,16 @@ final class ExportModel {
 
     /// Stops the export. Events that arrived before the engine stopped are still counted, so the
     /// counts stay exact. The engine normally stops within moments (its helper is sent SIGTERM);
-    /// if it hasn't after `cancelTimeout`, the export shows as cancelled anyway.
+    /// if it hasn't after `cancelTimeout`, the export shows as cancelled anyway, and "Finishing up"
+    /// (`isFinishingUp`) until the engine has ended, before which no new export starts.
     func cancel() {
         guard canCancel else { return }
         phase = .cancelling
         runTask?.cancel()
         // Let a paused engine wake up and observe the cancellation.
         gate?.resume()
+        // Also covers a cancel while the export is still being set up: startExport claims the run
+        // number before anything it awaits.
         let run = runNumber
         Task {
             try? await Task.sleep(for: Self.cancelTimeout)
@@ -443,6 +471,16 @@ final class ExportModel {
             exportTask?.cancel()
             finish(.cancelled)
         }
+    }
+
+    /// For quitting: cancels the export, if one runs, and returns its engine's task, which ends once
+    /// the engine has stopped (or nil when there's none). The manifest then shows the run as
+    /// unfinished, so Resume continues it after the next launch.
+    func stopForTermination() -> Task<Void, Never>? {
+        if canCancel {
+            cancel()
+        }
+        return engine.task
     }
 
     private func resume() {
@@ -454,8 +492,9 @@ final class ExportModel {
     }
 
     /// `selection` overrides the saved selection for this run only (Export All Photos).
-    private func startExport(selection override: LibrarySelection? = nil) async {
-        guard !isExporting else { return }
+    /// `automatic` marks the run as started by automatic backup, once it has really started.
+    private func startExport(selection override: LibrarySelection? = nil, automatic: Bool = false) async {
+        guard !isExporting, !isEngineRunning else { return }
         let previousPhase = phase
         phase = .preparing
 
@@ -484,6 +523,10 @@ final class ExportModel {
         if !layout.isAvailable(for: source) {
             layout = .month
         }
+        // Claimed before anything is awaited, so Cancel's watchdog covers this run from here on.
+        runNumber += 1
+        let number = runNumber
+        isAutomaticRun = automatic
         let gate = PauseGate()
         self.gate = gate
         storage.exportDidStart()
@@ -503,6 +546,13 @@ final class ExportModel {
             var hints: [String: Int] = [:]
             if case .only(let ids) = selection, let browser {
                 hints = await browser.rankHints(for: ids)
+                // Cancelled while the browser looked up rank hints: don't start the engine at all.
+                guard number == runNumber, phase == .preparing else {
+                    if number == runNumber {
+                        finish(.cancelled)
+                    }
+                    return
+                }
             }
             run = ICloudExportEngine(
                 destination: destination.url,
@@ -514,13 +564,8 @@ final class ExportModel {
                 rankHints: hints
             ).start()
         }
-        // Cancelled while the browser looked up rank hints.
-        if phase == .cancelling {
-            run.task.cancel()
-        }
-        runNumber += 1
-        let number = runNumber
         runTask = run.task
+        engine.track(run.task) { [weak self] in self?.refreshProgress() }
         exportTask = Task { await consume(ExportEventBatcher.batches(of: run.events, interval: Self.progressInterval), run: number) }
     }
 
@@ -813,7 +858,7 @@ final class ExportModel {
 
     /// Whether a background run may start now: no export in progress, a ready source, and a destination.
     var canBackUpAutomatically: Bool {
-        !isExporting && !isExportBlocked() && isSourceReady && destination != nil
+        !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady && destination != nil
     }
 
     /// The volume that holds the destination, such as the external drive.
@@ -837,14 +882,10 @@ final class ExportModel {
             return
         }
 
-        isAutomaticRun = true
         record(.info, "Automatic backup started (\(reason)).")
         Task {
-            await startExport()
-            // If the export didn't start, there's no finish to report it.
-            if !isExporting {
-                isAutomaticRun = false
-            }
+            // The run is marked automatic only once startExport has actually started it.
+            await startExport(automatic: true)
         }
     }
 
@@ -883,6 +924,28 @@ final class ExportModel {
         activity.insert(ActivityEntry(kind: kind, message: message), at: 0)
         if activity.count > Self.maxActivityEntries {
             activity.removeLast()
+        }
+    }
+}
+
+/// The engine of the latest export, until its task has really ended. Cancel can show an export as
+/// cancelled before that (see `ExportModel.cancelTimeout`); a new export waits for `isRunning`.
+@MainActor
+@Observable
+final class EngineTracker {
+    private(set) var isRunning = false
+    @ObservationIgnored private(set) var task: Task<Void, Never>?
+
+    /// Follows `task` until it ends, then calls `onEnd` unless a newer task is followed by then.
+    func track(_ task: Task<Void, Never>, onEnd: @escaping @MainActor () -> Void = {}) {
+        self.task = task
+        isRunning = true
+        Task {
+            await task.value
+            guard self.task == task else { return }
+            self.task = nil
+            isRunning = false
+            onEnd()
         }
     }
 }

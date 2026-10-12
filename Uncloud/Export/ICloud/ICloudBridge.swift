@@ -15,6 +15,7 @@ struct ICloudBridgeRequest: Encodable, Sendable {
     var xmp: Bool?
     /// Download only: where each ID was last seen, as its rank in icloudpd's (oldest first) order.
     var hints: [String: Int]?
+    /// Cancel, pause and resume: the request they apply to.
     var target: Int?
 }
 
@@ -48,10 +49,18 @@ struct ICloudBridgeMessage: Decodable, Sendable {
     var kind: String?
     var message: String?
     var cancelled: Bool?
-    /// Stats: the bytes of this request's items so far, each page's item sizes, and whether the walk reached the end.
+    /// Stats: the bytes of this request's items so far, each page's item sizes (and the page's items
+    /// without a size), and whether the walk reached the end.
     var bytes: Int64?
     var sizes: [String: Int64]?
+    var unsized: [String]?
     var complete: Bool?
+}
+
+/// A download sent to the bridge: its request ID, for pausing it, and its events.
+struct ICloudBridgeDownload: Sendable {
+    let id: Int
+    let messages: AsyncThrowingStream<ICloudBridgeMessage, Error>
 }
 
 /// A persistent `photo_bridge.py` process for one Apple ID: request/response by ID, plus event
@@ -59,15 +68,31 @@ struct ICloudBridgeMessage: Decodable, Sendable {
 /// Keychain (or fails with `ICloudError.signInRequired`), and starts again on the next request if
 /// it exits. `shutDownAll()` stops every bridge, for sign-out.
 ///
-/// Like `ICloudHelperProcess`, the bridge runs in its own process group so pause (SIGSTOP),
-/// resume and termination reach everything it started.
+/// Browsing, the size scan and exports share the bridge, so it's never paused with a signal: a
+/// download is paused and resumed with requests of its own while browsing goes on. A cancelled
+/// download or walk stops by itself, between chunks or pages. The bridge is stopped only when it
+/// then also stops answering pings (see `Timing`); everything waiting on it fails with
+/// `ICloudError.interrupted`, and the next request starts a fresh one. Like `ICloudHelperProcess`,
+/// the bridge runs in its own process group so termination reaches everything it started.
 final class ICloudBridge: Sendable {
+    /// How a cancelled download or walk is watched until the bridge reports that it ended.
+    struct Timing: Sendable {
+        /// How long it may take to end before the bridge is pinged.
+        var abandonGrace: Duration = .seconds(2)
+        /// How long a ping may go unanswered before the bridge counts as stuck and is stopped.
+        var pingTimeout: Duration = .seconds(30)
+        /// Between pings while the request is still ending.
+        var pingInterval: Duration = .seconds(2)
+    }
+
     private enum Launch {
         case resume(Int)
         case fail(Error)
         case wait
         case start
     }
+
+    private struct PingTimeout: Error {}
 
     private struct State {
         var generation = 0
@@ -83,9 +108,11 @@ final class ICloudBridge: Sendable {
         var count: Int?
         var isReady = false
         var readyWaiters: [UUID: CheckedContinuation<Int, Error>] = [:]
-        /// Downloads whose consumer stopped listening, waiting for the bridge's final reply.
+        /// Downloads and walks whose consumer stopped listening, waiting for the bridge's final reply.
         var abandoned: Set<Int> = []
         var streams: [Int: AsyncThrowingStream<ICloudBridgeMessage, Error>.Continuation] = [:]
+        /// `waitUntilEnded` callers by request ID; called with true once the request ends.
+        var endWaiters: [Int: [UUID: @Sendable (Bool) -> Void]] = [:]
         var nextID = 1
         /// Why the current process can't go on, once known.
         var failure: Error?
@@ -97,25 +124,32 @@ final class ICloudBridge: Sendable {
     }
 
     private static let registry = OSAllocatedUnfairLock(initialState: [String: ICloudBridge]())
+    /// Every bridge whose process runs, shared or not, for `ICloudProcesses.shutDownAll`.
+    private static let running = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: ICloudBridge]())
     private static let terminateGrace = DispatchTimeInterval.seconds(5)
-    /// How long a cancelled download may take to finish its current item before the bridge is stopped.
-    static let abandonGrace = DispatchTimeInterval.seconds(15)
     private static let readChunk = 64 * 1024
+    /// Requests the bridge stops by itself, between chunks or pages, when they're cancelled.
+    private static let longCommands: Set<String> = ["download", "stats"]
+    /// Events that end a request.
+    private static let finalEvents: Set<String> = ["error", "page", "count", "albums", "done", "stats", "pong"]
 
     let appleID: String
     let executableURL: URL?
     let arguments: [String]
+    let timing: Timing
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let queue = DispatchQueue(label: "ICloudBridge.output")
 
     init(
         appleID: String,
         executableURL: URL? = ICloudAccount.helperURL,
-        arguments: [String]? = nil
+        arguments: [String]? = nil,
+        timing: Timing = Timing()
     ) {
         self.appleID = appleID
         self.executableURL = executableURL
         self.arguments = arguments ?? ICloudAccount.bridgeArguments(appleID: appleID)
+        self.timing = timing
     }
 
     /// The bridge for an Apple ID, shared by browsing and exports.
@@ -137,6 +171,11 @@ final class ICloudBridge: Sendable {
             return Array(bridges.values)
         }
         bridges.forEach { $0.terminate() }
+    }
+
+    /// Bridges whose process is running.
+    static var runningBridges: [ICloudBridge] {
+        running.withLock { Array($0.values) }
     }
 
     // MARK: - Requests
@@ -215,15 +254,20 @@ final class ICloudBridge: Sendable {
     }
 
     /// Starts a download and streams its events through the final `done`. Ending the stream early
-    /// asks the bridge to stop after the current item.
-    func download(_ request: ICloudBridgeRequest) async throws -> AsyncThrowingStream<ICloudBridgeMessage, Error> {
+    /// asks the bridge to stop the download, which it does after the chunk in progress.
+    func download(_ request: ICloudBridgeRequest) async throws -> ICloudBridgeDownload {
         precondition(request.cmd == "download")
-        return try await send(request)
+        let (id, messages) = try await start(request)
+        return ICloudBridgeDownload(id: id, messages: messages)
     }
 
     /// Sends a request once the bridge is ready. The stream ends after the request's final
     /// reply, and throws the bridge's error for it.
     func send(_ request: ICloudBridgeRequest) async throws -> AsyncThrowingStream<ICloudBridgeMessage, Error> {
+        try await start(request).stream
+    }
+
+    private func start(_ request: ICloudBridgeRequest) async throws -> (id: Int, stream: AsyncThrowingStream<ICloudBridgeMessage, Error>) {
         try await ready()
         try Task.checkCancellation()
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: ICloudBridgeMessage.self)
@@ -233,10 +277,10 @@ final class ICloudBridge: Sendable {
             state.streams[id] = continuation
             return id
         }
-        let isDownload = request.cmd == "download"
+        let isLong = Self.longCommands.contains(request.cmd)
         continuation.onTermination = { [weak self] termination in
             if case .cancelled = termination {
-                self?.abandon(id, isDownload: isDownload)
+                self?.abandon(id, isLong: isLong)
             }
         }
         var request = request
@@ -244,17 +288,51 @@ final class ICloudBridge: Sendable {
         if !write(request) {
             finish(id, throwing: ICloudError.exited(-1, lastMessage: nil))
         }
-        return stream
+        return (id, stream)
     }
 
-    /// Pauses the bridge and its children.
-    func suspend() {
-        sendSignal(SIGSTOP)
+    /// Holds a download between chunks or items. Browsing goes on meanwhile.
+    func pauseDownload(_ id: Int) {
+        write(ICloudBridgeRequest(cmd: "pause", target: id))
     }
 
-    /// Continues after `suspend()`.
-    func resume() {
-        sendSignal(SIGCONT)
+    /// Continues a download held by `pauseDownload(_:)`.
+    func resumeDownload(_ id: Int) {
+        write(ICloudBridgeRequest(cmd: "resume", target: id))
+    }
+
+    /// Waits up to `timeout` until request `id` has ended in the bridge, such as a cancelled download
+    /// that stops after its chunk, or the bridge has exited. True if it ended in time.
+    @discardableResult
+    func waitUntilEnded(_ id: Int, timeout: Duration) async -> Bool {
+        let waiter = UUID()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let once = OSAllocatedUnfairLock(initialState: false)
+            let resume: @Sendable (Bool) -> Void = { ended in
+                let isFirst = once.withLock { done -> Bool in
+                    defer { done = true }
+                    return !done
+                }
+                if isFirst {
+                    continuation.resume(returning: ended)
+                }
+            }
+            let isWaiting = state.withLock { state -> Bool in
+                guard state.process != nil, state.exitStatus == nil,
+                      state.streams[id] != nil || state.abandoned.contains(id) else { return false }
+                state.endWaiters[id, default: [:]][waiter] = resume
+                return true
+            }
+            guard isWaiting else {
+                resume(true)
+                return
+            }
+            Task { [weak self] in
+                try? await Task.sleep(for: timeout)
+                _ = self?.state.withLock { $0.endWaiters[id]?.removeValue(forKey: waiter) }
+                resume(false)
+            }
+        }
     }
 
     /// The bridge's process ID while it runs.
@@ -265,26 +343,37 @@ final class ICloudBridge: Sendable {
         }
     }
 
-    /// Stops the bridge: closes its input and sends SIGTERM to its process group, then SIGKILL after
-    /// 5 seconds. Waiting requests fail; the next request starts a new bridge, which signs in again.
-    /// Downloads in progress are left as `.part` files that icloudpd and the bridge both resume.
-    func terminate() {
+    /// Stops the bridge: closes its input and sends SIGCONT and SIGTERM to its process group, then
+    /// SIGKILL after 5 seconds. Waiting requests fail with `reason`; the next request starts a new
+    /// bridge, which signs in again. With `generation`, only that process is stopped, not a newer one.
+    func terminate(reason: Error = CancellationError()) {
+        terminate(generation: nil, reason: reason)
+    }
+
+    private func terminate(generation expected: Int?, reason: Error) {
         let generation = state.withLock { state -> Int? in
-            guard state.process != nil, state.exitStatus == nil, !state.didSignalTermination else { return nil }
+            guard state.process != nil, state.exitStatus == nil, !state.didSignalTermination,
+                  expected == nil || expected == state.generation else { return nil }
             state.didSignalTermination = true
             if state.failure == nil {
-                state.failure = CancellationError()
+                state.failure = reason
             }
             try? state.input?.close()
             state.input = nil
             return state.generation
         }
         guard let generation else { return }
-        sendSignal(SIGTERM)
-        sendSignal(SIGCONT)
+        // A stopped process acts on SIGTERM only once it continues.
+        sendSignal(SIGCONT, generation: generation)
+        sendSignal(SIGTERM, generation: generation)
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.terminateGrace) { [self] in
             sendSignal(SIGKILL, generation: generation)
         }
+    }
+
+    /// Sends SIGKILL to the bridge's process group at once, for app shutdown after `terminate()`.
+    func kill() {
+        sendSignal(SIGKILL)
     }
 
     // MARK: - Process
@@ -342,6 +431,7 @@ final class ICloudBridge: Sendable {
             failReady(error)
             return
         }
+        Self.running.withLock { $0[ObjectIdentifier(self)] = self }
         try? inputPipe.fileHandleForReading.close()
         try? outputPipe.fileHandleForWriting.close()
         try? errorPipe.fileHandleForWriting.close()
@@ -421,20 +511,24 @@ final class ICloudBridge: Sendable {
     /// Runs on `queue`.
     private func handle(_ message: ICloudBridgeMessage, generation: Int) {
         if let id = message.id {
-            let continuation = state.withLock { state -> AsyncThrowingStream<ICloudBridgeMessage, Error>.Continuation? in
-                guard state.generation == generation else { return nil }
-                if ["error", "page", "count", "albums", "done", "stats"].contains(message.event) {
-                    state.abandoned.remove(id)
-                }
-                return state.streams[id]
+            let isFinal = Self.finalEvents.contains(message.event)
+            // A final reply ends the request in one step, so a consumer that stops listening at the
+            // same moment finds nothing left to abandon (and nothing for a watchdog to wait for).
+            let (continuation, waiters) = state.withLock { state -> (AsyncThrowingStream<ICloudBridgeMessage, Error>.Continuation?, [@Sendable (Bool) -> Void]) in
+                guard state.generation == generation else { return (nil, []) }
+                guard isFinal else { return (state.streams[id], []) }
+                state.abandoned.remove(id)
+                let waiters = state.endWaiters.removeValue(forKey: id).map { Array($0.values) } ?? []
+                return (state.streams.removeValue(forKey: id), waiters)
             }
+            waiters.forEach { $0(true) }
             guard let continuation else { return }
             switch message.event {
             case "error":
-                finish(id, throwing: Self.error(kind: message.kind, message: message.message))
-            case "page", "count", "albums", "done", "stats":
+                continuation.finish(throwing: Self.error(kind: message.kind, message: message.message))
+            case _ where isFinal:
                 continuation.yield(message)
-                finish(id, throwing: nil)
+                continuation.finish()
             default:
                 continuation.yield(message)
             }
@@ -506,7 +600,13 @@ final class ICloudBridge: Sendable {
     /// Runs on `queue`. Once the process has exited and its output is read, fails whatever still
     /// waits and resets for a fresh start.
     private func finishIfDone(generation: Int) {
-        let ended = state.withLock { state -> (error: Error, waiters: [CheckedContinuation<Int, Error>], streams: [AsyncThrowingStream<ICloudBridgeMessage, Error>.Continuation])? in
+        typealias Ended = (
+            error: Error,
+            waiters: [CheckedContinuation<Int, Error>],
+            streams: [AsyncThrowingStream<ICloudBridgeMessage, Error>.Continuation],
+            endWaiters: [@Sendable (Bool) -> Void]
+        )
+        let ended = state.withLock { state -> Ended? in
             guard state.generation == generation, state.openPipes <= 0, let status = state.exitStatus,
                   state.process != nil else { return nil }
             let error = state.failure ?? ICloudError.exited(status, lastMessage: state.lastMessage)
@@ -514,17 +614,25 @@ final class ICloudBridge: Sendable {
             HelperTranscript.save(state.transcript, arguments: ["photo_bridge.py"] + Array(arguments.suffix(4)), exitStatus: status)
             state.transcript = Data()
             #endif
-            let result = (error, Array(state.readyWaiters.values), Array(state.streams.values))
+            let result = (error, Array(state.readyWaiters.values), Array(state.streams.values),
+                          state.endWaiters.values.flatMap(\.values))
             state.process = nil
             state.sources = []
             state.readyWaiters = [:]
             state.abandoned = []
             state.streams = [:]
+            state.endWaiters = [:]
             state.isReady = false
             state.count = nil
             return result
         }
         guard let ended else { return }
+        Self.running.withLock { running in
+            if running[ObjectIdentifier(self)] === self {
+                running[ObjectIdentifier(self)] = nil
+            }
+        }
+        ended.endWaiters.forEach { $0(true) }
         ended.waiters.forEach { $0.resume(throwing: ended.error) }
         ended.streams.forEach { $0.finish(throwing: ended.error) }
     }
@@ -538,7 +646,10 @@ final class ICloudBridge: Sendable {
     }
 
     private func finish(_ id: Int, throwing error: Error?) {
-        let continuation = state.withLock { $0.streams.removeValue(forKey: id) }
+        let (continuation, waiters) = state.withLock { state in
+            (state.streams.removeValue(forKey: id), state.endWaiters.removeValue(forKey: id).map { Array($0.values) } ?? [])
+        }
+        waiters.forEach { $0(true) }
         if let error {
             continuation?.finish(throwing: error)
         } else {
@@ -546,26 +657,74 @@ final class ICloudBridge: Sendable {
         }
     }
 
-    /// The consumer stopped listening: forget the request and ask the bridge to stop a download
-    /// after its current item. A bridge that hasn't finished the download after `abandonGrace`
-    /// (stuck, or downloading a very large file) is stopped.
-    private func abandon(_ id: Int, isDownload: Bool) {
+    /// The consumer stopped listening: forget the request, and ask the bridge to stop a download or
+    /// walk, which it does after its current chunk or page. Until the bridge reports the end, a
+    /// watchdog pings it now and then; only a bridge that stops answering is stopped.
+    private func abandon(_ id: Int, isLong: Bool) {
         let generation = state.withLock { state -> Int? in
             guard state.streams.removeValue(forKey: id) != nil else { return nil }
-            if isDownload {
+            if isLong {
                 state.abandoned.insert(id)
+            } else {
+                // The bridge answers a short request anyway; nothing waits for it any more.
+                state.endWaiters.removeValue(forKey: id)?.values.forEach { $0(true) }
             }
             return state.generation
         }
         guard let generation else { return }
         write(ICloudBridgeRequest(cmd: "cancel", target: id))
-        guard isDownload else { return }
-        DispatchQueue.global().asyncAfter(deadline: .now() + Self.abandonGrace) { [weak self] in
-            guard let self else { return }
-            let isStuck = state.withLock { $0.generation == generation && $0.abandoned.contains(id) }
-            if isStuck {
-                terminate()
+        guard isLong else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            await self?.watch(abandoned: id, generation: generation)
+        }
+    }
+
+    private func isAbandoned(_ id: Int, generation: Int) -> Bool {
+        state.withLock { $0.generation == generation && $0.exitStatus == nil && $0.abandoned.contains(id) }
+    }
+
+    /// Pings the bridge while abandoned request `id` hasn't ended; stops a bridge that doesn't answer.
+    private func watch(abandoned id: Int, generation: Int) async {
+        try? await Task.sleep(for: timing.abandonGrace)
+        while isAbandoned(id, generation: generation) {
+            if await !ping(generation: generation, timeout: timing.pingTimeout) {
+                if isAbandoned(id, generation: generation) {
+                    terminate(generation: generation, reason: ICloudError.interrupted)
+                }
+                return
             }
+            try? await Task.sleep(for: timing.pingInterval)
+        }
+    }
+
+    /// Asks the bridge's request loop for a pong. False only when it doesn't answer within `timeout`;
+    /// a bridge that exits meanwhile, or is a newer process, counts as answering.
+    private func ping(generation: Int, timeout: Duration) async -> Bool {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: ICloudBridgeMessage.self)
+        let id = state.withLock { state -> Int? in
+            guard state.generation == generation, state.exitStatus == nil, state.process != nil else { return nil }
+            let id = state.nextID
+            state.nextID += 1
+            state.streams[id] = continuation
+            return id
+        }
+        guard let id else { return true }
+        guard write(ICloudBridgeRequest(id: id, cmd: "ping")) else {
+            finish(id, throwing: nil)
+            return true
+        }
+        let timer = Task { [weak self] in
+            try await Task.sleep(for: timeout)
+            self?.finish(id, throwing: PingTimeout())
+        }
+        defer { timer.cancel() }
+        do {
+            for try await message in stream where message.event == "pong" {
+                return true
+            }
+            return true
+        } catch {
+            return !(error is PingTimeout)
         }
     }
 
@@ -597,17 +756,20 @@ final class ICloudBridge: Sendable {
         }
     }
 
+    /// Signals the bridge's process group while its process runs. `Process.isRunning` turns false
+    /// as soon as the process is reaped, before `processExited` records it, which keeps a reused
+    /// process ID from being signalled in between.
     @discardableResult
     private func sendSignal(_ number: Int32, generation: Int? = nil) -> Bool {
         state.withLock { state in
-            guard let process = state.process, state.exitStatus == nil,
+            guard let process = state.process, state.exitStatus == nil, process.isRunning,
                   generation == nil || generation == state.generation else { return false }
             let pid = process.processIdentifier
             guard pid > 0 else { return false }
             if getpgid(pid) == pid {
                 killpg(pid, number)
             } else {
-                kill(pid, number)
+                Darwin.kill(pid, number)
             }
             return true
         }

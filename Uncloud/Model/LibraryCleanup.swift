@@ -87,7 +87,7 @@ final class LibraryCleanup {
     /// The conditions for finding or removing anything: the Photos library source with access, a usable destination,
     /// and no export running.
     var isAllowed: Bool {
-        model.source == .photosLibrary && model.hasPhotosAccess && !model.isExporting && model.destination != nil && model.destinationIssue == nil
+        model.source == .photosLibrary && model.hasPhotosAccess && !model.isExporting && !model.isEngineRunning && model.destination != nil && model.destinationIssue == nil
     }
 
     func reset() {

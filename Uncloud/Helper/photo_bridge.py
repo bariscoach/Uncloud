@@ -23,15 +23,22 @@ Requests, each with an "id" that every reply carries:
       -> {"event":"progress","done":D,"total":T} whenever either changes, then per item one of
          {"event":"downloaded","id","filename","path","paths"}, {"event":"skipped","id","filename","path"},
          {"event":"failed","id","filename","reason"}; finally {"event":"done",...counts,"cancelled":BOOL}
+      Cancelling stops between chunks of a file, not only between items, and removes that file's
+      partial download.
   {"cmd":"stats","offset":O}          walks the library from O (icloudpd's order) a page at a time
-      -> {"event":"statsProgress","done":D,"total":T,"bytes":B,"sizes":{id: bytes}} per page, where
-         D and B count this request's items so far and sizes holds the page's items; finally
+      -> {"event":"statsProgress","done":D,"total":T,"bytes":B,"sizes":{id: bytes},"unsized":[ids]}
+         per page, where D and B count this request's items so far, sizes holds the page's items and
+         unsized the page's items without a size; finally
          {"event":"stats","done":D,"total":T,"bytes":B,"complete":BOOL,"cancelled":BOOL}.
          An item's bytes are what a download writes for it with Uncloud's arguments: the original,
          plus the Live Photo movie when there is one (not XMP sidecars, a few KB each). Browsing
          requests are answered between pages, and the walk stops early (complete false) when a
          download is waiting, so it never holds up an export.
-  {"cmd":"cancel","target":ID}        stops that download or stats walk after the current item or page.
+  {"cmd":"cancel","target":ID}        stops that download (between chunks) or stats walk (after its page).
+  {"cmd":"pause","target":ID}         holds that download between chunks or items; browsing requests are
+  {"cmd":"resume","target":ID}        still answered while it's held. Neither has a reply.
+  {"cmd":"ping"}                      -> {"event":"pong"}, from the request loop itself (between items,
+                                      pages and chunks), so a missing pong means the bridge is stuck.
 Errors: {"id"?, "event":"error","kind":...,"message":...}. Closing stdin or SIGTERM stops the bridge.
 The password is never written anywhere.
 """
@@ -58,6 +65,7 @@ import logging  # noqa: E402
 import os  # noqa: E402
 import queue  # noqa: E402
 import sys  # noqa: E402
+import time  # noqa: E402
 from collections import deque  # noqa: E402
 from functools import partial  # noqa: E402
 from itertools import islice  # noqa: E402
@@ -70,6 +78,8 @@ MAX_PAGE_LIMIT = 500
 HINT_FRACTION = 0.3
 # Ranks closer than this are fetched in one window.
 HINT_GAP = 25
+# A download checks for cancel, pause and pings after each chunk of this many bytes.
+DOWNLOAD_CHUNK = 32 * 1024
 
 LOGGER = logging.getLogger("photo_bridge")
 
@@ -92,6 +102,15 @@ class RequestError(Exception):
         self.kind = kind
 
 
+class DownloadCancelled(Exception):
+    """The download was cancelled between two chunks; its partial file is removed. Not an OSError,
+    so it passes through icloudpd's download functions untouched."""
+
+
+class DownloadInterrupted(Exception):
+    """A download held by a pause couldn't be picked up where it stopped."""
+
+
 # MARK: - Channel
 
 
@@ -105,6 +124,10 @@ class Channel:
         self._passwords: "queue.Queue[Optional[str]]" = queue.Queue()
         self._cancel_lock = threading.Lock()
         self._cancelled: set = set()
+        self._paused: set = set()
+        self._pings: List[Any] = []
+        # Set whenever a line arrives, so a held download notices pause, resume and requests at once.
+        self._wake = threading.Event()
         self.closed = threading.Event()
 
     def send(self, message: Dict[str, Any]) -> None:
@@ -145,17 +168,33 @@ class Channel:
             password = message.get("password")
             self._passwords.put(password if isinstance(password, str) else "")
             return
-        if message.get("cmd") == "cancel":
-            with self._cancel_lock:
-                self._cancelled.add(message.get("target"))
-            return
-        self._requests.put(message)
+        command = message.get("cmd")
+        try:
+            if command == "cancel":
+                with self._cancel_lock:
+                    self._cancelled.add(message.get("target"))
+                return
+            if command in ("pause", "resume"):
+                with self._cancel_lock:
+                    if command == "pause":
+                        self._paused.add(message.get("target"))
+                    else:
+                        self._paused.discard(message.get("target"))
+                return
+            if command == "ping":
+                # Answered by the request loop at its next check, or from the queue when it's idle.
+                with self._cancel_lock:
+                    self._pings.append(message.get("id"))
+            self._requests.put(message)
+        finally:
+            self._wake.set()
 
     def close(self) -> None:
         if not self.closed.is_set():
             self.closed.set()
             self._requests.put(None)
             self._passwords.put(None)
+            self._wake.set()
 
     def _read(self, stream: Any) -> None:
         try:
@@ -190,6 +229,28 @@ class Channel:
             return True
         with self._cancel_lock:
             return request_id in self._cancelled
+
+    def is_paused(self, request_id: Any) -> bool:
+        with self._cancel_lock:
+            return request_id in self._paused
+
+    def forget(self, request_id: Any) -> None:
+        """Drops a finished request's cancel and pause state."""
+        with self._cancel_lock:
+            self._cancelled.discard(request_id)
+            self._paused.discard(request_id)
+
+    def answer_pings(self) -> None:
+        """Answers the pings that arrived since the last call."""
+        with self._cancel_lock:
+            pings, self._pings = self._pings, []
+        for ping_id in pings:
+            self.send({"id": ping_id, "event": "pong"})
+
+    def wait_for_input(self, timeout: float) -> None:
+        """Waits up to `timeout` seconds for the next input line."""
+        self._wake.wait(timeout)
+        self._wake.clear()
 
 
 # MARK: - icloudpd configuration
@@ -295,6 +356,105 @@ def patch_icloudpd_for_bridge() -> None:
     from icloudpd import base
 
     base.truncate_middle = lambda text, _length: text
+    patch_downloads_for_bridge()
+
+
+def patch_downloads_for_bridge() -> None:
+    """Makes icloudpd's file download stop between chunks when its request is cancelled (removing
+    the partial file) or hold while it's paused, through the run that `_DownloadRun.process` sets."""
+    from icloudpd import download
+    from pyicloud_ipd.services import photos
+
+    original = photos.download_asset
+    if getattr(original, "_uncloud", False):
+        return
+
+    def download_asset(session: Any, url: str, start: int = 0) -> Any:
+        response = original(session, url, start)
+        try:
+            # Where to ask again with a Range after a pause closed the connection.
+            response._uncloud_source = (session, url)
+        except AttributeError:
+            pass
+        return response
+
+    download_asset._uncloud = True  # type: ignore[attr-defined]
+    photos.download_asset = download_asset
+    download.download_response_to_path = write_response
+
+
+_ACTIVE_RUN: Optional["_DownloadRun"] = None
+
+
+def _remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def write_response(
+    response: Any, temp_download_path: str, append_mode: bool, download_path: str, created_date: Any
+) -> bool:
+    """icloudpd's `download_response_to_path`, checking the active run after every chunk."""
+    from icloudpd import download
+    from pyicloud_ipd.services import photos
+
+    run = _ACTIVE_RUN
+    try:
+        with open(temp_download_path, "ab" if append_mode else "wb") as file_obj:
+            while True:
+                held = False
+                begin = os.fstat(file_obj.fileno()).st_size
+                length = _content_length(response)
+                for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK):
+                    if chunk:
+                        file_obj.write(chunk)
+                    if run is None:
+                        continue
+                    state = run.between_chunks()
+                    if state == "cancel":
+                        raise DownloadCancelled()
+                    if state == "pause":
+                        held = True
+                        break
+                if not held or run is None:
+                    break
+                file_obj.flush()
+                if length is not None and os.fstat(file_obj.fileno()).st_size - begin >= length:
+                    # A pause on the last chunk: the whole response is written, so there's nothing to ask for.
+                    break
+                # Don't hold a connection open for the length of a pause: ask again for the rest.
+                close = getattr(response, "close", None)
+                if close is not None:
+                    close()
+                if not run.hold():
+                    raise DownloadCancelled()
+                source = getattr(response, "_uncloud_source", None)
+                if source is None:
+                    raise DownloadInterrupted("The download couldn't continue after the pause.")
+                session, url = source
+                response = photos.download_asset(session, url, os.fstat(file_obj.fileno()).st_size)
+                if not getattr(response, "ok", False):
+                    raise DownloadInterrupted("iCloud didn't continue the download after the pause.")
+                if getattr(response, "status_code", 206) == 200:
+                    # The server ignored the Range and sends the whole file: start the file again.
+                    file_obj.seek(0)
+                    file_obj.truncate()
+    except DownloadCancelled:
+        _remove(temp_download_path)
+        raise
+    os.rename(temp_download_path, download_path)
+    download.update_mtime(created_date, download_path)
+    return True
+
+
+def _content_length(response: Any) -> Optional[int]:
+    """The length the server said the response body has, or None when it didn't say."""
+    try:
+        return int(response.headers["Content-Length"])
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
 
 
 # MARK: - Library access
@@ -433,6 +593,8 @@ class Bridge:
                 self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
             elif command == "count":
                 self.channel.send({"id": request_id, "event": "count", "count": len(self.library.all)})
+            elif command == "ping":
+                self.channel.answer_pings()
             elif command == "albums":
                 from pyicloud_ipd.services.photos import PhotoLibrary
 
@@ -454,6 +616,7 @@ class Bridge:
 
     def serve_waiting(self) -> None:
         """Answers browsing requests that arrived during a download, between its items."""
+        self.channel.answer_pings()
         while True:
             request = self.channel.poll_request()
             if request is None:
@@ -482,6 +645,7 @@ class Bridge:
         done = 0
         total_bytes = 0
         sizes: Dict[str, int] = {}
+        unsized: List[str] = []
         in_page = 0
         complete = True
         cancelled = False
@@ -489,7 +653,7 @@ class Bridge:
         def report() -> None:
             self.channel.send({
                 "id": request_id, "event": "statsProgress", "done": done, "total": total,
-                "bytes": total_bytes, "sizes": sizes,
+                "bytes": total_bytes, "sizes": sizes, "unsized": unsized,
             })
 
         for asset in view.photos:
@@ -497,12 +661,15 @@ class Bridge:
             if size is not None:
                 sizes[asset.id] = size
                 total_bytes += size
+            else:
+                unsized.append(asset.id)
             done += 1
             in_page += 1
             if in_page < PAGE_CHUNK:
                 continue
             report()
             sizes = {}
+            unsized = []
             in_page = 0
             if self.channel.is_cancelled(request_id):
                 cancelled, complete = True, False
@@ -623,7 +790,26 @@ class _DownloadRun:
         self._since_poll = 0
 
     def should_stop(self) -> bool:
+        """Checked before each item: answers pings, holds while paused, then says whether to stop."""
+        self.channel.answer_pings()
+        self.hold()
         return self.channel.is_cancelled(self.request_id)
+
+    def between_chunks(self) -> Optional[str]:
+        """Checked after each chunk of a file: "cancel", "pause" or None."""
+        self.channel.answer_pings()
+        if self.channel.is_cancelled(self.request_id):
+            return "cancel"
+        if self.channel.is_paused(self.request_id):
+            return "pause"
+        return None
+
+    def hold(self) -> bool:
+        """Waits while the download is paused, answering browsing requests. False once cancelled."""
+        while self.channel.is_paused(self.request_id) and not self.channel.is_cancelled(self.request_id):
+            self.bridge.serve_waiting()
+            self.channel.wait_for_input(0.05)
+        return not self.channel.is_cancelled(self.request_id)
 
     def set_total(self, total: int) -> None:
         self.total = max(0, total)
@@ -643,15 +829,23 @@ class _DownloadRun:
             self.bridge.serve_waiting()
 
     def process(self, asset: Any) -> None:
+        global _ACTIVE_RUN
         capture = self.bridge.capture
         capture.reset()
         filename = asset.id
+        _ACTIVE_RUN = self
         try:
             filename = self.plan.filename_builder(asset)
             if self.plan.passer(asset):
                 self.plan.downloader(self.bridge.icloud, _counter(), asset)
+        except DownloadCancelled:
+            # Stopped mid-file: the item isn't done, and its partial file is gone.
+            capture.reset()
+            return
         except Exception as error:  # noqa: BLE001
             capture.errors.append(f"{type(error).__name__}: {error}")
+        finally:
+            _ACTIVE_RUN = None
         downloaded, existing, errors = list(capture.downloaded), list(capture.existing), list(capture.errors)
         capture.reset()
 
@@ -675,9 +869,9 @@ class _DownloadRun:
 
     def finish(self) -> None:
         self._progress()
-        self.channel.send(
-            {"id": self.request_id, "event": "done", "cancelled": self.should_stop(), **self.counts}
-        )
+        cancelled = self.channel.is_cancelled(self.request_id)
+        self.channel.forget(self.request_id)
+        self.channel.send({"id": self.request_id, "event": "done", "cancelled": cancelled, **self.counts})
 
 
 def _counter() -> Any:

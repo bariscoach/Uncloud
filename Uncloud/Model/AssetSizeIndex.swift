@@ -46,8 +46,6 @@ actor AssetSizeIndex {
     private let account: String?
     /// Checked right before saving, so a scan that ends after sign-out doesn't write its sizes back.
     private let maySave: @Sendable () -> Bool
-    /// The IDs a scan from the start has seen, so items deleted since the last scan can be dropped.
-    private var seenThisScan: Set<String>?
     private var unsavedItems = 0
     /// How many newly scanned items to collect before saving again.
     private static let saveInterval = 10_000
@@ -96,16 +94,24 @@ actor AssetSizeIndex {
     // MARK: - Scanning
 
     /// Where a scan should start for a library of `libraryCount` items, or nil when the table is up to date.
-    /// An unfinished scan resumes; a library that grew is scanned from just before its old end (new
-    /// items come last in icloudpd's order); a library that shrank is scanned again from the start.
+    ///
+    /// A walk in progress resumes where it stopped, unless the library's size has changed since it
+    /// started: items then sit at other offsets, so it starts over from the beginning. A library that
+    /// grew since a complete walk is walked from just before its old end (new items come last in
+    /// icloudpd's order); one that shrank is walked again from the start. With no walk to resume,
+    /// an incomplete table is walked from the start.
     func scanStart(libraryCount: Int?) -> Int? {
-        if !table.isComplete {
+        if let walk = table.walk {
+            if !walk.isValid || libraryCount.map({ walk.libraryCount >= 0 && $0 != walk.libraryCount }) == true {
+                return 0
+            }
             if let libraryCount, table.scannedThrough >= libraryCount {
                 // Stopped at the very end; walk the last page again to finish.
-                return max(0, libraryCount - 100)
+                return max(walk.start, libraryCount - 100)
             }
             return table.scannedThrough
         }
+        guard table.isComplete else { return 0 }
         guard let libraryCount, libraryCount != table.libraryCount else { return nil }
         if libraryCount > table.libraryCount {
             return max(0, table.libraryCount - 100)
@@ -113,40 +119,76 @@ actor AssetSizeIndex {
         return 0
     }
 
-    func beginScan(from start: Int) {
+    /// Starts walking from `start`: resumes the walk in progress when `start` continues it, and
+    /// begins a new one (forgetting what the old one saw) otherwise.
+    func beginScan(from start: Int, libraryCount: Int? = nil) {
+        let resumes = table.walk.map { walk in
+            walk.isValid && start >= walk.start && start <= table.scannedThrough
+                && (libraryCount == nil || walk.libraryCount < 0 || libraryCount == walk.libraryCount)
+        } ?? false
+        if !resumes {
+            table.walk = AssetSizeTable.Walk(start: start, libraryCount: libraryCount ?? -1)
+        }
         table.isComplete = false
         table.scannedThrough = start
-        seenThisScan = start == 0 ? [] : nil
     }
 
-    func recordScan(sizes: [String: Int64], scannedThrough: Int, libraryCount: Int?) {
+    /// Records a page of the walk: the sizes of its items, the IDs of its items without a size, how
+    /// far the walk has come, and the library's size as the bridge reported it.
+    func recordScan(sizes: [String: Int64], unsized: [String] = [], scannedThrough: Int, libraryCount: Int?) {
         table.merge(sizes)
         table.scannedThrough = scannedThrough
         if let libraryCount {
             table.libraryCount = libraryCount
+            noteWalkLibraryCount(libraryCount)
         }
-        seenThisScan?.formUnion(sizes.keys)
-        unsavedItems += sizes.count
+        table.walk?.seen.formUnion(sizes.keys)
+        table.walk?.seen.formUnion(unsized)
+        unsavedItems += sizes.count + unsized.count
         if unsavedItems >= Self.saveInterval {
             save()
         }
     }
 
-    /// Ends a scan. A complete one marks the table complete and, if it started from the
-    /// beginning, drops items it didn't see.
-    func endScan(complete: Bool, libraryCount: Int?) {
-        if complete {
-            if let seen = seenThisScan {
-                table.keepOnly(seen)
-            }
-            if let libraryCount {
-                table.libraryCount = libraryCount
-            }
-            table.scannedThrough = table.libraryCount
-            table.isComplete = true
+    /// Ends a scan; `complete` when the bridge reached the end of the library. Returns whether the
+    /// table is now complete. A walk that reached the end completes the table only if the library
+    /// kept its size throughout and, for a walk from the start, every item was seen; it then drops
+    /// items the walk didn't see (deleted since). Otherwise the next scan starts over. An unfinished
+    /// walk is kept, with what it has seen, for the next scan to resume.
+    @discardableResult
+    func endScan(complete: Bool, libraryCount: Int?) -> Bool {
+        if let libraryCount {
+            noteWalkLibraryCount(libraryCount)
         }
-        seenThisScan = nil
+        if complete, let walk = table.walk {
+            let count = walk.libraryCount >= 0 ? walk.libraryCount : (libraryCount ?? table.libraryCount)
+            if walk.isValid, walk.start > 0 || walk.seen.count >= count {
+                if walk.start == 0 {
+                    table.keepOnly(walk.seen)
+                }
+                table.libraryCount = count
+                table.scannedThrough = count
+                table.isComplete = true
+                table.walk = nil
+            } else {
+                // The library changed under the walk: start over from the beginning next time.
+                table.walk = nil
+                table.scannedThrough = 0
+            }
+        }
         save()
+        return table.isComplete
+    }
+
+    /// A walk whose pages report a different library size than it started with may have skipped items.
+    private func noteWalkLibraryCount(_ count: Int) {
+        guard var walk = table.walk else { return }
+        if walk.libraryCount < 0 {
+            walk.libraryCount = count
+        } else if walk.libraryCount != count {
+            walk.isValid = false
+        }
+        table.walk = walk
     }
 
     func save() {
@@ -180,7 +222,7 @@ enum ICloudSizeScanner {
         onProgress: @escaping @Sendable () async -> Void
     ) async -> Outcome {
         guard let start = await index.scanStart(libraryCount: libraryCount) else { return .complete }
-        await index.beginScan(from: start)
+        await index.beginScan(from: start, libraryCount: libraryCount)
         var lastReport = ContinuousClock.now
         do {
             for try await message in try await bridge.stats(offset: start) {
@@ -188,6 +230,7 @@ enum ICloudSizeScanner {
                 case "statsProgress":
                     await index.recordScan(
                         sizes: message.sizes ?? [:],
+                        unsized: message.unsized ?? [],
                         scannedThrough: start + (message.done ?? 0),
                         libraryCount: message.total
                     )
@@ -196,8 +239,8 @@ enum ICloudSizeScanner {
                         await onProgress()
                     }
                 case "stats":
-                    let complete = message.complete == true
-                    await index.endScan(complete: complete, libraryCount: message.total)
+                    // A walk the library changed under ends incomplete, and the next one starts over.
+                    let complete = await index.endScan(complete: message.complete == true, libraryCount: message.total)
                     return complete ? .complete : .interrupted
                 default:
                     break
@@ -207,7 +250,7 @@ enum ICloudSizeScanner {
             return .interrupted
         } catch {
             await index.endScan(complete: false, libraryCount: nil)
-            return error is CancellationError ? .interrupted : .failed(error)
+            return error is CancellationError || (error as? ICloudError) == .interrupted ? .interrupted : .failed(error)
         }
     }
 }

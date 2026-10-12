@@ -120,6 +120,9 @@ struct ProgressCard: View {
         case .completed:
             Label("Export complete", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
+        case .cancelled where model.isFinishingUp:
+            Label("Finishing up…", systemImage: "hourglass")
+                .foregroundStyle(.secondary)
         case .cancelled:
             Label("Export cancelled. You can resume it later.", systemImage: "xmark")
                 .foregroundStyle(.secondary)
