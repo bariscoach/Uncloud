@@ -1,10 +1,10 @@
-# Photo Export: design plan (phase 1, review and plan only)
+# Uncloud: design plan (phase 1, review and plan only)
 
 Scope: the flow, menus and colour of the macOS app, plus two new features: the full-library browser with selection, and "Export All Photos". No repository files were edited in this phase.
 
-Sources read: App/PhotoExportApp.swift, App/ExportCommands.swift, Views/*.swift (ContentView, Welcome, Onboarding, Connect, PhotosAccess, Home, Overview, Setup, Export, ExportControls, ProgressCard, ActivitySection, DestinationHeader, LibrarySourceSection, MenuBarContent, SettingsView, BackupToolSheets, ICloudSignInSheet, VerifyBackupSheet, FreeUpSpaceSheet), Model/ExportModel.swift, Model/BackupTools.swift, Model/FolderLayout.swift, Model/LibrarySource.swift, Model/AutoBackupSettings.swift, Model/LibrarySelection.swift, project.yml.
+Sources read: App/UncloudApp.swift, App/ExportCommands.swift, Views/*.swift (ContentView, Welcome, Onboarding, Connect, PhotosAccess, Home, Overview, Setup, Export, ExportControls, ProgressCard, ActivitySection, DestinationHeader, LibrarySourceSection, MenuBarContent, SettingsView, BackupToolSheets, ICloudSignInSheet, VerifyBackupSheet, FreeUpSpaceSheet), Model/ExportModel.swift, Model/BackupTools.swift, Model/FolderLayout.swift, Model/LibrarySource.swift, Model/AutoBackupSettings.swift, Model/LibrarySelection.swift, project.yml.
 
-Note: no asset catalog exists (no Assets.xcassets under PhotoExportApp/, and project.yml has no asset settings). The app has no AppIcon and no AccentColor yet.
+Note: no asset catalog exists (no Assets.xcassets under Uncloud/, and project.yml has no asset settings). The app has no AppIcon and no AccentColor yet.
 
 ---
 
@@ -28,9 +28,9 @@ Other sheets and windows:
 - VerifyBackupSheet: Check Backup, Cancel, Delete Files and Export Again (destructive, confirmation), Re-export, Done, Try Again.
 - FreeUpSpaceSheet: age picker, Keep favorites, Keep hidden, Find Items…, Remove N Items (destructive), Cancel, Done.
 - Settings window (⌘,), SettingsView: Source section (duplicate), Automatic Backup (two toggles, status text, menu bar note), General (Open at login, Show in menu bar).
-- Menu bar extra, MenuBarContent: status line (disabled), Back Up Now, Open Photo Export, Settings…, Quit (⌘Q). Visible only when showInMenuBar and automatic backup are on.
+- Menu bar extra, MenuBarContent: status line (disabled), Back Up Now, Open Uncloud, Settings…, Quit (⌘Q). Visible only when showInMenuBar and automatic backup are on.
 
-### 1.2 Menus and commands (App/ExportCommands.swift, PhotoExportApp.swift)
+### 1.2 Menus and commands (App/ExportCommands.swift, UncloudApp.swift)
 
 | Menu | Item | Shortcut | Enabled when |
 |---|---|---|---|
@@ -46,7 +46,7 @@ Other sheets and windows:
 | Export | Cancel Export | ⌘. | canCancel |
 | Export | Verify Backup… | none | canOpenVerify |
 | Export | Free Up Space… | none | canOpenFreeUpSpace |
-| Help (replaced) | Welcome to Photo Export | none | not exporting |
+| Help (replaced) | Welcome to Uncloud | none | not exporting |
 | Window | system items | system | always |
 | Edit | system items (no custom items) | system | always |
 
@@ -128,7 +128,7 @@ Sub-decisions adopted:
 1. Remove the Back, Forward and Home toolbar items and the entire Go menu. Sidebar selection replaces them. Add View > Library (⌘1) and View > Backup (⌘2).
 2. Delete the welcome screen and the 4-page carousel. First run is an inline empty state in the Library pane: one sentence and two buttons, “iCloud Photos…” and “Photos on This Mac”. Keep the privacy statement as a caption in the empty state (“Photos go straight from this Mac to your folder and are never uploaded.”). The introduction content moves to Help > Getting Started, a sheet.
 3. Progress lives inline in the Backup pane, never in a sheet, because a sheet would block browsing. Add a progress badge on the Backup sidebar row and a compact progress gauge in the Library toolbar while an export runs. Clicking the gauge selects Backup.
-4. Keep the menu bar extra, trimmed to: status line (disabled), Back Up Now, Open Photo Export, Settings…, Quit.
+4. Keep the menu bar extra, trimmed to: status line (disabled), Back Up Now, Open Uncloud, Settings…, Quit.
 
 Sitemap:
 - **Sidebar**
@@ -216,7 +216,7 @@ Cancel and pause wording: Cancel Export, Pause, Resume. Replace “Start Export�
 |---|---|
 | Welcome screen | Duplicates the connect empty state and adds a step. Its message moves to Help > Getting Started and the empty state caption. |
 | 4-page onboarding carousel | Five screens before any action. Its content moves to Help > Getting Started. Also removes the hidden-with-opacity Skip button. |
-| “Show Introduction” on Home and “Welcome to Photo Export” in Help | Duplicated. One entry in Help. |
+| “Show Introduction” on Home and “Welcome to Uncloud” in Help | Duplicated. One entry in Help. |
 | Home dashboard | Repeats sidebar, Settings and Backup pane. Its Account and Backup boxes move to the sidebar footer and the Backup pane. |
 | Overview screen and its Continue button | Replaced by the browser. Its count moves into the browser toolbar. |
 | 249-item ThumbnailMosaic (non-interactive) | Replaced by the full browser. Delete ThumbnailMosaic.swift once the browser is in (check with the other agent first, see checklist). |
@@ -250,8 +250,8 @@ Cancel and pause wording: Cancel Export, Pause, Resume. Replace “Start Export�
 | Cancel | Cancel Export |
 | Folder | Choose Folder… (never “Choose…” or “Choose Destination…”) |
 | Destination label | Save To |
-| Sign-out confirmation (one copy) | Sign Out of iCloud? / Photo Export forgets this Apple ID and its saved password. Files already in your folder aren’t changed. |
-| Menu bar | Back Up Now (automatic backup context only), Open Photo Export, Settings… |
+| Sign-out confirmation (one copy) | Sign Out of iCloud? / Uncloud forgets this Apple ID and its saved password. Files already in your folder aren’t changed. |
+| Menu bar | Back Up Now (automatic backup context only), Open Uncloud, Settings… |
 | Help | Getting Started |
 
 Terminology decision: the app says “Export” for manual runs and “Back Up” for automatic runs. This matches the two features. If the user wants one word, the change is a string edit in ExportModel and MenuBarContent. Flagged, not decided.
@@ -324,14 +324,14 @@ Ordering: assets and tokens first (no dependencies), then model presentation sta
 
 ### Group A: assets (no dependencies)
 
-1. Create `PhotoExportApp/Assets.xcassets/Contents.json` with `{"info":{"author":"xcode","version":1}}`.
-2. Create `PhotoExportApp/Assets.xcassets/AccentColor.colorset/Contents.json` with two colours: light #4F35C9 and dark (appearance "luminosity", value "dark") #6F5CF0. Use sRGB components (hex to 0-1 floats: 4F=79/255, 35=53/255, C9=201/255; dark: 6F=111/255, 5C=92/255, F0=240/255).
+1. Create `Uncloud/Assets.xcassets/Contents.json` with `{"info":{"author":"xcode","version":1}}`.
+2. Create `Uncloud/Assets.xcassets/AccentColor.colorset/Contents.json` with two colours: light #4F35C9 and dark (appearance "luminosity", value "dark") #6F5CF0. Use sRGB components (hex to 0-1 floats: 4F=79/255, 35=53/255, C9=201/255; dark: 6F=111/255, 5C=92/255, F0=240/255).
 3. Edit `project.yml` target settings base: add `ASSET_CATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor`. Run `xcodegen generate`.
 4. Verify both commands.
 
 ### Group B: shared presentation helpers (new file, view-only)
 
-5. Create `PhotoExportApp/Views/IconTile.swift`: a `struct IconTile: View` with `symbol: String`, `tint: Color`. 28pt rounded rect (`RoundedRectangle(cornerRadius: 6, style: .continuous)`), tint fill, white SF Symbol 15pt semibold, `.accessibilityHidden(true)`.
+5. Create `Uncloud/Views/IconTile.swift`: a `struct IconTile: View` with `symbol: String`, `tint: Color`. 28pt rounded rect (`RoundedRectangle(cornerRadius: 6, style: .continuous)`), tint fill, white SF Symbol 15pt semibold, `.accessibilityHidden(true)`.
 6. In the same file, add `extension Color` nothing new; use system colours directly.
 7. Verify.
 
@@ -347,15 +347,15 @@ Ordering: assets and tokens first (no dependencies), then model presentation sta
 
 ### Group D: browser and selection views (depends on LibraryBrowser, LibraryItem from the other agent)
 
-12. Create `PhotoExportApp/Views/LibraryBrowserView.swift`: LazyVGrid with adaptive columns (min 96, spacing 2), `ScrollView`. Use `LibraryBrowser.count`, `item(at:)`, `thumbnail(for:pixelSize:)`. Three states from `LibraryBrowser.state`.
-13. Create `PhotoExportApp/Views/SelectionMark.swift`: the selection circle (unselected ring, selected accent fill with white check, Increase Contrast border). `.accessibilityHidden(true)` because the cell carries the label.
+12. Create `Uncloud/Views/LibraryBrowserView.swift`: LazyVGrid with adaptive columns (min 96, spacing 2), `ScrollView`. Use `LibraryBrowser.count`, `item(at:)`, `thumbnail(for:pixelSize:)`. Three states from `LibraryBrowser.state`.
+13. Create `Uncloud/Views/SelectionMark.swift`: the selection circle (unselected ring, selected accent fill with white check, Increase Contrast border). `.accessibilityHidden(true)` because the cell carries the label.
 14. Each cell: `Button` with the thumbnail, the mark at top-trailing, and `.accessibilityLabel(filename)` plus `.accessibilityValue(selected ? "Selected" : "Not selected")` and `.accessibilityAddTraits(.isToggle)`. Click calls `model.toggleSelection(item.id)` (add this one-line method to ExportModel, calling LibrarySelection.toggle).
 15. Add `Select All` and `Deselect All` methods to ExportModel calling `selectAll()` and `deselectAll()` on LibrarySelection, and a `selectedCountText`.
 16. Verify.
 
 ### Group E: sidebar window (new root view)
 
-17. Create `PhotoExportApp/Views/LibraryWindow.swift`: `NavigationSplitView` with a sidebar `List(selection:)` of an enum `Pane { library, backup }`. Sidebar rows use IconTile for Library and Backup, and a `.badge` for the export percentage while running.
+17. Create `Uncloud/Views/LibraryWindow.swift`: `NavigationSplitView` with a sidebar `List(selection:)` of an enum `Pane { library, backup }`. Sidebar rows use IconTile for Library and Backup, and a `.badge` for the export percentage while running.
 18. Detail: `switch` on the pane, calling `LibraryBrowserView` or `BackupPane`.
 19. Sidebar footer: account pop-up `Menu` with Switch Source, Sign In… (opens the iCloud sheet), Sign Out… (opens the confirmation dialog). Icon tile for iCloud or Photos.
 20. Empty state (no source ready): `ContentUnavailableView` with title "Connect Your Photos", description with the privacy sentence, and two buttons: "iCloud Photos…" (prominent) and "Photos on This Mac" (bordered). Calls existing `model.source = …` and the existing sign-in or `connectPhotoLibrary()`.
@@ -364,7 +364,7 @@ Ordering: assets and tokens first (no dependencies), then model presentation sta
 
 ### Group F: Backup pane (merges Home, Export, Setup destination and layout)
 
-23. Create `PhotoExportApp/Views/BackupPane.swift`: a `Form` with sections: Save To (destination row with `Choose Folder…` and Show in Finder with the `folder` symbol, not magnifyingglass), Status (last backup, incomplete run notice, destination issue), Progress (existing ProgressCard restyled, and Pause/Resume and Cancel buttons), Tools (Verify Backup…, Free Up Space… only when `showsFreeUpSpace`), Activity (existing ActivitySection, drop the fixed 160pt height and use `.frame(minHeight: 120)`).
+23. Create `Uncloud/Views/BackupPane.swift`: a `Form` with sections: Save To (destination row with `Choose Folder…` and Show in Finder with the `folder` symbol, not magnifyingglass), Status (last backup, incomplete run notice, destination issue), Progress (existing ProgressCard restyled, and Pause/Resume and Cancel buttons), Tools (Verify Backup…, Free Up Space… only when `showsFreeUpSpace`), Activity (existing ActivitySection, drop the fixed 160pt height and use `.frame(minHeight: 120)`).
 24. Replace ExportControls and DestinationHeader usage with BackupPane. Keep the files until group G, then delete them.
 25. Verify.
 
@@ -373,17 +373,17 @@ Ordering: assets and tokens first (no dependencies), then model presentation sta
 26. Edit `Views/SettingsView.swift`: remove the LibrarySourceSection, add an Export section with the FolderLayout picker and the metadata toggle (moved from SetupView), add a destination row with Choose Folder…, remove the dead-end text, make "Show in menu bar" always enabled.
 27. Edit `App/ExportCommands.swift`: remove the Go menu entirely. In File: Choose Backup Folder… ⌘O, Sign Out… (enabled when signed in and not exporting). In Export: Export Selected ⌘R (title from primaryExportTitle), Export All Photos ⌥⌘R, Pause/Resume ⌘P, Cancel Export ⌘., Verify Backup…, Free Up Space… (hidden for iCloud). Replace Help: Getting Started (sheet, see group H). Add an Edit replacement: Select All ⌘A, Deselect All ⇧⌘A (replacing the system pasteboard Select All group; check that text fields still get ⌘A, see the open question below).
 28. Add View menu items: Library ⌘1, Backup ⌘2 (set `model.pane`, see group E).
-29. Edit `Views/MenuBarContent.swift`: status line, Back Up Now, Open Photo Export, Settings…, Quit. Remove nothing else.
+29. Edit `Views/MenuBarContent.swift`: status line, Back Up Now, Open Uncloud, Settings…, Quit. Remove nothing else.
 30. Verify.
 
 ### Group H: getting started sheet
 
-31. Create `PhotoExportApp/Views/GettingStartedSheet.swift`: the four onboarding texts from `OnboardingPage.all` in a scrollable list, one "Done" button (`.defaultAction`, `.keyboardShortcut(.cancelAction)` too via a second button or ESC by default). Reuse `OnboardingPage.all` as-is.
+31. Create `Uncloud/Views/GettingStartedSheet.swift`: the four onboarding texts from `OnboardingPage.all` in a scrollable list, one "Done" button (`.defaultAction`, `.keyboardShortcut(.cancelAction)` too via a second button or ESC by default). Reuse `OnboardingPage.all` as-is.
 32. Verify.
 
 ### Group I: removal (last, after the new views build)
 
-33. Edit `App/PhotoExportApp.swift`: replace `ContentView()` with `LibraryWindow()`, keep `.backupToolSheets()` and the environments.
+33. Edit `App/UncloudApp.swift`: replace `ContentView()` with `LibraryWindow()`, keep `.backupToolSheets()` and the environments.
 34. Edit `Views/ContentView.swift`: delete the toolbar Back, Forward and Home. Either delete the file or reduce it to the fileImporter and iCloud sheet modifiers that LibraryWindow needs. Recommended: move the modifiers into LibraryWindow, then delete ContentView.swift.
 35. Delete the files: WelcomeView.swift, OnboardingView.swift (keep OnboardingPage.swift as the source for the sheet), ConnectView.swift (its PhotosAccessView content moves into the empty state), HomeView.swift, OverviewView.swift, ThumbnailMosaic.swift (only after the other agent confirms it is unused), SetupView.swift, ExportView.swift, ExportControls.swift, DestinationHeader.swift, LibrarySourceSection.swift. Run `xcodegen generate` after deletes.
 36. Edit `Model/ExportModel.swift`: delete the `Step` enum and the `Screen` struct and the navigation methods (goBack, goForward, goHome, showOverview, showExport, showWelcome, startOnboarding, nextOnboardingPage, finishOnboarding, continueToSetup, updateStepForReadiness, screen(after:), screen(before:), canGoBack, canGoForward, canGoHome, isLastOnboardingPage, requestICloudSignOut). Replace `step` with `pane: Pane`. Keep `UserDefaults` keys for compatibility; drop `onboardingKey` logic or keep it only to skip the first-run empty state. Do this in a separate commit-sized change, since it touches every view.

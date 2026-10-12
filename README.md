@@ -1,27 +1,27 @@
-# Photo Export
+# Uncloud
 
 A macOS 14+ SwiftUI app that copies your whole photo library, including originals, edits, RAW pairs and Live Photo videos, into a folder or external drive you choose. Items stored only in iCloud are downloaded as needed.
 
 ## Build
 
-Open `PhotoExportApp.xcodeproj` in Xcode, set your team under Signing & Capabilities, and run. The project is generated from `project.yml`; after changing it, regenerate with:
+Open `Uncloud.xcodeproj` in Xcode, set your team under Signing & Capabilities, and run. The project is generated from `project.yml`; after changing it, regenerate with:
 
 ```sh
 brew install xcodegen   # once
 xcodegen generate
 ```
 
-The app bundles [icloudpd](https://github.com/icloud-photos-downloader/icloud_photos_downloader) (MIT) to sign in to iCloud and download photos directly. The first build runs `scripts/build-icloudpd.sh`. The script downloads a pinned, checksum-verified standalone Python ([python-build-standalone](https://github.com/astral-sh/python-build-standalone)) and the pinned icloudpd source, then builds them into `Vendor/icloudpd-runtime/`. That folder isn't committed. The build step copies the runtime into the app's Resources and signs it. Its interpreter inherits the app's sandbox (`PhotoExportApp/Helper.entitlements`).
+The app bundles [icloudpd](https://github.com/icloud-photos-downloader/icloud_photos_downloader) (MIT) to sign in to iCloud and download photos directly. The first build runs `scripts/build-icloudpd.sh`. The script downloads a pinned, checksum-verified standalone Python ([python-build-standalone](https://github.com/astral-sh/python-build-standalone)) and the pinned icloudpd source, then builds them into `Vendor/icloudpd-runtime/`. That folder isn't committed. The build step copies the runtime into the app's Resources and signs it. Its interpreter inherits the app's sandbox (`Uncloud/Helper.entitlements`).
 
 Two details are needed to make it work inside the sandbox:
 - icloudpd is installed from source. The PyPI wheels wrap a PyInstaller binary whose launcher uses System V semaphores, which the sandbox forbids.
 - A small launcher replaces icloudpd's `multiprocessing.Lock` with a thread lock, because named POSIX semaphores are forbidden too.
 
-Change `PRODUCT_BUNDLE_IDENTIFIER` (currently `com.example.PhotoExportApp`) before you distribute the app.
+Change `PRODUCT_BUNDLE_IDENTIFIER` (currently `com.example.Uncloud`) before you distribute the app.
 
 ## Flow
 
-On first launch, a welcome screen and a four-page introduction carousel come before the steps below. **Help → Welcome to Photo Export** replays them. Back and Forward in the toolbar (⌘[ / ⌘]) move between screens, and Forward revisits screens you've already seen, like a browser.
+On first launch, a welcome screen and a four-page introduction carousel come before the steps below. **Help → Welcome to Uncloud** replays them. Back and Forward in the toolbar (⌘[ / ⌘]) move between screens, and Forward revisits screens you've already seen, like a browser.
 
 1. **Connect:** grant access to the photo library. With iCloud Photos turned on in Photos, this includes your iCloud library. The app never asks for Apple ID credentials.
 2. **Overview:** the item count and an animated preview of up to 5,000 recent thumbnails.

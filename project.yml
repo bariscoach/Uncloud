@@ -1,4 +1,4 @@
-name: PhotoExportApp
+name: Uncloud
 options:
   bundleIdPrefix: com.example
   deploymentTarget:
@@ -8,26 +8,26 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     ASSET_CATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    MARKETING_VERSION: "1.0"
+    MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:
-  PhotoExportApp:
+  Uncloud:
     type: application
     platform: macOS
     sources:
-      - path: PhotoExportApp
+      - path: Uncloud
         excludes:
           # photo_bridge.py is copied into the embedded runtime by "Embed icloudpd runtime".
           - "Helper/**"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.PhotoExportApp
-        PRODUCT_NAME: PhotoExportApp
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.Uncloud
+        PRODUCT_NAME: Uncloud
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Photo Export
+        INFOPLIST_KEY_CFBundleDisplayName: Uncloud
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Photo Export reads your photo library so it can copy your photos and videos to the folder you choose.
-        CODE_SIGN_ENTITLEMENTS: PhotoExportApp/PhotoExportApp.entitlements
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Uncloud reads your photo library so it can copy your photos and videos to the folder you choose.
+        CODE_SIGN_ENTITLEMENTS: Uncloud/Uncloud.entitlements
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: YES
     preBuildScripts:
@@ -39,7 +39,7 @@ targets:
         basedOnDependencyAnalysis: false
         inputFiles:
           - $(SRCROOT)/Vendor/icloudpd-runtime
-          - $(SRCROOT)/PhotoExportApp/Helper/photo_bridge.py
+          - $(SRCROOT)/Uncloud/Helper/photo_bridge.py
         script: |
           set -eu
           SRC="$SRCROOT/Vendor/icloudpd-runtime"
@@ -57,7 +57,7 @@ targets:
           rsync -a --delete --exclude .stamp "$SRC/" "$DEST/"
           # The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain
           # resource, sealed by the app's signature like the rest of the runtime's Python files.
-          cp "$SRCROOT/PhotoExportApp/Helper/photo_bridge.py" "$DEST/photo_bridge.py"
+          cp "$SRCROOT/Uncloud/Helper/photo_bridge.py" "$DEST/photo_bridge.py"
           INTERPRETER="$DEST/python/bin/python3.13"
           # Sign the libraries and extension modules first, then the interpreter. Only the
           # interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.
@@ -67,26 +67,26 @@ targets:
               fi
           done
           codesign --force --timestamp=none $RUNTIME -s "$IDENTITY" \
-              --entitlements "$SRCROOT/PhotoExportApp/Helper.entitlements" "$INTERPRETER"
-  PhotoExportAppTests:
+              --entitlements "$SRCROOT/Uncloud/Helper.entitlements" "$INTERPRETER"
+  UncloudTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: PhotoExportAppTests
+      - path: UncloudTests
     dependencies:
-      - target: PhotoExportApp
+      - target: Uncloud
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.PhotoExportAppTests
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/PhotoExportApp.app/Contents/MacOS/PhotoExportApp"
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.UncloudTests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Uncloud.app/Contents/MacOS/Uncloud"
         BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
-  PhotoExportApp:
+  Uncloud:
     build:
       targets:
-        PhotoExportApp: all
-        PhotoExportAppTests: [test]
+        Uncloud: all
+        UncloudTests: [test]
     test:
       targets:
-        - PhotoExportAppTests
+        - UncloudTests

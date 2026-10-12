@@ -8,4 +8,4 @@ if [ ! -x "$PYTHON" ]; then
     echo "error: $PYTHON is missing; run scripts/build-icloudpd.sh" >&2
     exit 1
 fi
-exec "$PYTHON" -I -B "$REPO_ROOT/PhotoExportAppTests/Bridge/test_bridge.py" "$REPO_ROOT/PhotoExportApp/Helper/photo_bridge.py"
+exec "$PYTHON" -I -B "$REPO_ROOT/UncloudTests/Bridge/test_bridge.py" "$REPO_ROOT/Uncloud/Helper/photo_bridge.py"
