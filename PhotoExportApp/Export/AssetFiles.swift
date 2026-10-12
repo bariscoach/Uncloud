@@ -17,8 +17,6 @@ struct AssetFiles {
     ]
 
     let displayName: String
-    /// Relative folder inside the destination, such as `2024/07`.
-    let folderPath: String
     let items: [Item]
 
     init(asset: PHAsset) {
@@ -37,16 +35,13 @@ struct AssetFiles {
 
         displayName = primaryName
         self.items = items
-        if let date = asset.creationDate {
-            let parts = Calendar.current.dateComponents([.year, .month], from: date)
-            folderPath = String(format: "%04d/%02d", parts.year ?? 0, parts.month ?? 0)
-        } else {
-            folderPath = "Undated"
-        }
     }
 
     private static func sanitized(_ filename: String) -> String {
-        var name = filename.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        // Tabs and line breaks would corrupt the manifest's tab-separated lines.
+        var name = filename.components(separatedBy: .controlCharacters).joined(separator: " ")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
         while name.hasPrefix(".") {
             name.removeFirst()
         }

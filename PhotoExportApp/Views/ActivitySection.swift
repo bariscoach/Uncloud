@@ -18,7 +18,7 @@ struct ActivitySection: View {
                     .listStyle(.bordered(alternatesRowBackgrounds: true))
                 }
             }
-            .frame(height: 160)
+            .frame(minHeight: 120, maxHeight: 240)
             .padding(.top, 8)
         } label: {
             Text("Activity")

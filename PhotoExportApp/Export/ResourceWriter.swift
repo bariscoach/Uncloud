@@ -5,28 +5,42 @@ import Photos
 /// Streams one asset resource to disk, downloading it from iCloud if needed.
 /// Data goes to a hidden `.partial` file that's renamed only once complete.
 enum ResourceWriter {
-    static func write(_ resource: PHAssetResource, to url: URL) async throws {
+    /// Returns the file's SHA-256, after re-reading it from disk to confirm it matches what Photos delivered.
+    @discardableResult
+    static func write(_ resource: PHAssetResource, to url: URL) async throws -> String {
         let partial = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).partial")
         guard FileManager.default.createFile(atPath: partial.path(percentEncoded: false), contents: nil) else {
             throw CocoaError(.fileWriteNoPermission, userInfo: [NSURLErrorKey: partial])
         }
+        let hasher = StreamingHasher()
         do {
             let handle = try FileHandle(forWritingTo: partial)
             do {
-                try await download(resource, into: handle)
+                try await download(resource, into: handle, hasher: hasher)
                 try handle.close()
             } catch {
                 try? handle.close()
                 throw error
             }
             try FileManager.default.moveItem(at: partial, to: url)
+            let streamed = hasher.finalizeHex()
+            do {
+                let written = try FileHasher.sha256(of: url)
+                guard written == streamed else {
+                    throw ChecksumError.mismatch(filename: url.lastPathComponent)
+                }
+                return written
+            } catch {
+                try? FileManager.default.removeItem(at: url)
+                throw error
+            }
         } catch {
             try? FileManager.default.removeItem(at: partial)
             throw error
         }
     }
 
-    private static func download(_ resource: PHAssetResource, into handle: FileHandle) async throws {
+    private static func download(_ resource: PHAssetResource, into handle: FileHandle, hasher: StreamingHasher) async throws {
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
         let request = DataRequest()
@@ -36,6 +50,7 @@ enum ResourceWriter {
                 let id = PHAssetResourceManager.default().requestData(for: resource, options: options) { data in
                     do {
                         try handle.write(contentsOf: data)
+                        hasher.update(data)
                     } catch {
                         request.fail(with: error)
                     }

@@ -1,41 +1,82 @@
 import SwiftUI
 
+/// Export progress for the Backup pane: percentage, bar, counts, time left, status, and the run controls.
 struct ProgressCard: View {
     @Environment(ExportModel.self) private var model
 
     var body: some View {
-        GroupBox {
-            VStack(spacing: 12) {
-                Text(Double(Int(model.fractionComplete * 100)) / 100, format: .percent)
-                    .font(.largeTitle.weight(.semibold))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
+        VStack(alignment: .leading, spacing: 12) {
+            Text(Double(Int(model.fractionComplete * 100)) / 100, format: .percent)
+                .font(.title.weight(.semibold))
+                .monospacedDigit()
+                .contentTransition(.numericText())
 
-                if model.phase == .preparing {
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                } else {
-                    ProgressView(value: model.fractionComplete)
-                }
-
-                HStack {
-                    Text("\(model.processedCount) of ^[\(model.totalCount) item](inflect: true)")
-                        .monospacedDigit()
-                    Spacer()
-                    if let timeRemaining {
-                        Text(timeRemaining)
-                    }
-                }
-                .font(.body)
-                .foregroundStyle(.secondary)
-
-                status
-                    .font(.callout)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if model.phase == .preparing {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(tint)
+            } else {
+                ProgressView(value: model.fractionComplete)
+                    .tint(tint)
+                    .accessibilityLabel("Export progress")
             }
-            .padding(8)
+
+            HStack {
+                Text("\(model.processedCount.formatted()) of ^[\(model.totalCount) item](inflect: true)")
+                    .monospacedDigit()
+                Spacer()
+                if let timeRemaining {
+                    Text(timeRemaining)
+                }
+            }
+            .foregroundStyle(.secondary)
+
+            status
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if model.canPause || model.phase == .paused || model.canCancel {
+                HStack {
+                    if model.canPause || model.phase == .paused {
+                        Button {
+                            if model.phase == .paused {
+                                model.startOrResume()
+                            } else {
+                                model.pause()
+                            }
+                        } label: {
+                            Label(model.phase == .paused ? "Resume" : "Pause",
+                                  systemImage: model.phase == .paused ? "play.fill" : "pause.fill")
+                        }
+                        .disabled(model.phase != .paused && !model.canPause)
+                    }
+                    if model.canCancel {
+                        Button {
+                            model.cancel()
+                        } label: {
+                            Label("Cancel Export", systemImage: "xmark")
+                        }
+                    }
+                    Spacer()
+                }
+                .buttonStyle(.bordered)
+            }
         }
-        .accessibilityElement(children: .combine)
+        .padding(.vertical, 4)
+    }
+
+    /// Accent while running, grey when paused, green when complete and orange when something failed.
+    private var tint: Color {
+        switch model.phase {
+        case .paused:
+            .secondary
+        case .completed where model.failedCount == 0:
+            .green
+        case .completed, .failed:
+            .orange
+        default:
+            .accentColor
+        }
     }
 
     private var timeRemaining: String? {
@@ -51,10 +92,7 @@ struct ProgressCard: View {
     private var status: some View {
         switch model.phase {
         case .idle:
-            if model.authorization == .notDetermined {
-                Label("You’ll be asked for access to your photo library when you start.", systemImage: "info.circle")
-                    .foregroundStyle(.secondary)
-            } else if model.hasIncompleteRun {
+            if model.hasIncompleteRun {
                 Label("A previous export didn’t finish. Resume to continue where it left off.", systemImage: "info.circle")
                     .foregroundStyle(.secondary)
             } else if model.totalCount > 0, model.processedCount == model.totalCount {

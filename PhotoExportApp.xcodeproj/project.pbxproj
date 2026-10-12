@@ -7,46 +7,146 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		046CAF8336B8F7F2180DFEB5 /* IconTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99255503A8D74EF93EAD8E69 /* IconTile.swift */; };
 		0658F1E66D5FC2CDC75EAC51 /* ResourceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843596D92C37BE702983F1FB /* ResourceWriter.swift */; };
+		0670BA46A90FF4C5A69260A9 /* ICloudHelperProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96EA6AD3578491146C239C27 /* ICloudHelperProcess.swift */; };
+		0B7C4CEE32AD6C90E28B5251 /* FileHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4AC2F27007629E785D5B3A1 /* FileHasher.swift */; };
+		0E33A8516E8CB13FA2370252 /* BackupToolSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64593FAC7FFD7BC1F4376D49 /* BackupToolSheets.swift */; };
+		0FCF1A3C7540ABFAB6A9CDC4 /* BackupFilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BF630CD35CB7160369A551 /* BackupFilesTests.swift */; };
+		1236AB23753158541CDCF8B2 /* FolderLayoutAndSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CC8E5DEB816B1059AB35742 /* FolderLayoutAndSelectionTests.swift */; };
+		127F6954DE810F4120038A6E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B0B4CE37DC254D1F6BB09393 /* Assets.xcassets */; };
+		140124A591F66A2E68A5ECBF /* ExportManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8721A5383B2D9CA77218C12C /* ExportManifestTests.swift */; };
+		155906FC46FF91B5AB5D6A51 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4526281BDF122BFECA94CFD9 /* SettingsView.swift */; };
+		20D834E7945F458FF98CC490 /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DA09E7874EDF61EE26F1D49 /* LibraryWindow.swift */; };
+		240A447F9BE174DCA6603BF5 /* ICloudSignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE6EB5E37521C6434458F26C /* ICloudSignInSheet.swift */; };
 		2C1A77C99D9523D98601EFFF /* ProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93ABD43C0D09E595D6A7B4DE /* ProgressCard.swift */; };
+		3681C40565284609CE8C64EE /* BackupVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAAC84021BBA5802ADE53F08 /* BackupVerification.swift */; };
 		42ACD143D8988625477F917A /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851A7A59582C5B5FB6B904D3 /* PhotoLibrary.swift */; };
+		437FE83A3F3F25EC6A1B4699 /* AssetMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C196C3E32ACE5E24D91E96 /* AssetMetadata.swift */; };
 		4530275A1DDDB31AC847CB2C /* ExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEC69A11D238A1394A3C797B /* ExportModel.swift */; };
 		45A933C429D023C7A8739096 /* ActivitySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FEA721F1886DC0A6EBB0398 /* ActivitySection.swift */; };
+		4B3D6EADC7F3545F9DF02BA4 /* ICloudBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED8866441F5099DEBB56D27 /* ICloudBridge.swift */; };
+		5AD99345B45FB11387393663 /* ICloudCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD4AFF6049C8649B33DD6F3F /* ICloudCredentialStore.swift */; };
 		5B16FF0B7C542F07E25833E2 /* ExportManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A594C0C02DB1CDF03A0DAB1 /* ExportManifest.swift */; };
 		5C72A0EB5E8781A74F7593B9 /* ActivityEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 738E3C6AADD5ADCAF5D3ADB5 /* ActivityEntry.swift */; };
-		7BA4348EEE524E783BD14AED /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA69F97B3F6B09556F060151 /* ContentView.swift */; };
+		5E578E3C3AE33B3C70CB7CB8 /* OnboardingPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB148C6D0E91106A2A15436 /* OnboardingPage.swift */; };
+		62CEE390857A53EFE7EBC342 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4CD638F7A0DC14B3FB0029 /* TestSupport.swift */; };
+		66B3003B9CC8E50452CD3E1B /* HelperProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A259C265A6860C3D162C5A /* HelperProbe.swift */; };
+		6709E132B4AD31A50C58FA68 /* ICloudExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A0F43529082511158EEAE5C /* ICloudExportEngine.swift */; };
+		6C21EA08115576A5C2630283 /* PlaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10C38AAB1175C2993EDC2A51 /* PlaceResolver.swift */; };
+		716A78678142C27615818DB6 /* AlbumIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D4943F109C43C55230642B1 /* AlbumIndex.swift */; };
+		783EEBE80FB00FD28DF68378 /* ICloudPageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0A07F1552269C30225511F /* ICloudPageCache.swift */; };
+		79A555D6651C00AF8F432B75 /* FolderLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9BAD1C88620EFBB9A10FB32 /* FolderLayout.swift */; };
 		7CB5ABE808892F12C089EBC1 /* AssetFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D123EFA4642C14B0EBF01F /* AssetFiles.swift */; };
-		9C895D2E18CB2999DE15F2A0 /* ExportControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA53983148881577BA0AD932 /* ExportControls.swift */; };
+		7CD3C9D2A52B0DFF9FC7C58E /* XMPSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB473421C3BA5DE6765039D /* XMPSidecar.swift */; };
+		7E30F0AE7DA595F01AA198A9 /* FreeUpSpaceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD8860FE2B8B78DF62E5EA7E /* FreeUpSpaceSheet.swift */; };
+		8885641B8FC6038CB94586A5 /* AutoBackupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5F20A04D9E6E872B3B84FC /* AutoBackupSettings.swift */; };
+		8C1AB9C356E3FFA18DAFE5C3 /* LibrarySelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C8925A8006F3B46B503FE78 /* LibrarySelection.swift */; };
+		9745C5A8DC9846307C52D0E7 /* ICloudSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2680BFB081C7B620E1372EA /* ICloudSignIn.swift */; };
+		9EBE70BD0F30A1A5F59426E4 /* ICloudOutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17206A76BC2748B1EDA68FBB /* ICloudOutputParser.swift */; };
+		A037D379241E083F67B5333E /* ICloudPageCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB88D6C2C19CCB7C290A67F /* ICloudPageCacheTests.swift */; };
 		A07F4E592739224142A0BEB2 /* ExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16B534A50D033BE1E3EE6C58 /* ExportEngine.swift */; };
+		A14100DEE942F5DD489DAE3B /* LibraryCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B378E2F6084A6985DE8E87 /* LibraryCleanup.swift */; };
+		A6510E90D03260C36DA3B1B7 /* LibrarySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EEC5DE7015C7F2F4BE27513 /* LibrarySource.swift */; };
+		A6CCC6F9E6DF73F6B7C45611 /* GettingStartedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2413C7A001BED89E9201BE29 /* GettingStartedView.swift */; };
+		A80B74B78DE033A029B03B7C /* XMPSidecarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3B0B7726A414CDDCB8C4810 /* XMPSidecarTests.swift */; };
+		B13893C40E394785999A748F /* AutoBackupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B59CA2DF5FD7451C3B36F93C /* AutoBackupController.swift */; };
 		B76C8CB3AB6E7175FC0ADE78 /* PhotosAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB74B9F81A26C01725A5BCB /* PhotosAccessView.swift */; };
 		B82D91DCB2A0592C3395FAA9 /* PhotoExportApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83BD22597DEA3582F1BFD39E /* PhotoExportApp.swift */; };
-		BB14F998BA648781AF7D46E3 /* DestinationHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303A3821140A3C38D991FE41 /* DestinationHeader.swift */; };
+		C084D8C461688C363F5BA4E6 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C4FEC1DE11E64A4551B493 /* LibraryView.swift */; };
+		C195EE67656C83519C5D9749 /* BackupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = F62A8EE2065B81C71F0A7A45 /* BackupPane.swift */; };
+		C7B31FE90E0B658375FA0EC3 /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF66B387CF244BBAEF37CD4 /* MenuBarContent.swift */; };
 		C97C95C5CF72D5D118A2A977 /* PauseGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A8267D32EDEFAC4D3AA827 /* PauseGate.swift */; };
+		CD5C67D0FEC1B0348948EB07 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4649006A4B34F9B336A5CC30 /* WelcomeView.swift */; };
+		D100DCF1EAD5A6F64E85AB65 /* ICloudLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0ADB86A72202DC3697CF73 /* ICloudLibrary.swift */; };
 		D2F1EB09BA29172531685119 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FADFA91732682BB675B5ABE /* Destination.swift */; };
+		D57C763B00B29A8E5B132B5B /* VerifyBackupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11E89365373522AB738DC8A /* VerifyBackupSheet.swift */; };
+		D7EE7836104C1D05E0FFCDA1 /* ICloudOutputParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA5CCB2D72BC20F91FC3D959 /* ICloudOutputParserTests.swift */; };
+		DBE81948911FB27F77D10105 /* LibraryBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5D61B3CB453C2DE9334B1B8 /* LibraryBrowser.swift */; };
+		DCD03D8A8886C49C7CD83F7D /* BackupVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEEB927F495D222173A7DF0 /* BackupVerifier.swift */; };
 		DE2BB5765A7324886F1A5B36 /* SessionClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16011E5C865358C6650B0349 /* SessionClock.swift */; };
 		E58E49A4D69E7D48AEC30027 /* ExportCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D267DAED58888BAA24553B /* ExportCommands.swift */; };
+		ECC533C3B95325D38205B24F /* BackupTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = D409384CCE3B367AC8832479 /* BackupTools.swift */; };
+		FEF51222B60577259EA3286C /* ICloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69225D8ECEA3F065BB09EC20 /* ICloudAccount.swift */; };
+		FFCB7C7E47AB90F0C3F15AE6 /* BackupFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12F5463736FE0AA656B3A63 /* BackupFiles.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		0AA73988E54C853F08BF8605 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = ABEA5A2901625B57842A0B8F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B74AF607AF5C3458CBF820AB;
+			remoteInfo = PhotoExportApp;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		0FADFA91732682BB675B5ABE /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
+		10C38AAB1175C2993EDC2A51 /* PlaceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceResolver.swift; sourceTree = "<group>"; };
+		15C4FEC1DE11E64A4551B493 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		16011E5C865358C6650B0349 /* SessionClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionClock.swift; sourceTree = "<group>"; };
 		16B534A50D033BE1E3EE6C58 /* ExportEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportEngine.swift; sourceTree = "<group>"; };
+		17206A76BC2748B1EDA68FBB /* ICloudOutputParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudOutputParser.swift; sourceTree = "<group>"; };
+		1FB88D6C2C19CCB7C290A67F /* ICloudPageCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudPageCacheTests.swift; sourceTree = "<group>"; };
 		1FEA721F1886DC0A6EBB0398 /* ActivitySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivitySection.swift; sourceTree = "<group>"; };
-		303A3821140A3C38D991FE41 /* DestinationHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationHeader.swift; sourceTree = "<group>"; };
+		2413C7A001BED89E9201BE29 /* GettingStartedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GettingStartedView.swift; sourceTree = "<group>"; };
+		2E0ADB86A72202DC3697CF73 /* ICloudLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudLibrary.swift; sourceTree = "<group>"; };
 		35A8267D32EDEFAC4D3AA827 /* PauseGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseGate.swift; sourceTree = "<group>"; };
+		3AB473421C3BA5DE6765039D /* XMPSidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPSidecar.swift; sourceTree = "<group>"; };
+		3C8925A8006F3B46B503FE78 /* LibrarySelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySelection.swift; sourceTree = "<group>"; };
+		4526281BDF122BFECA94CFD9 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		4649006A4B34F9B336A5CC30 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		47A259C265A6860C3D162C5A /* HelperProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProbe.swift; sourceTree = "<group>"; };
 		51D267DAED58888BAA24553B /* ExportCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportCommands.swift; sourceTree = "<group>"; };
 		5BADB5B4A30D0FC8DB17245D /* PhotoExportApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PhotoExportApp.entitlements; sourceTree = "<group>"; };
+		5C4CD638F7A0DC14B3FB0029 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		5DA09E7874EDF61EE26F1D49 /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWindow.swift; sourceTree = "<group>"; };
+		62BF630CD35CB7160369A551 /* BackupFilesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupFilesTests.swift; sourceTree = "<group>"; };
+		64593FAC7FFD7BC1F4376D49 /* BackupToolSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupToolSheets.swift; sourceTree = "<group>"; };
+		69225D8ECEA3F065BB09EC20 /* ICloudAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudAccount.swift; sourceTree = "<group>"; };
 		6A594C0C02DB1CDF03A0DAB1 /* ExportManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportManifest.swift; sourceTree = "<group>"; };
+		6CC8E5DEB816B1059AB35742 /* FolderLayoutAndSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderLayoutAndSelectionTests.swift; sourceTree = "<group>"; };
+		6D4943F109C43C55230642B1 /* AlbumIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumIndex.swift; sourceTree = "<group>"; };
+		72C196C3E32ACE5E24D91E96 /* AssetMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetMetadata.swift; sourceTree = "<group>"; };
 		738E3C6AADD5ADCAF5D3ADB5 /* ActivityEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityEntry.swift; sourceTree = "<group>"; };
+		7C0A07F1552269C30225511F /* ICloudPageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudPageCache.swift; sourceTree = "<group>"; };
+		7D6FD43250F2F7D127C4C87C /* PhotoExportAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PhotoExportAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		83BD22597DEA3582F1BFD39E /* PhotoExportApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoExportApp.swift; sourceTree = "<group>"; };
 		843596D92C37BE702983F1FB /* ResourceWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceWriter.swift; sourceTree = "<group>"; };
 		851A7A59582C5B5FB6B904D3 /* PhotoLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
+		8721A5383B2D9CA77218C12C /* ExportManifestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportManifestTests.swift; sourceTree = "<group>"; };
+		8ED8866441F5099DEBB56D27 /* ICloudBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudBridge.swift; sourceTree = "<group>"; };
+		91D0B9D987C25883A9F8F2F8 /* Helper.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Helper.entitlements; sourceTree = "<group>"; };
 		93ABD43C0D09E595D6A7B4DE /* ProgressCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressCard.swift; sourceTree = "<group>"; };
+		96EA6AD3578491146C239C27 /* ICloudHelperProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudHelperProcess.swift; sourceTree = "<group>"; };
+		99255503A8D74EF93EAD8E69 /* IconTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconTile.swift; sourceTree = "<group>"; };
+		9A0F43529082511158EEAE5C /* ICloudExportEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudExportEngine.swift; sourceTree = "<group>"; };
 		9DB74B9F81A26C01725A5BCB /* PhotosAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosAccessView.swift; sourceTree = "<group>"; };
+		9EEC5DE7015C7F2F4BE27513 /* LibrarySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySource.swift; sourceTree = "<group>"; };
+		A12F5463736FE0AA656B3A63 /* BackupFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupFiles.swift; sourceTree = "<group>"; };
+		B0B4CE37DC254D1F6BB09393 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B59CA2DF5FD7451C3B36F93C /* AutoBackupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoBackupController.swift; sourceTree = "<group>"; };
+		B6B378E2F6084A6985DE8E87 /* LibraryCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCleanup.swift; sourceTree = "<group>"; };
+		BFB148C6D0E91106A2A15436 /* OnboardingPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPage.swift; sourceTree = "<group>"; };
+		C11E89365373522AB738DC8A /* VerifyBackupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerifyBackupSheet.swift; sourceTree = "<group>"; };
+		C3B0B7726A414CDDCB8C4810 /* XMPSidecarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPSidecarTests.swift; sourceTree = "<group>"; };
+		C4AC2F27007629E785D5B3A1 /* FileHasher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHasher.swift; sourceTree = "<group>"; };
 		C4D123EFA4642C14B0EBF01F /* AssetFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetFiles.swift; sourceTree = "<group>"; };
-		EA53983148881577BA0AD932 /* ExportControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportControls.swift; sourceTree = "<group>"; };
-		EA69F97B3F6B09556F060151 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C9BAD1C88620EFBB9A10FB32 /* FolderLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderLayout.swift; sourceTree = "<group>"; };
+		CBF66B387CF244BBAEF37CD4 /* MenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarContent.swift; sourceTree = "<group>"; };
+		CD4AFF6049C8649B33DD6F3F /* ICloudCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudCredentialStore.swift; sourceTree = "<group>"; };
+		D409384CCE3B367AC8832479 /* BackupTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupTools.swift; sourceTree = "<group>"; };
+		DD8860FE2B8B78DF62E5EA7E /* FreeUpSpaceSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeUpSpaceSheet.swift; sourceTree = "<group>"; };
+		DE6EB5E37521C6434458F26C /* ICloudSignInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSignInSheet.swift; sourceTree = "<group>"; };
+		DF5F20A04D9E6E872B3B84FC /* AutoBackupSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoBackupSettings.swift; sourceTree = "<group>"; };
+		E2680BFB081C7B620E1372EA /* ICloudSignIn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSignIn.swift; sourceTree = "<group>"; };
+		EAAC84021BBA5802ADE53F08 /* BackupVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupVerification.swift; sourceTree = "<group>"; };
+		EEEEB927F495D222173A7DF0 /* BackupVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupVerifier.swift; sourceTree = "<group>"; };
+		F5D61B3CB453C2DE9334B1B8 /* LibraryBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryBrowser.swift; sourceTree = "<group>"; };
+		F62A8EE2065B81C71F0A7A45 /* BackupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupPane.swift; sourceTree = "<group>"; };
 		F9650E722AB103F86A7391E3 /* PhotoExportApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoExportApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FA5CCB2D72BC20F91FC3D959 /* ICloudOutputParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudOutputParserTests.swift; sourceTree = "<group>"; };
 		FEC69A11D238A1394A3C797B /* ExportModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -55,22 +155,56 @@
 			isa = PBXGroup;
 			children = (
 				738E3C6AADD5ADCAF5D3ADB5 /* ActivityEntry.swift */,
+				B59CA2DF5FD7451C3B36F93C /* AutoBackupController.swift */,
+				DF5F20A04D9E6E872B3B84FC /* AutoBackupSettings.swift */,
+				A12F5463736FE0AA656B3A63 /* BackupFiles.swift */,
+				D409384CCE3B367AC8832479 /* BackupTools.swift */,
+				EAAC84021BBA5802ADE53F08 /* BackupVerification.swift */,
 				0FADFA91732682BB675B5ABE /* Destination.swift */,
 				FEC69A11D238A1394A3C797B /* ExportModel.swift */,
+				C9BAD1C88620EFBB9A10FB32 /* FolderLayout.swift */,
+				F5D61B3CB453C2DE9334B1B8 /* LibraryBrowser.swift */,
+				B6B378E2F6084A6985DE8E87 /* LibraryCleanup.swift */,
+				3C8925A8006F3B46B503FE78 /* LibrarySelection.swift */,
+				9EEC5DE7015C7F2F4BE27513 /* LibrarySource.swift */,
+				BFB148C6D0E91106A2A15436 /* OnboardingPage.swift */,
 				16011E5C865358C6650B0349 /* SessionClock.swift */,
 			);
 			path = Model;
+			sourceTree = "<group>";
+		};
+		75AD13B9A119949DB430BBC1 /* PhotoExportAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				62BF630CD35CB7160369A551 /* BackupFilesTests.swift */,
+				8721A5383B2D9CA77218C12C /* ExportManifestTests.swift */,
+				6CC8E5DEB816B1059AB35742 /* FolderLayoutAndSelectionTests.swift */,
+				FA5CCB2D72BC20F91FC3D959 /* ICloudOutputParserTests.swift */,
+				1FB88D6C2C19CCB7C290A67F /* ICloudPageCacheTests.swift */,
+				5C4CD638F7A0DC14B3FB0029 /* TestSupport.swift */,
+				C3B0B7726A414CDDCB8C4810 /* XMPSidecarTests.swift */,
+			);
+			path = PhotoExportAppTests;
 			sourceTree = "<group>";
 		};
 		9E699998661455EF5D47D607 /* Views */ = {
 			isa = PBXGroup;
 			children = (
 				1FEA721F1886DC0A6EBB0398 /* ActivitySection.swift */,
-				EA69F97B3F6B09556F060151 /* ContentView.swift */,
-				303A3821140A3C38D991FE41 /* DestinationHeader.swift */,
-				EA53983148881577BA0AD932 /* ExportControls.swift */,
+				F62A8EE2065B81C71F0A7A45 /* BackupPane.swift */,
+				64593FAC7FFD7BC1F4376D49 /* BackupToolSheets.swift */,
+				DD8860FE2B8B78DF62E5EA7E /* FreeUpSpaceSheet.swift */,
+				2413C7A001BED89E9201BE29 /* GettingStartedView.swift */,
+				DE6EB5E37521C6434458F26C /* ICloudSignInSheet.swift */,
+				99255503A8D74EF93EAD8E69 /* IconTile.swift */,
+				15C4FEC1DE11E64A4551B493 /* LibraryView.swift */,
+				5DA09E7874EDF61EE26F1D49 /* LibraryWindow.swift */,
+				CBF66B387CF244BBAEF37CD4 /* MenuBarContent.swift */,
 				9DB74B9F81A26C01725A5BCB /* PhotosAccessView.swift */,
 				93ABD43C0D09E595D6A7B4DE /* ProgressCard.swift */,
+				4526281BDF122BFECA94CFD9 /* SettingsView.swift */,
+				C11E89365373522AB738DC8A /* VerifyBackupSheet.swift */,
+				4649006A4B34F9B336A5CC30 /* WelcomeView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -79,6 +213,7 @@
 			isa = PBXGroup;
 			children = (
 				F9650E722AB103F86A7391E3 /* PhotoExportApp.app */,
+				7D6FD43250F2F7D127C4C87C /* PhotoExportAppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -87,6 +222,7 @@
 			isa = PBXGroup;
 			children = (
 				C617F9769B3E52C4E93CA4CF /* PhotoExportApp */,
+				75AD13B9A119949DB430BBC1 /* PhotoExportAppTests */,
 				A62A68FD164B26C1417F5A4F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -94,6 +230,8 @@
 		C617F9769B3E52C4E93CA4CF /* PhotoExportApp */ = {
 			isa = PBXGroup;
 			children = (
+				B0B4CE37DC254D1F6BB09393 /* Assets.xcassets */,
+				91D0B9D987C25883A9F8F2F8 /* Helper.entitlements */,
 				5BADB5B4A30D0FC8DB17245D /* PhotoExportApp.entitlements */,
 				ED7648DD6644A3BD51AAF3CC /* App */,
 				FAD9953C03BD3F003AF8B7B0 /* Export */,
@@ -103,10 +241,27 @@
 			path = PhotoExportApp;
 			sourceTree = "<group>";
 		};
+		D4085BD4E04E183B640F76EE /* ICloud */ = {
+			isa = PBXGroup;
+			children = (
+				69225D8ECEA3F065BB09EC20 /* ICloudAccount.swift */,
+				8ED8866441F5099DEBB56D27 /* ICloudBridge.swift */,
+				CD4AFF6049C8649B33DD6F3F /* ICloudCredentialStore.swift */,
+				9A0F43529082511158EEAE5C /* ICloudExportEngine.swift */,
+				96EA6AD3578491146C239C27 /* ICloudHelperProcess.swift */,
+				2E0ADB86A72202DC3697CF73 /* ICloudLibrary.swift */,
+				17206A76BC2748B1EDA68FBB /* ICloudOutputParser.swift */,
+				7C0A07F1552269C30225511F /* ICloudPageCache.swift */,
+				E2680BFB081C7B620E1372EA /* ICloudSignIn.swift */,
+			);
+			path = ICloud;
+			sourceTree = "<group>";
+		};
 		ED7648DD6644A3BD51AAF3CC /* App */ = {
 			isa = PBXGroup;
 			children = (
 				51D267DAED58888BAA24553B /* ExportCommands.swift */,
+				47A259C265A6860C3D162C5A /* HelperProbe.swift */,
 				83BD22597DEA3582F1BFD39E /* PhotoExportApp.swift */,
 			);
 			path = App;
@@ -115,12 +270,19 @@
 		FAD9953C03BD3F003AF8B7B0 /* Export */ = {
 			isa = PBXGroup;
 			children = (
+				6D4943F109C43C55230642B1 /* AlbumIndex.swift */,
 				C4D123EFA4642C14B0EBF01F /* AssetFiles.swift */,
+				72C196C3E32ACE5E24D91E96 /* AssetMetadata.swift */,
+				EEEEB927F495D222173A7DF0 /* BackupVerifier.swift */,
 				16B534A50D033BE1E3EE6C58 /* ExportEngine.swift */,
 				6A594C0C02DB1CDF03A0DAB1 /* ExportManifest.swift */,
+				C4AC2F27007629E785D5B3A1 /* FileHasher.swift */,
 				35A8267D32EDEFAC4D3AA827 /* PauseGate.swift */,
 				851A7A59582C5B5FB6B904D3 /* PhotoLibrary.swift */,
+				10C38AAB1175C2993EDC2A51 /* PlaceResolver.swift */,
 				843596D92C37BE702983F1FB /* ResourceWriter.swift */,
+				3AB473421C3BA5DE6765039D /* XMPSidecar.swift */,
+				D4085BD4E04E183B640F76EE /* ICloud */,
 			);
 			path = Export;
 			sourceTree = "<group>";
@@ -132,7 +294,10 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = D72A67B85501CF6BE480894E /* Build configuration list for PBXNativeTarget "PhotoExportApp" */;
 			buildPhases = (
+				11E24D05D3F724994F5FF14D /* Build icloudpd helper */,
 				8263706DFAF7BBBF83A7F5D0 /* Sources */,
+				1FC42768DC78CC8056ADDC45 /* Embed icloudpd runtime */,
+				47040FD40B007ACA1E07C0B8 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -144,6 +309,24 @@
 			productName = PhotoExportApp;
 			productReference = F9650E722AB103F86A7391E3 /* PhotoExportApp.app */;
 			productType = "com.apple.product-type.application";
+		};
+		D0D125040D81D14960CC7199 /* PhotoExportAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5ED6BA96BDB35BB8ACE8BF01 /* Build configuration list for PBXNativeTarget "PhotoExportAppTests" */;
+			buildPhases = (
+				94FAB566FD18FC02CF18A9A6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0F824CB92238B195A2F3CF4F /* PBXTargetDependency */,
+			);
+			name = PhotoExportAppTests;
+			packageProductDependencies = (
+			);
+			productName = PhotoExportAppTests;
+			productReference = 7D6FD43250F2F7D127C4C87C /* PhotoExportAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -174,9 +357,64 @@
 			projectRoot = "";
 			targets = (
 				B74AF607AF5C3458CBF820AB /* PhotoExportApp */,
+				D0D125040D81D14960CC7199 /* PhotoExportAppTests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		47040FD40B007ACA1E07C0B8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				127F6954DE810F4120038A6E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		11E24D05D3F724994F5FF14D /* Build icloudpd helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build icloudpd helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/build-icloudpd.sh\"";
+		};
+		1FC42768DC78CC8056ADDC45 /* Embed icloudpd runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Vendor/icloudpd-runtime",
+				"$(SRCROOT)/PhotoExportApp/Helper/photo_bridge.py",
+			);
+			name = "Embed icloudpd runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nSRC=\"$SRCROOT/Vendor/icloudpd-runtime\"\nDEST=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n# Hardened runtime only with a real identity: Python loads its own extension modules,\n# and ad hoc signatures have no team ID for library validation to match.\nRUNTIME=\"\"\nif [ \"$IDENTITY\" != \"-\" ]; then RUNTIME=\"--options runtime\"; fi\nif [ ! -f \"$SRC/.stamp\" ]; then\n    echo \"error: $SRC is missing; run scripts/build-icloudpd.sh\" >&2\n    exit 1\nfi\nmkdir -p \"$DEST\"\nrsync -a --delete --exclude .stamp \"$SRC/\" \"$DEST/\"\n# The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain\n# resource, sealed by the app's signature like the rest of the runtime's Python files.\ncp \"$SRCROOT/PhotoExportApp/Helper/photo_bridge.py\" \"$DEST/photo_bridge.py\"\nINTERPRETER=\"$DEST/python/bin/python3.13\"\n# Sign the libraries and extension modules first, then the interpreter. Only the\n# interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.\nfind \"$DEST\" -type f ! -path \"$INTERPRETER\" -print0 | while IFS= read -r -d '' f; do\n    if file -b \"$f\" | grep -q '^Mach-O'; then\n        codesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \"$f\"\n    fi\ndone\ncodesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \\\n    --entitlements \"$SRCROOT/PhotoExportApp/Helper.entitlements\" \"$INTERPRETER\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		8263706DFAF7BBBF83A7F5D0 /* Sources */ = {
@@ -185,32 +423,91 @@
 			files = (
 				5C72A0EB5E8781A74F7593B9 /* ActivityEntry.swift in Sources */,
 				45A933C429D023C7A8739096 /* ActivitySection.swift in Sources */,
+				716A78678142C27615818DB6 /* AlbumIndex.swift in Sources */,
 				7CB5ABE808892F12C089EBC1 /* AssetFiles.swift in Sources */,
-				7BA4348EEE524E783BD14AED /* ContentView.swift in Sources */,
+				437FE83A3F3F25EC6A1B4699 /* AssetMetadata.swift in Sources */,
+				B13893C40E394785999A748F /* AutoBackupController.swift in Sources */,
+				8885641B8FC6038CB94586A5 /* AutoBackupSettings.swift in Sources */,
+				FFCB7C7E47AB90F0C3F15AE6 /* BackupFiles.swift in Sources */,
+				C195EE67656C83519C5D9749 /* BackupPane.swift in Sources */,
+				0E33A8516E8CB13FA2370252 /* BackupToolSheets.swift in Sources */,
+				ECC533C3B95325D38205B24F /* BackupTools.swift in Sources */,
+				3681C40565284609CE8C64EE /* BackupVerification.swift in Sources */,
+				DCD03D8A8886C49C7CD83F7D /* BackupVerifier.swift in Sources */,
 				D2F1EB09BA29172531685119 /* Destination.swift in Sources */,
-				BB14F998BA648781AF7D46E3 /* DestinationHeader.swift in Sources */,
 				E58E49A4D69E7D48AEC30027 /* ExportCommands.swift in Sources */,
-				9C895D2E18CB2999DE15F2A0 /* ExportControls.swift in Sources */,
 				A07F4E592739224142A0BEB2 /* ExportEngine.swift in Sources */,
 				5B16FF0B7C542F07E25833E2 /* ExportManifest.swift in Sources */,
 				4530275A1DDDB31AC847CB2C /* ExportModel.swift in Sources */,
+				0B7C4CEE32AD6C90E28B5251 /* FileHasher.swift in Sources */,
+				79A555D6651C00AF8F432B75 /* FolderLayout.swift in Sources */,
+				7E30F0AE7DA595F01AA198A9 /* FreeUpSpaceSheet.swift in Sources */,
+				A6CCC6F9E6DF73F6B7C45611 /* GettingStartedView.swift in Sources */,
+				66B3003B9CC8E50452CD3E1B /* HelperProbe.swift in Sources */,
+				FEF51222B60577259EA3286C /* ICloudAccount.swift in Sources */,
+				4B3D6EADC7F3545F9DF02BA4 /* ICloudBridge.swift in Sources */,
+				5AD99345B45FB11387393663 /* ICloudCredentialStore.swift in Sources */,
+				6709E132B4AD31A50C58FA68 /* ICloudExportEngine.swift in Sources */,
+				0670BA46A90FF4C5A69260A9 /* ICloudHelperProcess.swift in Sources */,
+				D100DCF1EAD5A6F64E85AB65 /* ICloudLibrary.swift in Sources */,
+				9EBE70BD0F30A1A5F59426E4 /* ICloudOutputParser.swift in Sources */,
+				783EEBE80FB00FD28DF68378 /* ICloudPageCache.swift in Sources */,
+				9745C5A8DC9846307C52D0E7 /* ICloudSignIn.swift in Sources */,
+				240A447F9BE174DCA6603BF5 /* ICloudSignInSheet.swift in Sources */,
+				046CAF8336B8F7F2180DFEB5 /* IconTile.swift in Sources */,
+				DBE81948911FB27F77D10105 /* LibraryBrowser.swift in Sources */,
+				A14100DEE942F5DD489DAE3B /* LibraryCleanup.swift in Sources */,
+				8C1AB9C356E3FFA18DAFE5C3 /* LibrarySelection.swift in Sources */,
+				A6510E90D03260C36DA3B1B7 /* LibrarySource.swift in Sources */,
+				C084D8C461688C363F5BA4E6 /* LibraryView.swift in Sources */,
+				20D834E7945F458FF98CC490 /* LibraryWindow.swift in Sources */,
+				C7B31FE90E0B658375FA0EC3 /* MenuBarContent.swift in Sources */,
+				5E578E3C3AE33B3C70CB7CB8 /* OnboardingPage.swift in Sources */,
 				C97C95C5CF72D5D118A2A977 /* PauseGate.swift in Sources */,
 				B82D91DCB2A0592C3395FAA9 /* PhotoExportApp.swift in Sources */,
 				42ACD143D8988625477F917A /* PhotoLibrary.swift in Sources */,
 				B76C8CB3AB6E7175FC0ADE78 /* PhotosAccessView.swift in Sources */,
+				6C21EA08115576A5C2630283 /* PlaceResolver.swift in Sources */,
 				2C1A77C99D9523D98601EFFF /* ProgressCard.swift in Sources */,
 				0658F1E66D5FC2CDC75EAC51 /* ResourceWriter.swift in Sources */,
 				DE2BB5765A7324886F1A5B36 /* SessionClock.swift in Sources */,
+				155906FC46FF91B5AB5D6A51 /* SettingsView.swift in Sources */,
+				D57C763B00B29A8E5B132B5B /* VerifyBackupSheet.swift in Sources */,
+				CD5C67D0FEC1B0348948EB07 /* WelcomeView.swift in Sources */,
+				7CD3C9D2A52B0DFF9FC7C58E /* XMPSidecar.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		94FAB566FD18FC02CF18A9A6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0FCF1A3C7540ABFAB6A9CDC4 /* BackupFilesTests.swift in Sources */,
+				140124A591F66A2E68A5ECBF /* ExportManifestTests.swift in Sources */,
+				1236AB23753158541CDCF8B2 /* FolderLayoutAndSelectionTests.swift in Sources */,
+				D7EE7836104C1D05E0FFCDA1 /* ICloudOutputParserTests.swift in Sources */,
+				A037D379241E083F67B5333E /* ICloudPageCacheTests.swift in Sources */,
+				62CEE390857A53EFE7EBC342 /* TestSupport.swift in Sources */,
+				A80B74B78DE033A029B03B7C /* XMPSidecarTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0F824CB92238B195A2F3CF4F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B74AF607AF5C3458CBF820AB /* PhotoExportApp */;
+			targetProxy = 0AA73988E54C853F08BF8605 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		2CD987FCBF10F3E8DE6B97B7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSET_CATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -287,10 +584,28 @@
 			};
 			name = Release;
 		};
+		785C0D58356FFF11D2041115 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.PhotoExportAppTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PhotoExportApp.app/Contents/MacOS/PhotoExportApp";
+			};
+			name = Release;
+		};
 		9740E3718999B68FC5BEBC92 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSET_CATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -352,6 +667,23 @@
 			};
 			name = Debug;
 		};
+		C3530AF339BCAB6EA8656BE1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.PhotoExportAppTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PhotoExportApp.app/Contents/MacOS/PhotoExportApp";
+			};
+			name = Debug;
+		};
 		E32BCBA0AA35FB719E83A813 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -377,6 +709,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		5ED6BA96BDB35BB8ACE8BF01 /* Build configuration list for PBXNativeTarget "PhotoExportAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C3530AF339BCAB6EA8656BE1 /* Debug */,
+				785C0D58356FFF11D2041115 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		CB97281EFE2BD91CC44E22D6 /* Build configuration list for PBXProject "PhotoExportApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

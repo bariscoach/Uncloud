@@ -19,6 +19,15 @@ struct SessionClock {
         }
     }
 
+    /// Starts measuring afresh, so time spent on items that don't count isn't averaged in.
+    mutating func discardSamples() {
+        accumulated = .zero
+        itemsFinished = 0
+        if runningSince != nil {
+            runningSince = .now
+        }
+    }
+
     mutating func itemFinished() {
         itemsFinished += 1
     }
