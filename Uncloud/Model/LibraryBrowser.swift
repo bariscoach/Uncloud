@@ -212,6 +212,11 @@ final class LibraryBrowser {
     func rankHints(for ids: Set<String>) async -> [String: Int] {
         await backend.rankHints(for: ids)
     }
+
+    /// The export sizes of the items loaded so far, by ID, when the source reports them (iCloud).
+    func knownBytes() async -> [String: Int64] {
+        await backend.knownBytes()
+    }
 }
 
 // MARK: - Backends
@@ -224,6 +229,8 @@ protocol LibraryBrowserBackend: AnyObject {
     func loadPage(_ index: Int, pageSize: Int) async throws -> [LibraryItem]
     func thumbnail(for item: LibraryItem, pixelSize: CGSize) async -> NSImage?
     func rankHints(for ids: Set<String>) async -> [String: Int]
+    /// The export sizes of the items loaded so far, by ID; empty when the source has none.
+    func knownBytes() async -> [String: Int64]
     /// Forgets cached pages and the count.
     func reset() async
 }
@@ -315,6 +322,10 @@ final class PhotoKitBrowserBackend: LibraryBrowserBackend {
         [:]
     }
 
+    func knownBytes() async -> [String: Int64] {
+        [:]
+    }
+
     func reset() async {
         assets = nil
         assetsByID = [:]
@@ -379,6 +390,10 @@ final class ICloudBrowserBackend: LibraryBrowserBackend {
 
     func rankHints(for ids: Set<String>) async -> [String: Int] {
         await cache.rankHints(for: ids)
+    }
+
+    func knownBytes() async -> [String: Int64] {
+        await cache.knownBytes()
     }
 
     func reset() async {

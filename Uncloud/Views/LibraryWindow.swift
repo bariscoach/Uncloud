@@ -4,6 +4,9 @@ import SwiftUI
 /// The main window: a sidebar with the Library and Backup panes, and the selected pane in the detail.
 struct LibraryWindow: View {
     @Environment(ExportModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// True while the "Export started" banner is up over the Library.
+    @State private var showsExportStarted = false
 
     var body: some View {
         @Bindable var model = model
@@ -23,6 +26,8 @@ struct LibraryWindow: View {
                     IconTile(symbol: "externaldrive", tint: .teal)
                 }
                 .badge(progressBadge)
+                // Increased prominence makes the percentage a coloured capsule while an export runs.
+                .badgeProminence(model.isExporting ? .increased : .standard)
                 .tag(ExportModel.Pane.backup)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
@@ -33,6 +38,16 @@ struct LibraryWindow: View {
             switch model.pane {
             case .library:
                 LibraryView()
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if showsExportStarted {
+                            ExportStartedBanner(
+                                onShowBackup: { model.pane = .backup },
+                                onClose: { showsExportStarted = false }
+                            )
+                            .transition(.opacity)
+                        }
+                    }
+                    .animation(reduceMotion ? nil : .smooth, value: showsExportStarted)
             case .backup:
                 BackupPane()
             }
@@ -61,6 +76,25 @@ struct LibraryWindow: View {
         .onAppear {
             model.refreshAuthorization()
         }
+        .onChange(of: model.isExporting) { _, isExporting in
+            // Only exports the user starts from the Library get the banner. Backup runs and automatic backups don't.
+            guard isExporting, model.pane == .library, !startedAutomatically else { return }
+            showsExportStarted = true
+            AccessibilityNotification.Announcement("Export started. Track its progress in Backup.").post()
+        }
+        .onChange(of: model.pane) { _, pane in
+            if pane == .backup {
+                showsExportStarted = false
+            }
+        }
+        .task(id: showsExportStarted) {
+            // Goes away on its own after a few seconds. Restarting the task when it's shown again resets the timer.
+            guard showsExportStarted else { return }
+            try? await Task.sleep(for: .seconds(6))
+            if !Task.isCancelled {
+                showsExportStarted = false
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // The user may have changed Photos access in System Settings, or accepted Apple's updated iCloud terms.
             model.refreshAuthorization()
@@ -81,6 +115,11 @@ struct LibraryWindow: View {
                 }
             }
         )
+    }
+
+    /// True when the run that just started was an automatic backup, which shouldn't announce itself.
+    private var startedAutomatically: Bool {
+        model.isAutomaticRunInProgress
     }
 
     /// The export percentage on the Backup row while an export runs.
@@ -161,6 +200,46 @@ struct LibraryWindow: View {
             model.iCloudAppleID == nil ? "Not signed in" : LibrarySource.iCloud.title
         case .photosLibrary:
             model.isSourceReady ? "Ready" : "Access needed"
+        }
+    }
+}
+
+/// A non-modal note across the top of the Library that an export has started. It doesn't take focus or
+/// block the grid, and VoiceOver hears it through an announcement when it appears.
+private struct ExportStartedBanner: View {
+    let onShowBackup: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IconTile(symbol: "arrow.down.circle", tint: .accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Export started")
+                    .font(.headline)
+                Text("Track its progress in Backup.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Button("Show Backup", action: onShowBackup)
+                .buttonStyle(.bordered)
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
+            Divider()
         }
     }
 }

@@ -9,6 +9,8 @@ struct ICloudAsset: Sendable, Hashable, Identifiable {
     let isVideo: Bool
     /// A signed URL for a small JPEG. It expires, after which iCloud answers 403 or 410.
     let thumbnailURL: URL?
+    /// What exporting the item writes (the original plus any Live Photo movie), when known.
+    var bytes: Int64? = nil
 }
 
 /// Where pages of the library come from: the bridge in the app, a fake in tests.
@@ -68,6 +70,8 @@ actor ICloudPageCache {
     /// Where each item seen so far sits in icloudpd's order. A few MB for a large library; it lets
     /// a download of hand-picked items find them without walking the whole library.
     private var rankByID: [String: Int] = [:]
+    /// The export size of each item seen so far, a sample for the storage estimate.
+    private var bytesByID: [String: Int64] = [:]
     private var thumbnailTasks: [String: Task<Data?, Never>] = [:]
 
     init(
@@ -162,6 +166,9 @@ actor ICloudPageCache {
             guard startedEpoch == epoch else { return page }
             for (position, asset) in page.enumerated() {
                 rankByID[asset.id] = upper - 1 - position
+                if let bytes = asset.bytes {
+                    bytesByID[asset.id] = bytes
+                }
             }
             store(page, at: index)
             return page
@@ -199,6 +206,11 @@ actor ICloudPageCache {
             }
         }
         return hints
+    }
+
+    /// The export sizes of the items seen so far, by ID.
+    func knownBytes() -> [String: Int64] {
+        bytesByID
     }
 
     private func touch(_ index: Int) {

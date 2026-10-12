@@ -36,6 +36,11 @@ struct BackupPane: View {
                     Label(issue, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                 }
+                spaceNeededRow
+                if let warning = model.storageWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
             } header: {
                 SectionTitle(title: "Save To", symbol: "externaldrive", tint: .teal)
             }
@@ -119,6 +124,43 @@ struct BackupPane: View {
             }
         }
         .formStyle(.grouped)
+        .task(id: model.destination?.url) {
+            // Free space changes as files are written, here or by other apps.
+            while !Task.isCancelled {
+                model.refreshDestinationFreeSpace()
+                try? await Task.sleep(for: ExportModel.freeSpaceInterval)
+            }
+        }
+    }
+
+    /// The selection's estimated size, with the destination's free space beneath it.
+    @ViewBuilder
+    private var spaceNeededRow: some View {
+        if let text = model.storageEstimateText {
+            LabeledContent {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(text.prefix(1).uppercased() + text.dropFirst())
+                        .monospacedDigit()
+                    if let estimate = model.storageEstimate, let needed = model.storageNeededBytes, needed < estimate.bytes {
+                        Text("About \(StorageEstimate.format(needed)) still to copy")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    if let destination = model.destination, let free = model.destinationFreeBytes {
+                        Text("\(StorageEstimate.format(free)) free on “\(destination.displayName)”")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+            } label: {
+                Text("Space needed")
+                if let note = model.storageEstimateNote {
+                    Text(note)
+                }
+            }
+        }
     }
 
     /// The item count of the whole library, once known. Used for the primary button's title.

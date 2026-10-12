@@ -18,6 +18,8 @@
 		3CF9CCF449985D8AC94837A1 /* FileHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9736A5E6353391005528BB /* FileHasher.swift */; };
 		42D52ECD875F877FDAF09BEC /* ResourceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5A92B70FD36570C1F8A98F /* ResourceWriter.swift */; };
 		4666E103364636568F5945FD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6AF9958305D6F4037AE0BB /* SettingsView.swift */; };
+		4DBC0D09007A8B2A93A2E182 /* AssetSizeIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61043C0C0F0B880426B3C1B /* AssetSizeIndex.swift */; };
+		4EF6AA108AED82C40E82DEF6 /* StorageEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223292FA231E5C2569A0EA6D /* StorageEstimator.swift */; };
 		4F29E7844BB159AD91387E54 /* GettingStartedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5772F36E0D0AB6932F4C1F /* GettingStartedView.swift */; };
 		52EEF7ED6ACC9AAB90BC11DD /* ICloudHelperProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593CD78B3D2E6A5842C9F9FB /* ICloudHelperProcess.swift */; };
 		5A7FCB1F24C4E2AC92753081 /* PauseGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253C79904112A7FD2C8AC7F8 /* PauseGate.swift */; };
@@ -33,6 +35,7 @@
 		7C11038F4C56BFF9B6D1D7AA /* fake_bridge.py in Resources */ = {isa = PBXBuildFile; fileRef = 72CFB4A34A07951EA9D32692 /* fake_bridge.py */; };
 		7E6FAF6ADB32C2C64BB22C4D /* ICloudPageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A14EF6C191BC2FD24D44985 /* ICloudPageCache.swift */; };
 		80F6C7478F8010F0501FC003 /* LibraryBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C2E3B869C86CD6F4A297A3 /* LibraryBrowser.swift */; };
+		8278C0D260858BEA05B1BD88 /* StorageEstimateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */; };
 		844917F08447A2103CF09E45 /* XMPSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7969932EFE828540123751 /* XMPSidecar.swift */; };
 		85362011BC377AC627C49879 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4CD281E886432AA76DBC56C /* LibraryView.swift */; };
 		8934AFAF5D4F45FD34987B85 /* ICloudOutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A62D4FFC9408C3EEF874AA8 /* ICloudOutputParser.swift */; };
@@ -42,6 +45,7 @@
 		8F98268929D7412E4B6E813F /* ExportRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC92839A6433C9E3A2A7894 /* ExportRun.swift */; };
 		8FC27F1CFD11C51F3A1C9B89 /* IconTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F79DB331BE406BDDBA688C4 /* IconTile.swift */; };
 		93B4F08EE07BB8CAC08D9742 /* ICloudPageCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7AF5335D7FF4CF5E319361 /* ICloudPageCacheTests.swift */; };
+		998017548E20F6CBDEA8A09E /* StorageEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF26CD531FE2C834F788727 /* StorageEstimate.swift */; };
 		9D7BFDF0CACC0459B63B424F /* ICloudSignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EC52053002D4FE98AFE8ED /* ICloudSignInSheet.swift */; };
 		A0446530BAD6A985F678DFA5 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306E893DE47FB41133F84A46 /* TestSupport.swift */; };
 		A4163A2D65F2F6C925398BD4 /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE36718CD24BFD5C076C6767 /* PhotoLibrary.swift */; };
@@ -66,6 +70,7 @@
 		D9C017629EC23CF782E3C20C /* ICloudBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D954376B6D12663FE8BF4B5D /* ICloudBridge.swift */; };
 		DA5A1E85ECDDBCDB7FA1A38F /* FolderLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277CAE71F450D664252B9C72 /* FolderLayout.swift */; };
 		DF4BB1D418B2AD1F1EE2CBA0 /* FreeUpSpaceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7967553916F0F56BDF9814C6 /* FreeUpSpaceSheet.swift */; };
+		E05A9092927410FE2592457B /* PhotoSizeHeuristic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A22FAF47DB25363937CB221 /* PhotoSizeHeuristic.swift */; };
 		E0FEA35DF9B1E80C8EE30EF6 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F063C61478BBF7C92184C95 /* AppLogo.swift */; };
 		E6D31645B351D8A4D09A8A9D /* ExportManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3485816830987AAD03ECC120 /* ExportManifestTests.swift */; };
 		E8D478BF8C95DC2665D70D14 /* SessionClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6CF0C13EC2FDC49683C04D /* SessionClock.swift */; };
@@ -95,7 +100,9 @@
 		15AF2D1A16CBAD87F2CF6A13 /* LibrarySelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySelection.swift; sourceTree = "<group>"; };
 		15C2E3B869C86CD6F4A297A3 /* LibraryBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryBrowser.swift; sourceTree = "<group>"; };
 		1DB14758951E131F0E10F3FE /* fake_icloudpd.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = fake_icloudpd.py; sourceTree = "<group>"; };
+		1DF26CD531FE2C834F788727 /* StorageEstimate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageEstimate.swift; sourceTree = "<group>"; };
 		22113C53D164A922FB8234B0 /* XMPSidecarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPSidecarTests.swift; sourceTree = "<group>"; };
+		223292FA231E5C2569A0EA6D /* StorageEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageEstimator.swift; sourceTree = "<group>"; };
 		253C79904112A7FD2C8AC7F8 /* PauseGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseGate.swift; sourceTree = "<group>"; };
 		277CAE71F450D664252B9C72 /* FolderLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderLayout.swift; sourceTree = "<group>"; };
 		27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudLibrary.swift; sourceTree = "<group>"; };
@@ -114,6 +121,7 @@
 		5DC92839A6433C9E3A2A7894 /* ExportRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRun.swift; sourceTree = "<group>"; };
 		5EB9A26D65807CE3C93CA56E /* HelperProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProbe.swift; sourceTree = "<group>"; };
 		655C300B76FB724B130CF7D1 /* MenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarContent.swift; sourceTree = "<group>"; };
+		6A22FAF47DB25363937CB221 /* PhotoSizeHeuristic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSizeHeuristic.swift; sourceTree = "<group>"; };
 		6B5772F36E0D0AB6932F4C1F /* GettingStartedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GettingStartedView.swift; sourceTree = "<group>"; };
 		6C963958EE52B95322E7B761 /* ExportEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportEngine.swift; sourceTree = "<group>"; };
 		6F9736A5E6353391005528BB /* FileHasher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHasher.swift; sourceTree = "<group>"; };
@@ -132,6 +140,7 @@
 		906FB271A31124DF5CDF2B2D /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWindow.swift; sourceTree = "<group>"; };
 		9A6AF9958305D6F4037AE0BB /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		9CFD381FEAA670D99CC49142 /* BackupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupPane.swift; sourceTree = "<group>"; };
+		9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageEstimateTests.swift; sourceTree = "<group>"; };
 		9DC06A9B2A29D7B6A2E9DE9A /* ExportCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportCommands.swift; sourceTree = "<group>"; };
 		A0D2268BB87ECAD5B6FDB234 /* ExportCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportCancellationTests.swift; sourceTree = "<group>"; };
 		ACD6AEDB8709BB238DAF496E /* AssetFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetFiles.swift; sourceTree = "<group>"; };
@@ -154,6 +163,7 @@
 		DAF828E81D48A8A62ECBF167 /* AutoBackupSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoBackupSettings.swift; sourceTree = "<group>"; };
 		DEF6ADDB21641963A45C3D4B /* BackupVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupVerifier.swift; sourceTree = "<group>"; };
 		E514002B9E7B92DE11926635 /* LibrarySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySource.swift; sourceTree = "<group>"; };
+		E61043C0C0F0B880426B3C1B /* AssetSizeIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetSizeIndex.swift; sourceTree = "<group>"; };
 		E82534C8C8A68911C7DAD87D /* BackupFilesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupFilesTests.swift; sourceTree = "<group>"; };
 		F0EC52053002D4FE98AFE8ED /* ICloudSignInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSignInSheet.swift; sourceTree = "<group>"; };
 		F7D1F1C631F406B5B11DE0A4 /* BackupFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupFiles.swift; sourceTree = "<group>"; };
@@ -193,6 +203,7 @@
 				B73D5680F07F5660D4D4DEB3 /* FolderLayoutAndSelectionTests.swift */,
 				AEC27406BA9D1C97FFE6E15D /* ICloudOutputParserTests.swift */,
 				FD7AF5335D7FF4CF5E319361 /* ICloudPageCacheTests.swift */,
+				9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */,
 				306E893DE47FB41133F84A46 /* TestSupport.swift */,
 				22113C53D164A922FB8234B0 /* XMPSidecarTests.swift */,
 				85C7026FAE32CF8B038E1907 /* Bridge */,
@@ -279,6 +290,7 @@
 				6F9736A5E6353391005528BB /* FileHasher.swift */,
 				253C79904112A7FD2C8AC7F8 /* PauseGate.swift */,
 				BE36718CD24BFD5C076C6767 /* PhotoLibrary.swift */,
+				6A22FAF47DB25363937CB221 /* PhotoSizeHeuristic.swift */,
 				46DA548814AF18B9549584E9 /* PlaceResolver.swift */,
 				8A5A92B70FD36570C1F8A98F /* ResourceWriter.swift */,
 				AF7969932EFE828540123751 /* XMPSidecar.swift */,
@@ -301,6 +313,7 @@
 			isa = PBXGroup;
 			children = (
 				D976AD3361BC8BA501CFFA21 /* ActivityEntry.swift */,
+				E61043C0C0F0B880426B3C1B /* AssetSizeIndex.swift */,
 				021DD8E980C244B272F1A046 /* AutoBackupController.swift */,
 				DAF828E81D48A8A62ECBF167 /* AutoBackupSettings.swift */,
 				F7D1F1C631F406B5B11DE0A4 /* BackupFiles.swift */,
@@ -314,6 +327,8 @@
 				15AF2D1A16CBAD87F2CF6A13 /* LibrarySelection.swift */,
 				E514002B9E7B92DE11926635 /* LibrarySource.swift */,
 				BD6CF0C13EC2FDC49683C04D /* SessionClock.swift */,
+				1DF26CD531FE2C834F788727 /* StorageEstimate.swift */,
+				223292FA231E5C2569A0EA6D /* StorageEstimator.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -469,6 +484,7 @@
 				E0FEA35DF9B1E80C8EE30EF6 /* AppLogo.swift in Sources */,
 				0632BCA610969ADBB48D3526 /* AssetFiles.swift in Sources */,
 				F77ECD57A521453F99AE4F52 /* AssetMetadata.swift in Sources */,
+				4DBC0D09007A8B2A93A2E182 /* AssetSizeIndex.swift in Sources */,
 				B0736BE53848B39DDF27E6CF /* AutoBackupController.swift in Sources */,
 				C4D4D4FC42ACF95C6C8335F4 /* AutoBackupSettings.swift in Sources */,
 				CA4ED0855FBABD0A6DD82097 /* BackupFiles.swift in Sources */,
@@ -509,12 +525,15 @@
 				00E6F5203A5C04B1D23CA606 /* MenuBarContent.swift in Sources */,
 				5A7FCB1F24C4E2AC92753081 /* PauseGate.swift in Sources */,
 				A4163A2D65F2F6C925398BD4 /* PhotoLibrary.swift in Sources */,
+				E05A9092927410FE2592457B /* PhotoSizeHeuristic.swift in Sources */,
 				7035C2E294DF95F154744DF5 /* PhotosAccessView.swift in Sources */,
 				8C6FADBE434DEFEA65380440 /* PlaceResolver.swift in Sources */,
 				CF71146FFB60C1C6F6895370 /* ProgressCard.swift in Sources */,
 				42D52ECD875F877FDAF09BEC /* ResourceWriter.swift in Sources */,
 				E8D478BF8C95DC2665D70D14 /* SessionClock.swift in Sources */,
 				4666E103364636568F5945FD /* SettingsView.swift in Sources */,
+				998017548E20F6CBDEA8A09E /* StorageEstimate.swift in Sources */,
+				4EF6AA108AED82C40E82DEF6 /* StorageEstimator.swift in Sources */,
 				61F8787D5071CFA1840923BA /* UncloudApp.swift in Sources */,
 				EBFDF2FE3705EBD42325E4E0 /* VerifyBackupSheet.swift in Sources */,
 				844917F08447A2103CF09E45 /* XMPSidecar.swift in Sources */,
@@ -531,6 +550,7 @@
 				B16DCB2B5E1DDCE5F12E1DCC /* FolderLayoutAndSelectionTests.swift in Sources */,
 				B0ED6806E8D44772464AB94E /* ICloudOutputParserTests.swift in Sources */,
 				93B4F08EE07BB8CAC08D9742 /* ICloudPageCacheTests.swift in Sources */,
+				8278C0D260858BEA05B1BD88 /* StorageEstimateTests.swift in Sources */,
 				A0446530BAD6A985F678DFA5 /* TestSupport.swift in Sources */,
 				622B6CE6B8F8CEF35742BEEB /* XMPSidecarTests.swift in Sources */,
 			);

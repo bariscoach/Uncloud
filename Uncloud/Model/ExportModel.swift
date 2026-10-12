@@ -42,6 +42,12 @@ final class ExportModel {
     private(set) var previousLayout: FolderLayout?
     private(set) var estimatedTimeRemaining: Duration?
     private(set) var activity: [ActivityEntry] = []
+    /// About how much space the current selection takes once exported; nil until known.
+    private(set) var storageEstimate: StorageEstimate?
+    /// True while the estimate is being worked out (or refined from a sample).
+    private(set) var isEstimatingStorage = false
+    /// The space the destination's volume has for new files, or nil when unknown.
+    private(set) var destinationFreeBytes: Int64?
     var isChoosingDestination = false
     /// Set by the primary button when no folder is chosen yet: export as soon as the folder is picked.
     @ObservationIgnored private var startsAfterChoosingDestination = false
@@ -80,6 +86,7 @@ final class ExportModel {
     var selection: LibrarySelection = .everything {
         didSet {
             guard selection != oldValue, !isRestoringSelection else { return }
+            storage.selectionDidChange(selection)
             scheduleSelectionSave()
         }
     }
@@ -99,6 +106,8 @@ final class ExportModel {
     @ObservationIgnored private var selectionOwner: (source: LibrarySource, account: String?)?
     @ObservationIgnored private var isRestoringSelection = false
     @ObservationIgnored private var selectionSaveTask: Task<Void, Never>?
+    @ObservationIgnored private let storage = StorageEstimator()
+    @ObservationIgnored private var freeSpaceReadAt: ContinuousClock.Instant?
 
     private static let bookmarkKey = "destinationBookmark"
     private static let layoutKey = "folderLayout"
@@ -109,6 +118,8 @@ final class ExportModel {
     static let progressInterval: Duration = .milliseconds(100)
     /// How long Cancel waits for the engine to report that it stopped before showing the export as cancelled anyway.
     static let cancelTimeout: Duration = .seconds(2)
+    /// How often the destination's free space is read again while it's on screen.
+    static let freeSpaceInterval: Duration = .seconds(30)
 
     init() {
         let defaults = UserDefaults.standard
@@ -119,6 +130,15 @@ final class ExportModel {
         layout = savedLayout.isAvailable(for: source) ? savedLayout : .month
         writesSidecars = defaults.bool(forKey: Self.writesSidecarsKey)
         lastBackupDate = defaults.object(forKey: Self.lastBackupKey) as? Date
+        storage.onChange = { [weak self] estimate, isEstimating in
+            guard let self else { return }
+            if storageEstimate != estimate {
+                storageEstimate = estimate
+            }
+            if isEstimatingStorage != isEstimating {
+                isEstimatingStorage = isEstimating
+            }
+        }
         restoreDestination()
         observeSignIn()
         updateBrowser()
@@ -196,6 +216,7 @@ final class ExportModel {
                 selection = .everything
             }
         }
+        storage.configure(source: source, account: account, browser: browser, selection: selection)
     }
 
     /// Saves the selection shortly after the last change, and updates the idle totals.
@@ -371,9 +392,29 @@ final class ExportModel {
         if phase == .paused {
             resume()
         } else {
+            // Ask first when the estimate says it won't fit. Export All covers at least the selection,
+            // so the selection's warning holds for it too.
+            let warning = storageWarning
             // Stays on the current pane, so the user can keep browsing; progress is in the Library toolbar and Backup.
-            Task { await startExport(selection: selection) }
+            Task {
+                if let warning, await !confirmExport(despite: warning) { return }
+                await startExport(selection: selection)
+            }
         }
+    }
+
+    /// Asks whether to export although the destination looks too small.
+    private func confirmExport(despite warning: String) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "There May Not Be Enough Space"
+        alert.informativeText = "\(warning) The export stops if the drive fills up, and you can resume it after making room."
+        alert.addButton(withTitle: "Export Anyway")
+        alert.addButton(withTitle: "Cancel")
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
+        }
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func pause() {
@@ -445,6 +486,7 @@ final class ExportModel {
         }
         let gate = PauseGate()
         self.gate = gate
+        storage.exportDidStart()
         saveSelectionNow()
         let selection = override ?? selection
         let run: ExportRun
@@ -543,6 +585,8 @@ final class ExportModel {
         if result == .completed {
             lastBackupDate = .now
         }
+        storage.exportDidFinish()
+        refreshDestinationFreeSpace(force: true)
 
         if skippedThisRun > 0, result != .idle {
             let noun = skippedThisRun == 1 ? "item was" : "items were"
@@ -623,6 +667,63 @@ final class ExportModel {
         )
     }
 
+    // MARK: - Storage
+
+    /// The estimate as the Library toolbar shows it, such as "about 412 GB", "estimating…" while
+    /// it's worked out, or nil when there's nothing to show.
+    var storageEstimateText: String? {
+        if let storageEstimate {
+            return storageEstimate.formatted
+        }
+        return isEstimatingStorage && isSourceReady ? "estimating…" : nil
+    }
+
+    /// What the estimate counts, and how it was arrived at.
+    var storageEstimateNote: String? {
+        guard let storageEstimate else { return nil }
+        switch storageEstimate.basis {
+        case .heuristic:
+            return "Estimated from each item’s dimensions and length, including edited versions and Live Photo videos."
+        case .scanned where storageEstimate.isExact:
+            return "Originals and Live Photo videos, as sized by iCloud."
+        case .scanned, .sampled:
+            return "Originals and Live Photo videos, estimated from the items checked so far. Uncloud checks the rest in the background."
+        }
+    }
+
+    /// The part of the estimate still to copy: items the destination already has are left out. In
+    /// proportion to the item counts, so approximate when some are already there.
+    var storageNeededBytes: Int64? {
+        guard let storageEstimate else { return nil }
+        return StorageCheck.remainingBytes(of: storageEstimate, selected: totalCount, exported: processedCount)
+    }
+
+    /// A warning when the export looks too big for the destination's free space.
+    var storageWarning: String? {
+        guard let destination, destinationIssue == nil, let storageEstimate else { return nil }
+        return StorageCheck.warning(
+            needed: storageNeededBytes,
+            isExact: storageEstimate.isExact && processedCount == 0,
+            free: destinationFreeBytes,
+            destinationName: destination.displayName
+        )
+    }
+
+    /// Reads the destination volume's free space off the main actor. Without `force`, at most once
+    /// per `freeSpaceInterval`.
+    func refreshDestinationFreeSpace(force: Bool = false) {
+        guard let url = destination?.url, destinationIssue == nil else { return }
+        if !force, let readAt = freeSpaceReadAt, readAt.duration(to: .now) < Self.freeSpaceInterval - .seconds(1) {
+            return
+        }
+        freeSpaceReadAt = .now
+        Task {
+            let free = await Task.detached(priority: .utility) { StorageCheck.freeBytes(at: url) }.value
+            guard destination?.url == url, destinationFreeBytes != free else { return }
+            destinationFreeBytes = free
+        }
+    }
+
     // MARK: - Destination
 
     func chooseDestination(_ result: Result<URL, Error>) {
@@ -655,6 +756,8 @@ final class ExportModel {
         let destination = Destination(url: url)
         self.destination = destination
         destinationIssue = destination.isWritable() ? nil : Self.notWritableMessage(for: destination)
+        destinationFreeBytes = nil
+        refreshDestinationFreeSpace(force: true)
 
         if persist, let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
             UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
@@ -685,6 +788,7 @@ final class ExportModel {
         }
         let destination = Destination(url: URL(filePath: path, directoryHint: .isDirectory))
         self.destination = destination
+        destinationFreeBytes = nil
         destinationIssue = "“\(destination.displayName)” isn’t available. Connect the drive or choose a different folder."
     }
 
@@ -698,7 +802,11 @@ final class ExportModel {
         didSet { UserDefaults.standard.set(lastBackupDate, forKey: Self.lastBackupKey) }
     }
 
-    @ObservationIgnored private var isAutomaticRun = false
+    @ObservationIgnored private var isAutomaticRun = false {
+        didSet { isAutomaticRunInProgress = isAutomaticRun }
+    }
+    /// True while the current run was started by automatic backup rather than by the user.
+    private(set) var isAutomaticRunInProgress = false
     @ObservationIgnored private var exportedThisRun = 0
 
     private static let lastBackupKey = "lastBackupDate"

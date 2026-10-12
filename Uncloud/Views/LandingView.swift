@@ -7,17 +7,21 @@ struct LandingView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 40) {
+            // Spacing is tighter than a typical page so the sign-in button sits closer to the top.
+            VStack(spacing: 28) {
                 hero
 
-                VStack(spacing: 20) {
+                VStack(spacing: 16) {
                     Text("How It Works")
                         .font(.headline)
                     HowItWorksSteps()
-                    Text("Uncloud also resumes after interruptions, verifies your backup, and can back up automatically.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                }
+
+                VStack(spacing: 16) {
+                    Text("Why Uncloud")
+                        .font(.headline)
+                    BenefitsGrid()
+                        .frame(maxWidth: 600)
                 }
 
                 connectChoices
@@ -26,7 +30,7 @@ struct LandingView: View {
             }
             .frame(maxWidth: 720)
             .padding(.horizontal, 16)
-            .padding(.vertical, 40)
+            .padding(.vertical, 28)
             .frame(maxWidth: .infinity)
         }
     }
@@ -171,6 +175,75 @@ private struct HowItWorksRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One of the four reasons to use Uncloud. Written as what the app does, not as a comparison with other services.
+struct Benefit: Identifiable {
+    let title: String
+    let caption: String
+    let symbol: String
+    let tint: Color
+
+    var id: String { title }
+
+    static let all: [Benefit] = [
+        Benefit(
+            title: "Full-quality originals",
+            caption: "Copies originals, edits, Live Photos and RAW into a folder you own.",
+            symbol: "camera.aperture",
+            tint: .orange
+        ),
+        Benefit(
+            title: "Organised your way",
+            caption: "Sorts into folders by month, by album, or by place.",
+            symbol: "rectangle.3.group",
+            tint: .indigo
+        ),
+        Benefit(
+            title: "Built for big libraries",
+            caption: "Pauses and resumes, and next time copies only the new photos.",
+            symbol: "arrow.triangle.2.circlepath",
+            tint: .pink
+        ),
+        Benefit(
+            title: "Verified and automatic",
+            caption: "Checks every file as it’s copied, and exports when your drive connects.",
+            symbol: "checkmark.shield",
+            tint: .green
+        ),
+    ]
+}
+
+/// The benefits in a 2×2 grid when there's room for two columns, and one column when there isn't.
+/// The 280-point minimum keeps the minimum window width on one column.
+struct BenefitsGrid: View {
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 16)], alignment: .leading, spacing: 16) {
+            ForEach(Benefit.all) { benefit in
+                BenefitCell(benefit: benefit)
+            }
+        }
+    }
+}
+
+private struct BenefitCell: View {
+    let benefit: Benefit
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            IconTile(symbol: benefit.symbol, tint: benefit.tint, size: 36)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(benefit.title)
+                    .font(.headline)
+                Text(benefit.caption)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }

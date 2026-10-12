@@ -72,11 +72,13 @@ private struct LibraryToolbar: ToolbarContent {
 
     private var countText: String {
         guard let total else { return "" }
-        if model.selection.isEverything {
-            return "All \(total.formatted()) items selected"
-        }
         let selected = model.selection.selectedCount(total: total)
-        return "\(selected.formatted()) of \(total.formatted()) selected"
+        let count = model.selection.isEverything
+            ? "All \(total.formatted()) items selected"
+            : "\(selected.formatted()) of \(total.formatted()) selected"
+        // The estimated size, such as "· about 412 GB", once anything is selected.
+        guard selected > 0, let size = model.storageEstimateText else { return count }
+        return "\(count) · \(size)"
     }
 
 }

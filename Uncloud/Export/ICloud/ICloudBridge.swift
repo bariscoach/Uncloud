@@ -25,7 +25,10 @@ struct ICloudBridgeMessage: Decodable, Sendable {
         let filename: String
         let created: String?
         let type: String
+        /// The original's bytes.
         let size: Int64?
+        /// What a download writes for the item: the original plus any Live Photo movie.
+        let bytes: Int64?
         let thumbURL: String?
     }
 
@@ -45,6 +48,10 @@ struct ICloudBridgeMessage: Decodable, Sendable {
     var kind: String?
     var message: String?
     var cancelled: Bool?
+    /// Stats: the bytes of this request's items so far, each page's item sizes, and whether the walk reached the end.
+    var bytes: Int64?
+    var sizes: [String: Int64]?
+    var complete: Bool?
 }
 
 /// A persistent `photo_bridge.py` process for one Apple ID: request/response by ID, plus event
@@ -199,6 +206,12 @@ final class ICloudBridge: Sendable {
             }
         }
         throw CancellationError()
+    }
+
+    /// Walks the library from `offset` (icloudpd's order), streaming `statsProgress` with each page's
+    /// item sizes, through the final `stats`. Ending the stream early stops the walk after its page.
+    func stats(offset: Int) async throws -> AsyncThrowingStream<ICloudBridgeMessage, Error> {
+        try await send(ICloudBridgeRequest(cmd: "stats", offset: offset))
     }
 
     /// Starts a download and streams its events through the final `done`. Ending the stream early
@@ -410,7 +423,7 @@ final class ICloudBridge: Sendable {
         if let id = message.id {
             let continuation = state.withLock { state -> AsyncThrowingStream<ICloudBridgeMessage, Error>.Continuation? in
                 guard state.generation == generation else { return nil }
-                if ["error", "page", "count", "albums", "done"].contains(message.event) {
+                if ["error", "page", "count", "albums", "done", "stats"].contains(message.event) {
                     state.abandoned.remove(id)
                 }
                 return state.streams[id]
@@ -419,7 +432,7 @@ final class ICloudBridge: Sendable {
             switch message.event {
             case "error":
                 finish(id, throwing: Self.error(kind: message.kind, message: message.message))
-            case "page", "count", "albums", "done":
+            case "page", "count", "albums", "done", "stats":
                 continuation.yield(message)
                 finish(id, throwing: nil)
             default:
@@ -632,7 +645,8 @@ extension ICloudBridgeMessage.Item {
             filename: filename,
             created: created.flatMap { try? Date($0, strategy: .iso8601) },
             isVideo: type == "movie",
-            thumbnailURL: thumbURL.flatMap(URL.init(string:))
+            thumbnailURL: thumbURL.flatMap(URL.init(string:)),
+            bytes: bytes ?? size
         )
     }
 }

@@ -410,6 +410,111 @@ class DownloadTests(unittest.TestCase):
         self.assertIn("Could not find URL", failed[0]["reason"])
 
 
+class StatsTests(unittest.TestCase):
+    @staticmethod
+    def expected_bytes(samples):
+        sizes = {}
+        for master, _ in samples:
+            fields = master["fields"]
+            size = fields["resOriginalRes"]["value"]["size"]
+            if "resOriginalVidComplRes" in fields:
+                size += fields["resOriginalVidComplRes"]["value"]["size"]
+            sizes[master["recordName"]] = size
+        return sizes
+
+    def stats(self, bridge, **request):
+        bridge.handle({"id": 30, "cmd": "stats", **request}, downloading=False)
+        return [m for m in bridge.channel.messages if m.get("id") == 30]
+
+    def test_sizes_include_live_photo_movies(self):
+        bridge, channel, session = make_bridge()
+        events = self.stats(bridge)
+        expected = self.expected_bytes(SAMPLES)
+        progress = [e for e in events if e["event"] == "statsProgress"]
+        sizes = {}
+        for event in progress:
+            sizes.update(event["sizes"])
+        self.assertEqual(sizes, expected)
+        # The Live Photos count their movie too.
+        self.assertGreater(sizes["ID01"], SAMPLES[0][0]["fields"]["resOriginalRes"]["value"]["size"])
+        final = events[-1]
+        self.assertEqual(final["event"], "stats")
+        self.assertEqual((final["done"], final["total"]), (6, 6))
+        self.assertEqual(final["bytes"], sum(expected.values()))
+        self.assertTrue(final["complete"])
+        self.assertFalse(final["cancelled"])
+        self.assertEqual(session.downloads, [])
+
+    def test_bytes_match_what_icloudpd_writes(self):
+        with tempfile.TemporaryDirectory() as root:
+            run_icloudpd(SAMPLES, root)
+            written = sum(len(data) for data in tree(root).values())
+        bridge, channel, session = make_bridge()
+        self.assertEqual(self.stats(bridge)[-1]["bytes"], written)
+
+    def test_page_items_carry_download_bytes(self):
+        bridge, channel, session = make_bridge()
+        bridge.handle({"id": 31, "cmd": "page", "offset": 0, "limit": 6}, downloading=False)
+        items = channel.messages[-1]["items"]
+        expected = self.expected_bytes(SAMPLES)
+        self.assertEqual({i["id"]: i["bytes"] for i in items}, expected)
+        self.assertEqual(items[2]["bytes"], items[2]["size"])  # a movie has no Live Photo part
+
+    def test_walks_pages_from_an_offset(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(250)]
+        bridge, channel, session = make_bridge(samples)
+        events = self.stats(bridge, offset=40)
+        progress = [e for e in events if e["event"] == "statsProgress"]
+        self.assertEqual([e["done"] for e in progress], [100, 200, 210])
+        self.assertEqual([len(e["sizes"]) for e in progress], [100, 100, 10])
+        self.assertIn("N0040", progress[0]["sizes"])
+        self.assertNotIn("N0039", progress[0]["sizes"])
+        self.assertEqual(events[-1]["total"], 250)
+        self.assertTrue(events[-1]["complete"])
+        self.assertEqual(events[-1]["bytes"], sum(self.expected_bytes(samples[40:]).values()))
+
+    def test_cancel_stops_after_the_page(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(350)]
+        bridge, channel, session = make_bridge(samples)
+        original = channel.send
+
+        def send(message):
+            original(message)
+            if message.get("event") == "statsProgress":
+                channel.feed('{"cmd":"cancel","target":30}')
+
+        channel.send = send
+        events = self.stats(bridge)
+        self.assertEqual(events[-1]["event"], "stats")
+        self.assertEqual(events[-1]["done"], 100)
+        self.assertFalse(events[-1]["complete"])
+        self.assertTrue(events[-1]["cancelled"])
+        self.assertEqual(session.requests, 1)
+
+    def test_answers_browsing_and_yields_to_a_download(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(350)]
+        bridge, channel, session = make_bridge(samples)
+        channel.feed('{"id":40,"cmd":"page","offset":0,"limit":1}')
+        events = self.stats(bridge)
+        page = next(m for m in channel.messages if m.get("id") == 40)
+        self.assertEqual(page["event"], "page")
+        self.assertTrue(events[-1]["complete"])
+
+        bridge, channel, session = make_bridge(samples)
+        channel.feed('{"id":41,"cmd":"download","mode":"only","ids":[],"dest":"/tmp/never"}')
+        events = self.stats(bridge)
+        self.assertEqual(events[-1]["done"], 100)
+        self.assertFalse(events[-1]["complete"])
+        self.assertFalse(events[-1]["cancelled"])
+        self.assertEqual(len(bridge._deferred), 1)
+
+    def test_a_stats_request_during_a_download_waits(self):
+        bridge, channel, session = make_bridge()
+        bridge.handle({"id": 32, "cmd": "stats"}, downloading=True)
+        self.assertEqual(len(bridge._deferred), 1)
+        self.assertEqual([m for m in channel.messages if m.get("id") == 32], [])
+
+
 class HintTests(unittest.TestCase):
     def test_windows(self):
         self.assertEqual(pb.hint_windows([5, 1, 3, 200, 210, 1000]), [range(1, 6), range(200, 211), range(1000, 1001)])

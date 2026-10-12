@@ -7,10 +7,12 @@ Fake options:
   --rate R            downloads per second; 0 means as fast as possible (default 50)
   --auth-delay S      seconds before "ready" (default 0)
   --launch-log PATH   append "<pid> bridge" to PATH at start
+  --stats-delay S     seconds per stats page of 100 items (default 0)
 
-Speaks the bridge's JSON-lines protocol (page, count, albums, download, cancel) closely enough
+Speaks the bridge's JSON-lines protocol (page, count, albums, download, stats, cancel) closely enough
 for the app: "ready" after signing in, downloads write DEST/YYYY/MM files and report
-progress/downloaded/skipped and a final done with "cancelled". Closing stdin ends it; SIGTERM,
+progress/downloaded/skipped and a final done with "cancelled"; item i is fake_bytes(i) bytes in page
+and stats replies. Closing stdin ends it; SIGTERM,
 SIGSTOP and SIGCONT keep their default meaning.
 """
 
@@ -24,7 +26,7 @@ import time
 
 
 def parse(argv):
-    fake = {"total": 1000, "rate": 50.0, "auth_delay": 0.0, "launch_log": None}
+    fake = {"total": 1000, "rate": 50.0, "auth_delay": 0.0, "launch_log": None, "stats_delay": 0.0}
     own = argv[:argv.index("--")] if "--" in argv else []
     index = 0
     while index < len(own):
@@ -35,6 +37,8 @@ def parse(argv):
             fake["rate"] = float(own[index + 1]); index += 2
         elif flag == "--auth-delay":
             fake["auth_delay"] = float(own[index + 1]); index += 2
+        elif flag == "--stats-delay":
+            fake["stats_delay"] = float(own[index + 1]); index += 2
         elif flag == "--launch-log":
             fake["launch_log"] = own[index + 1]; index += 2
         else:
@@ -79,6 +83,32 @@ def item_path(dest, index):
     year = 2001 + index // 1200
     month = 1 + (index // 100) % 12
     return os.path.join(dest, f"{year:04d}", f"{month:02d}", f"IMG_{index:06d}.JPG")
+
+
+def fake_bytes(index):
+    return 1000 + index
+
+
+def stats(channel, request, total, delay):
+    request_id = request.get("id")
+    offset = max(0, int(request.get("offset") or 0))
+    done = 0
+    total_bytes = 0
+    complete = True
+    for start in range(offset, total, 100):
+        sizes = {f"asset-{i}": fake_bytes(i) for i in range(start, min(total, start + 100))}
+        if delay > 0:
+            time.sleep(delay)
+        done += len(sizes)
+        total_bytes += sum(sizes.values())
+        channel.send({"id": request_id, "event": "statsProgress", "done": done, "total": total,
+                      "bytes": total_bytes, "sizes": sizes})
+        if channel.closed.is_set() or request_id in channel.cancelled:
+            complete = False
+            break
+    cancelled = request_id in channel.cancelled
+    channel.send({"id": request_id, "event": "stats", "done": done, "total": total, "bytes": total_bytes,
+                  "complete": complete, "cancelled": cancelled})
 
 
 def download(channel, request, total, rate):
@@ -144,11 +174,13 @@ def main(argv):
         elif command == "page":
             offset = int(request.get("offset", 0))
             limit = int(request.get("limit", 200))
-            items = [{"id": f"asset-{i}", "filename": f"IMG_{i:06d}.JPG", "created": None, "type": "image", "size": 10, "thumbURL": None}
+            items = [{"id": f"asset-{i}", "filename": f"IMG_{i:06d}.JPG", "created": None, "type": "image", "size": fake_bytes(i), "bytes": fake_bytes(i), "thumbURL": None}
                      for i in range(offset, min(total, offset + limit))]
             channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
         elif command == "download":
             download(channel, request, total, fake["rate"])
+        elif command == "stats":
+            stats(channel, request, total, fake["stats_delay"])
         else:
             channel.send({"id": request_id, "event": "error", "kind": "badRequest", "message": "unknown"})
 

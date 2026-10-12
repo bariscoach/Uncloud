@@ -14,7 +14,8 @@ or {"event":"error","kind":...,"message":...}.
 
 Requests, each with an "id" that every reply carries:
   {"cmd":"page","offset":O,"limit":L}  -> {"event":"page","offset":O,"items":[...]}
-      items oldest first (icloudpd's order): {id, filename, created, type, size, thumbURL}
+      items oldest first (icloudpd's order): {id, filename, created, type, size, bytes, thumbURL}
+      (size: the original's bytes; bytes: what a download writes, see stats)
   {"cmd":"count"}                     -> {"event":"count","count":N}
   {"cmd":"albums"}                    -> {"event":"albums","albums":[names]}  (no smart albums)
   {"cmd":"download","mode":"only"|"allExcept","ids":[...],"dest":DIR,"layout":"month"|"album",
@@ -22,7 +23,15 @@ Requests, each with an "id" that every reply carries:
       -> {"event":"progress","done":D,"total":T} whenever either changes, then per item one of
          {"event":"downloaded","id","filename","path","paths"}, {"event":"skipped","id","filename","path"},
          {"event":"failed","id","filename","reason"}; finally {"event":"done",...counts,"cancelled":BOOL}
-  {"cmd":"cancel","target":ID}        stops that download after the current item.
+  {"cmd":"stats","offset":O}          walks the library from O (icloudpd's order) a page at a time
+      -> {"event":"statsProgress","done":D,"total":T,"bytes":B,"sizes":{id: bytes}} per page, where
+         D and B count this request's items so far and sizes holds the page's items; finally
+         {"event":"stats","done":D,"total":T,"bytes":B,"complete":BOOL,"cancelled":BOOL}.
+         An item's bytes are what a download writes for it with Uncloud's arguments: the original,
+         plus the Live Photo movie when there is one (not XMP sidecars, a few KB each). Browsing
+         requests are answered between pages, and the walk stops early (complete false) when a
+         download is waiting, so it never holds up an export.
+  {"cmd":"cancel","target":ID}        stops that download or stats walk after the current item or page.
 Errors: {"id"?, "event":"error","kind":...,"message":...}. Closing stdin or SIGTERM stops the bridge.
 The password is never written anywhere.
 """
@@ -311,6 +320,30 @@ def thumb_url(asset: Any) -> Optional[str]:
     return None
 
 
+def download_bytes(asset: Any) -> Optional[int]:
+    """The bytes icloudpd writes for an item with Uncloud's arguments (`--size original`, Live Photo
+    movies at their original size): the original, plus the Live Photo movie when the record has
+    one. None when the record has no size at all."""
+    from pyicloud_ipd.version_size import AssetVersionSize, LivePhotoVersionSize
+
+    try:
+        versions = asset.versions
+    except Exception:  # noqa: BLE001
+        versions = {}
+    original = versions.get(AssetVersionSize.ORIGINAL)
+    try:
+        total = int(original.size) if original is not None else int(asset.size)
+    except (KeyError, TypeError, ValueError):
+        return None
+    live = versions.get(LivePhotoVersionSize.ORIGINAL)
+    if live is not None:
+        try:
+            total += int(live.size)
+        except (TypeError, ValueError):
+            pass
+    return total
+
+
 def describe(asset: Any) -> Dict[str, Any]:
     from pyicloud_ipd.item_type import AssetItemType
 
@@ -333,6 +366,7 @@ def describe(asset: Any) -> Dict[str, Any]:
         "created": created,
         "type": "movie" if asset.item_type == AssetItemType.MOVIE else "image",
         "size": size,
+        "bytes": download_bytes(asset),
         "thumbURL": thumb_url(asset),
     }
 
@@ -404,11 +438,13 @@ class Bridge:
 
                 names = [n for n in self.albums(refresh=True) if n not in PhotoLibrary.SMART_FOLDERS]
                 self.channel.send({"id": request_id, "event": "albums", "albums": names})
-            elif command == "download":
+            elif command in ("download", "stats"):
                 if downloading:
                     self._deferred.append(request)
-                else:
+                elif command == "download":
                     self.download(request)
+                else:
+                    self.stats(request)
             else:
                 raise RequestError("badRequest", f"Unknown command {command!r}.")
         except RequestError as error:
@@ -428,6 +464,61 @@ class Bridge:
         if self._albums is None or refresh:
             self._albums = dict(self.library.albums)
         return self._albums
+
+    # Sizes
+
+    def stats(self, request: Dict[str, Any]) -> None:
+        """Streams each item's download size, a page at a time, from `offset` to the end."""
+        request_id = request.get("id")
+        try:
+            offset = max(0, int(request.get("offset") or 0))
+        except (TypeError, ValueError):
+            raise RequestError("badRequest", "offset must be a number.")
+        album = self.library.all
+        total = len(album)
+        view = copy.copy(album)
+        view.offset = offset
+        view.page_size = PAGE_CHUNK
+        done = 0
+        total_bytes = 0
+        sizes: Dict[str, int] = {}
+        in_page = 0
+        complete = True
+        cancelled = False
+
+        def report() -> None:
+            self.channel.send({
+                "id": request_id, "event": "statsProgress", "done": done, "total": total,
+                "bytes": total_bytes, "sizes": sizes,
+            })
+
+        for asset in view.photos:
+            size = download_bytes(asset)
+            if size is not None:
+                sizes[asset.id] = size
+                total_bytes += size
+            done += 1
+            in_page += 1
+            if in_page < PAGE_CHUNK:
+                continue
+            report()
+            sizes = {}
+            in_page = 0
+            if self.channel.is_cancelled(request_id):
+                cancelled, complete = True, False
+                break
+            # Browsing goes first; a download that arrived meanwhile ends the walk.
+            self.serve_waiting()
+            if self._deferred or self.channel.is_cancelled(request_id):
+                cancelled = self.channel.is_cancelled(request_id)
+                complete = False
+                break
+        if in_page or done == 0:
+            report()
+        self.channel.send({
+            "id": request_id, "event": "stats", "done": done, "total": total, "bytes": total_bytes,
+            "complete": complete, "cancelled": cancelled,
+        })
 
     # Downloading
 

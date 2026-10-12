@@ -12,12 +12,13 @@ struct GettingStartedView: View {
                 .padding(.bottom, 16)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 24) {
                     HowItWorksSteps()
-                    Text("Uncloud also resumes after interruptions, verifies your backup, and can back up automatically.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Why Uncloud")
+                            .font(.headline)
+                        BenefitsGrid()
+                    }
                     PrivacyNote(showsLearnMore: false)
                 }
                 .padding(.horizontal, 24)

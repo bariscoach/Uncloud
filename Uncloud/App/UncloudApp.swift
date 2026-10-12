@@ -1,6 +1,26 @@
 import SwiftUI
 
+/// Unit tests are hosted by this app. Under the test runner, start an empty stand-in instead, so a test
+/// run never loads the user's account, settings, destination or library. Tests build their own models.
 @main
+enum Launcher {
+    static func main() {
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            TestHostApp.main()
+        } else {
+            UncloudApp.main()
+        }
+    }
+}
+
+struct TestHostApp: App {
+    var body: some Scene {
+        Settings {
+            EmptyView()
+        }
+    }
+}
+
 struct UncloudApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model: ExportModel
@@ -12,10 +32,7 @@ struct UncloudApp: App {
         let model = ExportModel()
         let settings = AutoBackupSettings()
         let controller = AutoBackupController(model: model, settings: settings)
-        // Unit tests run inside this app. Starting backups there could write to the user's real destination.
-        if !Self.isRunningUnitTests {
-            controller.start()
-        }
+        controller.start()
         #if DEBUG
         HelperProbe.runIfRequested()
         #endif
@@ -49,11 +66,6 @@ struct UncloudApp: App {
                 .environment(settings)
         }
         .menuBarExtraStyle(.menu)
-    }
-
-    /// True when XCTest or Swift Testing hosts this app.
-    private static var isRunningUnitTests: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
     /// The menu bar item shows only when the user wants it and automatic backup is on.
