@@ -23,9 +23,8 @@ final class ExportModel {
         case backup
     }
 
-    /// The sheets of the welcome flow: the first-run welcome and Help > Getting Started.
+    /// The sheets of the welcome flow. The landing page replaces the first-run welcome; Help > Getting Started remains.
     enum IntroSheet: Identifiable {
-        case welcome
         case gettingStarted
 
         var id: Self { self }
@@ -51,7 +50,7 @@ final class ExportModel {
     var isShowingICloudSignIn = false
     /// Shows the one sign-out confirmation, from the sidebar footer or the File menu.
     var isConfirmingICloudSignOut = false
-    /// The first-run welcome and Help > Getting Started share one sheet.
+    /// Help > Getting Started.
     var introSheet: IntroSheet?
     var layout: FolderLayout {
         didSet { UserDefaults.standard.set(layout.rawValue, forKey: Self.layoutKey) }
@@ -104,7 +103,6 @@ final class ExportModel {
     private static let bookmarkKey = "destinationBookmark"
     private static let layoutKey = "folderLayout"
     private static let writesSidecarsKey = "writeSidecars"
-    private static let onboardingKey = "hasCompletedOnboarding"
     private static let sourceKey = "librarySource"
     private static let maxActivityEntries = ExportBatch.maxEntries
     /// How often a running export updates the screen.
@@ -128,11 +126,6 @@ final class ExportModel {
         // An unfinished export opens on the Backup pane, where it can be resumed.
         let unfinished = isSourceReady && (destination.map { ExportManifest.hasIncompleteRun(in: $0.url) } ?? false)
         pane = unfinished ? .backup : .library
-        if !defaults.bool(forKey: Self.onboardingKey) {
-            // Marked as seen right away, so the welcome shows once even if the app quits before Get Started.
-            introSheet = .welcome
-            defaults.set(true, forKey: Self.onboardingKey)
-        }
     }
 
     /// New installs use iCloud. An install that already exports from the Photos library keeps doing so.

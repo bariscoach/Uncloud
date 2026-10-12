@@ -46,8 +46,6 @@ struct LibraryWindow: View {
         }
         .sheet(item: $model.introSheet) { sheet in
             switch sheet {
-            case .welcome:
-                WelcomeView()
             case .gettingStarted:
                 GettingStartedView()
             }

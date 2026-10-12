@@ -415,3 +415,4 @@ Ordering: assets and tokens first (no dependencies), then model presentation sta
 1. **First run:** keep ONE welcome screen, shown on first launch only (title, one-line value proposition, "Get Started"). Remove the 4-page onboarding carousel and move its content into Help → Getting Started (a sheet or window). Don't offer a second way to reopen the welcome screen.
 2. **Navigation:** the sidebar (Library | Backup) is the main menu. Remove the Back/Forward/Home toolbar buttons, the Go menu, and the Home page.
 3. **Wording:** use "Export" everywhere ("Export All Photos", "Export 120 Items"). Never "Back Up" for the main action. Automatic backup keeps its name in Settings.
+4. Update (user request): the landing page replaces the first-run welcome sheet.

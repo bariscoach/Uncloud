@@ -5,9 +5,31 @@ struct BackupPane: View {
     @Environment(ExportModel.self) private var model
 
     var body: some View {
+        if model.isSourceReady {
+            form
+        } else {
+            notReady
+        }
+    }
+
+    /// Shown while no source is ready: nothing to export yet, so point back to the Library's landing page.
+    private var notReady: some View {
+        ContentUnavailableView {
+            Label("Nothing to Export Yet", systemImage: "externaldrive")
+        } description: {
+            Text("Choose where your photos come from first: iCloud or the Photos library on this Mac.")
+        } actions: {
+            Button("Get Started") {
+                model.pane = .library
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var form: some View {
         @Bindable var model = model
 
-        Form {
+        return Form {
             Section {
                 destinationRow
                 if let issue = model.destinationIssue {

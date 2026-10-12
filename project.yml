@@ -23,6 +23,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.Uncloud
         PRODUCT_NAME: Uncloud
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Uncloud
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography

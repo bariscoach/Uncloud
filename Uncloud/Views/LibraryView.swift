@@ -12,7 +12,7 @@ struct LibraryView: View {
             } else if model.source == .photosLibrary, model.isPhotosAccessBlocked {
                 PhotosAccessView()
             } else {
-                LibraryEmptyState()
+                LandingView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -316,45 +316,5 @@ private struct LibraryTile: View {
             label += ", video"
         }
         return label
-    }
-}
-
-/// Shown when the chosen source isn't ready: iCloud is signed out, or Photos access hasn't been granted.
-struct LibraryEmptyState: View {
-    @Environment(ExportModel.self) private var model
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "photo.stack")
-                .font(.largeTitle)
-                .foregroundStyle(.purple)
-                .accessibilityHidden(true)
-            VStack(spacing: 8) {
-                Text("Connect Your Photos")
-                    .font(.title)
-                Text("Choose where Uncloud gets your photos and videos.")
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            HStack {
-                Button("iCloud Photos…") {
-                    model.source = .iCloud
-                    model.isShowingICloudSignIn = true
-                }
-                .buttonStyle(.borderedProminent)
-                Button("Photos on This Mac") {
-                    model.source = .photosLibrary
-                    model.connectPhotoLibrary()
-                }
-            }
-            .controlSize(.large)
-            Text("Photos go straight from this Mac to your folder and are never uploaded.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding()
-        .frame(maxWidth: 440)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

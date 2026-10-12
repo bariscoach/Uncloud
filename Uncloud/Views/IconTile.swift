@@ -5,14 +5,16 @@ import SwiftUI
 struct IconTile: View {
     let symbol: String
     let tint: Color
+    /// The side length of the tile. The symbol scales with it.
+    var size: CGFloat = 28
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
+        RoundedRectangle(cornerRadius: size * 0.21, style: .continuous)
             .fill(tint)
-            .frame(width: 28, height: 28)
+            .frame(width: size, height: size)
             .overlay {
                 Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: size * 0.54, weight: .semibold))
                     .foregroundStyle(.white)
             }
             .accessibilityHidden(true)

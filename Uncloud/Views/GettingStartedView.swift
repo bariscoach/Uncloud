@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Help > Getting Started: the four things to know about Uncloud.
+/// Help > Getting Started: the same three steps and privacy note as the landing page.
 struct GettingStartedView: View {
     @Environment(ExportModel.self) private var model
 
@@ -12,20 +12,13 @@ struct GettingStartedView: View {
                 .padding(.bottom, 16)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    ForEach(OnboardingPage.all) { page in
-                        HStack(alignment: .top, spacing: 12) {
-                            IconTile(symbol: page.symbol, tint: Self.tint(for: page.id))
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(page.title)
-                                    .font(.headline)
-                                Text(page.message)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
+                VStack(alignment: .leading, spacing: 28) {
+                    HowItWorksSteps()
+                    Text("Uncloud also resumes after interruptions, verifies your backup, and can back up automatically.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    PrivacyNote(showsLearnMore: false)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
@@ -41,16 +34,6 @@ struct GettingStartedView: View {
             }
             .padding(24)
         }
-        .frame(width: 460, height: 520)
-    }
-
-    /// One colour per row, from the palette used for the sidebar and the empty states.
-    private static func tint(for id: Int) -> Color {
-        switch id {
-        case 0: .purple
-        case 1: .teal
-        case 2: .green
-        default: .blue
-        }
+        .frame(width: 460, height: 560)
     }
 }
