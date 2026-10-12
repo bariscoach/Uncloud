@@ -17,8 +17,8 @@ enum ICloudError: LocalizedError, Equatable {
             "Sign in to iCloud again to continue."
         case .failed(let failure):
             failure.message
-        case .exited(_, let lastMessage?):
-            "The iCloud download stopped unexpectedly: \(lastMessage)"
+        case .exited(_, let detail?):
+            "The iCloud download stopped: \(detail)\(detail.hasSuffix(".") ? "" : ".") Choose Resume to try again."
         case .exited(let status, nil):
             "The iCloud download stopped unexpectedly (code \(status))."
         case .interrupted:
@@ -44,8 +44,7 @@ final class ICloudHelperProcess: Sendable {
         var processGroup: pid_t?
         var isTerminating = false
         var didSignalTermination = false
-        var lastMessage: String?
-        var lastFailure: ICloudFailure?
+        var diagnostics = ICloudDiagnostics()
     }
 
     private static let terminateGrace = DispatchTimeInterval.seconds(5)
@@ -66,10 +65,8 @@ final class ICloudHelperProcess: Sendable {
     private let parser: OSAllocatedUnfairLock<ICloudOutputParser>
     /// Reads both pipes and handles exit in order, so events keep their arrival order.
     private let queue = DispatchQueue(label: "ICloudHelperProcess.output")
-    #if DEBUG
     /// Everything the helper printed, saved redacted when it finishes; see `HelperTranscript`.
-    private let transcript = OSAllocatedUnfairLock(initialState: Data())
-    #endif
+    private let transcript = OSAllocatedUnfairLock(initialState: TranscriptBuffer())
 
     init(
         arguments: [String],
@@ -117,12 +114,13 @@ final class ICloudHelperProcess: Sendable {
 
     /// The last failure icloudpd reported.
     var lastFailure: ICloudFailure? {
-        state.withLock { $0.lastFailure }
+        state.withLock { $0.diagnostics.failure }
     }
 
-    /// The last error or warning icloudpd printed, for error messages.
-    var lastMessage: String? {
-        state.withLock { $0.lastMessage }
+    /// The line that best explains a failure: the last ERROR line, else a traceback's last line,
+    /// else the last stderr line. Redacted and at most 160 characters; see `ICloudDiagnostics`.
+    var diagnosticSummary: String? {
+        state.withLock { $0.diagnostics.summary(arguments: arguments) }
     }
 
     /// Launches the helper. The stream finishes after it exits and both pipes are closed;
@@ -357,10 +355,8 @@ final class ICloudHelperProcess: Sendable {
             var buffer = [UInt8](repeating: 0, count: Self.readChunk)
             let count = buffer.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
             if count > 0 {
-                #if DEBUG
                 let chunk = Data(buffer[..<count])
                 transcript.withLock { $0.append(chunk) }
-                #endif
                 deliver(parser.withLockUnchecked {
                     $0.feed(Data(buffer[..<count]), fromStandardError: fromStandardError)
                 })
@@ -382,31 +378,11 @@ final class ICloudHelperProcess: Sendable {
         }
         let continuation = state.withLock { state in
             for event in events {
-                switch event {
-                case .failure(let failure):
-                    state.lastFailure = failure
-                    state.lastMessage = failure.message
-                case .log(let level, let message) where Self.isWorthReporting(level: level, message: message):
-                    state.lastMessage = message
-                default:
-                    break
-                }
+                state.diagnostics.note(event)
             }
             return state.continuation
         }
         events.forEach { continuation?.yield($0) }
-    }
-
-    /// Skips Python warnings and their indented source lines.
-    private static func isWorthReporting(level: String, message: String) -> Bool {
-        switch level {
-        case "ERROR", "CRITICAL", "WARNING":
-            true
-        case "STDERR":
-            !message.hasPrefix(" ") && !message.contains("Warning")
-        default:
-            false
-        }
     }
 
     /// Runs on `queue`.
@@ -445,9 +421,7 @@ final class ICloudHelperProcess: Sendable {
             return
         }
         deliver(parser.withLockUnchecked { $0.finish() })
-        #if DEBUG
-        HelperTranscript.save(transcript.withLock { $0 }, arguments: arguments, exitStatus: exitStatus)
-        #endif
+        HelperTranscript.save(transcript.withLock { $0.data }, arguments: arguments, exitStatus: exitStatus)
         let continuation = state.withLock { state in
             defer {
                 state.continuation = nil
@@ -513,7 +487,11 @@ extension ICloudHelperProcess {
                         throw CancellationError()
                     }
                     if status != 0 {
-                        throw error(status: status, failure: helper.lastFailure, lastMessage: helper.lastMessage)
+                        throw ICloudDiagnostics.exitError(
+                            status: status,
+                            failure: helper.lastFailure,
+                            summary: helper.diagnosticSummary
+                        )
                     }
                     continuation.finish()
                 } catch {
@@ -533,44 +511,4 @@ extension ICloudHelperProcess {
             || message.hasPrefix("Two-step authentication is required")
     }
 
-    private static func error(status: Int32, failure: ICloudFailure?, lastMessage: String?) -> ICloudError {
-        switch failure {
-        case .invalidCredentials?, .twoFactorFailed?, .sessionExpired(needsSignIn: true)?:
-            .signInRequired
-        case let failure?:
-            .failed(failure)
-        case nil:
-            .exited(status, lastMessage: lastMessage)
-        }
-    }
 }
-
-#if DEBUG
-/// Debug builds keep the last few helper transcripts in `<Caches>/helper-logs/` for diagnosing
-/// iCloud problems. The password never appears (it only goes to the helper's input); the Apple ID
-/// and anything that looks like a token are redacted.
-enum HelperTranscript {
-    private static let keep = 10
-
-    static func save(_ output: Data, arguments: [String], exitStatus: Int32?) {
-        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
-        let folder = caches.appending(path: "helper-logs", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-
-        var text = "arguments: \(arguments.joined(separator: " "))\nexit status: \(exitStatus.map(String.init) ?? "?")\n\n"
-        text += String(decoding: output, as: UTF8.self)
-        if let index = arguments.firstIndex(of: "-u"), arguments.indices.contains(index + 1) {
-            text = text.replacingOccurrences(of: arguments[index + 1], with: "<apple-id>")
-        }
-        text = text.replacingOccurrences(of: #"[A-Za-z0-9+/=_\-]{40,}"#, with: "<redacted>", options: .regularExpression)
-
-        let stamp = Date.now.formatted(.iso8601).replacingOccurrences(of: ":", with: "-")
-        try? text.write(to: folder.appending(path: "\(stamp)-\(UUID().uuidString.prefix(4)).log"), atomically: true, encoding: .utf8)
-
-        let logs = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        for old in logs.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).dropFirst(keep) {
-            try? FileManager.default.removeItem(at: old)
-        }
-    }
-}
-#endif

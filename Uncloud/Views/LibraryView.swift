@@ -141,6 +141,17 @@ private struct LibraryBrowserView: View {
         .task(id: ObjectIdentifier(browser)) {
             browser.load()
         }
+        // Apple finishes indexing by itself, so the library is checked again every five minutes while
+        // this is shown. Ending the state (the reload) cancels the task.
+        .task(id: browser.isWaitingForIndexing) {
+            guard browser.isWaitingForIndexing else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(300))
+                if !Task.isCancelled, NSApplication.shared.isActive {
+                    browser.reload()
+                }
+            }
+        }
     }
 
     private var loading: some View {

@@ -42,6 +42,14 @@ final class LibraryBrowser {
     private(set) var count: Int?
     private(set) var state: State = .loading
 
+    /// True while Apple is still indexing the library. The app checks again on its own; see `LibraryView`.
+    var isWaitingForIndexing: Bool {
+        if case let .failed(message) = state {
+            return message == ICloudFailure.libraryIndexing.message
+        }
+        return false
+    }
+
     private var pages: [Int: [LibraryItem]] = [:]
     @ObservationIgnored private var pageUse: [Int: UInt64] = [:]
     @ObservationIgnored private var useClock: UInt64 = 0

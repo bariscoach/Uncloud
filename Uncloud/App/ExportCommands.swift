@@ -100,6 +100,13 @@ struct ExportCommands: Commands {
             Button("Getting Started…") {
                 model.introSheet = .gettingStarted
             }
+
+            Divider()
+
+            // Redacted transcripts of the last iCloud helper runs; they stay on this Mac.
+            Button("Show Diagnostic Logs") {
+                HelperTranscript.revealFolder()
+            }
         }
     }
 }

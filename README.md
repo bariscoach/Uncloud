@@ -57,6 +57,8 @@ Alongside the exported photos, a hidden `.photo-export/` folder holds:
 
 ## Resuming and errors
 
+Diagnostic logs of the last iCloud helper runs stay on this Mac, in the app's Caches folder (Help > Show Diagnostic Logs). They are redacted, and you can share them when reporting a problem.
+
 - **Resume:** items listed in `exported.tsv` are skipped. A later run picks up where the last one stopped and exports only new items. If `run-in-progress` is present, the main button reads "Resume".
 - **Partial files:** each file is streamed to a hidden `.partial` file and renamed only once it's complete. If one file for an item fails, the item's other files are removed, so a retry doesn't create duplicates.
 - **Stops the run:** a full disk or a destination that has gone away. Any other per-item error is logged in Activity, and Resume retries it.

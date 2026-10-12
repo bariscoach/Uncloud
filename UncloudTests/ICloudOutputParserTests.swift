@@ -53,7 +53,7 @@ struct ICloudOutputParserTests {
         expectParses(
             [err("iCloud Password for someone@example.com:"),
              err("Traceback (most recent call last):\n  File \"/x/base.py\", line 1, in run\n    boom()\nSomeError: boom\n")],
-            [.passwordPrompt, .failure(.other("SomeError: boom"))]
+            [.passwordPrompt, .log(level: "EXCEPTION", message: "SomeError: boom")]
         )
     }
 
@@ -204,14 +204,42 @@ struct ICloudOutputParserTests {
     @Test func unknownErrorLineBecomesOther() {
         expectParses(
             [out("\(log)ERROR    Notification of the required MFA failed\n")],
-            [.failure(.other("Notification of the required MFA failed"))]
+            [.log(level: "ERROR", message: "Notification of the required MFA failed")]
         )
     }
 
     @Test func unknownTracebackBecomesOtherWithLastLine() {
         expectParses(
             [err("Traceback (most recent call last):\n  File \"/x/y.py\", line 2, in f\n    g()\nKeyError: 'photo'\n")],
-            [.failure(.other("KeyError: 'photo'"))]
+            [.log(level: "EXCEPTION", message: "KeyError: 'photo'")]
+        )
+    }
+
+    @Test func libraryIndexingFromTracebackByMessage() {
+        expectParses(
+            [err("Traceback (most recent call last):\n  File \"/x/photos.py\", line 300, in check\n    raise e\npyicloud_ipd.exceptions.PyiCloudServiceNotActivatedException: ('Apple iCloud Photo Library has not finished indexing yet', None)\n")],
+            [.failure(.libraryIndexing)]
+        )
+    }
+
+    @Test func libraryIndexingFromErrorLine() {
+        expectParses(
+            [out("\(log)ERROR    Apple iCloud Photo Library has not finished indexing yet\n")],
+            [.failure(.libraryIndexing)]
+        )
+    }
+
+    @Test func setupIncompleteFromTracebackByMessage() {
+        expectParses(
+            [err("Traceback (most recent call last):\n  File \"/x/session.py\", line 162, in raise_error\n    raise api_error\npyicloud_ipd.exceptions.PyiCloudServiceNotActivatedException: ('Apple iCloud setup is not complete. Please log into https://icloud.com/ to manually finish setting up your iCloud service', 'ZONE_NOT_FOUND')\n")],
+            [.failure(.setupIncomplete)]
+        )
+    }
+
+    @Test func serviceNotActivatedWithOtherMessageFallsBackToClass() {
+        expectParses(
+            [err("Traceback (most recent call last):\n  File \"/x/y.py\", line 1, in f\n    g()\npyicloud_ipd.exceptions.PyiCloudServiceNotActivatedException: ('Some other reason', None)\n")],
+            [.failure(.setupIncomplete)]
         )
     }
 

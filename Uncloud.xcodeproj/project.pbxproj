@@ -10,85 +10,149 @@
 		00E6F5203A5C04B1D23CA606 /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 655C300B76FB724B130CF7D1 /* MenuBarContent.swift */; };
 		05F26E3428DD3FDC8C402567 /* ActivitySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4684CBB84E2FD289A7FFC70 /* ActivitySection.swift */; };
 		0632BCA610969ADBB48D3526 /* AssetFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD6AEDB8709BB238DAF496E /* AssetFiles.swift */; };
+		080188438C3AAE977ADC3FD9 /* AssetMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874540AC2D921C7BEC2C5966 /* AssetMetadata.swift */; };
+		12583BE5C3E344933A0F61E3 /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 655C300B76FB724B130CF7D1 /* MenuBarContent.swift */; };
+		125C822CF4463532024F759E /* AlbumIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0C8614EAB4109DA0E3B572 /* AlbumIndex.swift */; };
+		14654A51FF988A0F9F40A47D /* ICloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6F349CDF700C94CEDBA6D2B /* ICloudAccount.swift */; };
+		15CEC2A081834367951CE199 /* ProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF20D22FA931E55EA0D92FC4 /* ProgressCard.swift */; };
+		1B6C5C5966E8A04515959EB8 /* StorageEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF26CD531FE2C834F788727 /* StorageEstimate.swift */; };
+		1DF044AD2DA5AC0F64631163 /* LibrarySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = E514002B9E7B92DE11926635 /* LibrarySource.swift */; };
+		20CB5FE1B8B8556A8A78132A /* ICloudSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F242D7D8C735C12BFF2E8E /* ICloudSignIn.swift */; };
+		24167CE7E0C69E9DCF6EB022 /* StorageEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223292FA231E5C2569A0EA6D /* StorageEstimator.swift */; };
+		25CE95878FDD7E11A60B1E6A /* UncloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BB841704199E1A9A83035CB /* UncloudApp.swift */; };
 		26C4E054F2E1A68CFB77F237 /* ICloudProcesses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */; };
 		2A80ED1A29712BF61EE17069 /* ICloudExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BE68EB07867A8CBB3BD1F /* ICloudExportEngine.swift */; };
 		2C74C7DA063286F03A2A6DDC /* ExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D4FFC1BF5BB484D16F27D0 /* ExportModel.swift */; };
 		2C9CC05761B43445BDB14846 /* ActivityEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D976AD3361BC8BA501CFFA21 /* ActivityEntry.swift */; };
 		2E883569F104CC29ACEB67C8 /* ExportManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760AE024957625564089BF6E /* ExportManifest.swift */; };
+		31189699762ABACA70F9FD9B /* BackupVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11F0FB474F82CFC886EFC56 /* BackupVerification.swift */; };
+		3214307C398F70F7F0118C83 /* LibrarySelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15AF2D1A16CBAD87F2CF6A13 /* LibrarySelection.swift */; };
+		3323465C1CF7971A63D3259A /* BackupFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D1F1C631F406B5B11DE0A4 /* BackupFiles.swift */; };
+		351BB1002BE78BDCFA4604D9 /* HelperProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB9A26D65807CE3C93CA56E /* HelperProbe.swift */; };
+		387FB70A090730DF2E430024 /* ICloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B998F6805CB94B1AF9AD237 /* ICloudDiagnostics.swift */; };
+		38867E3737E6F0240BD94F03 /* PhotoSizeHeuristic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A22FAF47DB25363937CB221 /* PhotoSizeHeuristic.swift */; };
 		3A13214A4B22BF66A635A4BA /* ExportCancellationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0D2268BB87ECAD5B6FDB234 /* ExportCancellationTests.swift */; };
+		3C0B437267C7F16715BF2E45 /* LandingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878A1648B154D699511DAEF5 /* LandingView.swift */; };
 		3CF9CCF449985D8AC94837A1 /* FileHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9736A5E6353391005528BB /* FileHasher.swift */; };
+		3D2F7A296F271AE977A8100F /* ExportCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC06A9B2A29D7B6A2E9DE9A /* ExportCommands.swift */; };
+		4113ACA390EE898D2271BE93 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6AF9958305D6F4037AE0BB /* SettingsView.swift */; };
 		42D52ECD875F877FDAF09BEC /* ResourceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5A92B70FD36570C1F8A98F /* ResourceWriter.swift */; };
 		4666E103364636568F5945FD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6AF9958305D6F4037AE0BB /* SettingsView.swift */; };
+		471528B31D0C4DB3E60DE8AC /* ICloudHelperProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593CD78B3D2E6A5842C9F9FB /* ICloudHelperProcess.swift */; };
 		4DBC0D09007A8B2A93A2E182 /* AssetSizeIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61043C0C0F0B880426B3C1B /* AssetSizeIndex.swift */; };
+		4DD58AB4A50FAB741F2A4BA8 /* ICloudExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BE68EB07867A8CBB3BD1F /* ICloudExportEngine.swift */; };
 		4EF6AA108AED82C40E82DEF6 /* StorageEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223292FA231E5C2569A0EA6D /* StorageEstimator.swift */; };
 		4F29E7844BB159AD91387E54 /* GettingStartedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5772F36E0D0AB6932F4C1F /* GettingStartedView.swift */; };
+		4F3B1BFD2685672271D1B28E /* VerifyBackupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15336D3C30890C8F72FAA919 /* VerifyBackupSheet.swift */; };
+		4F85151DC3FBDA5CFE678D4C /* PauseGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253C79904112A7FD2C8AC7F8 /* PauseGate.swift */; };
 		52EEF7ED6ACC9AAB90BC11DD /* ICloudHelperProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593CD78B3D2E6A5842C9F9FB /* ICloudHelperProcess.swift */; };
+		589BDFE669B0194A94A80295 /* ActivityEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D976AD3361BC8BA501CFFA21 /* ActivityEntry.swift */; };
 		5A7FCB1F24C4E2AC92753081 /* PauseGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253C79904112A7FD2C8AC7F8 /* PauseGate.swift */; };
 		5FBF69A7FAF543AF1FED52FB /* BackupTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEBA56640980AAD84951366 /* BackupTools.swift */; };
+		6044F273B63930104885F1F4 /* BackupVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF6ADDB21641963A45C3D4B /* BackupVerifier.swift */; };
 		61F8787D5071CFA1840923BA /* UncloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BB841704199E1A9A83035CB /* UncloudApp.swift */; };
 		622B6CE6B8F8CEF35742BEEB /* XMPSidecarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22113C53D164A922FB8234B0 /* XMPSidecarTests.swift */; };
+		63E2B1553108D6497A592687 /* IconTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F79DB331BE406BDDBA688C4 /* IconTile.swift */; };
+		64760326CAE73C7BD72A11E1 /* ICloudCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DDC73174FD14CDAD67EE61 /* ICloudCredentialStore.swift */; };
 		64D222A53B86FD41165CA73F /* BackupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CFD381FEAA670D99CC49142 /* BackupPane.swift */; };
+		66E3D13CE4B55144DB51FD47 /* ActivitySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4684CBB84E2FD289A7FFC70 /* ActivitySection.swift */; };
+		698BC72208B11E1498239BE3 /* BackupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CFD381FEAA670D99CC49142 /* BackupPane.swift */; };
+		69EF6D2774891D9CD1E87879 /* ExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C963958EE52B95322E7B761 /* ExportEngine.swift */; };
 		6E0E9F89A336214A74DB9F45 /* ICloudLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */; };
 		7035C2E294DF95F154744DF5 /* PhotosAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */; };
+		705432DA201570077E0A6B34 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4CD281E886432AA76DBC56C /* LibraryView.swift */; };
+		73B422CDC9BE862E9907C302 /* SessionClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6CF0C13EC2FDC49683C04D /* SessionClock.swift */; };
+		7450C2D1883B31B1B384ED1D /* ICloudDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32A78308E7BE6A54DBA4130 /* ICloudDiagnosticsTests.swift */; };
 		7461ED0086CC775812F0DD27 /* ICloudCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DDC73174FD14CDAD67EE61 /* ICloudCredentialStore.swift */; };
+		7973CBA0784D707669426AD1 /* ExportRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC92839A6433C9E3A2A7894 /* ExportRun.swift */; };
 		79CB0D565184D54B44344773 /* AlbumIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0C8614EAB4109DA0E3B572 /* AlbumIndex.swift */; };
 		7BE616212E35A4854A55336E /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38FE6A956ABFA986425CA1F2 /* Destination.swift */; };
 		7C11038F4C56BFF9B6D1D7AA /* fake_bridge.py in Resources */ = {isa = PBXBuildFile; fileRef = 72CFB4A34A07951EA9D32692 /* fake_bridge.py */; };
 		7E6FAF6ADB32C2C64BB22C4D /* ICloudPageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A14EF6C191BC2FD24D44985 /* ICloudPageCache.swift */; };
 		80F6C7478F8010F0501FC003 /* LibraryBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C2E3B869C86CD6F4A297A3 /* LibraryBrowser.swift */; };
+		8273BACBA4230C610F484747 /* XMPSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7969932EFE828540123751 /* XMPSidecar.swift */; };
 		8278C0D260858BEA05B1BD88 /* StorageEstimateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */; };
 		844917F08447A2103CF09E45 /* XMPSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7969932EFE828540123751 /* XMPSidecar.swift */; };
 		85362011BC377AC627C49879 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4CD281E886432AA76DBC56C /* LibraryView.swift */; };
+		87AD0E7AEF8D8B897BDC0EFC /* BackupTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEBA56640980AAD84951366 /* BackupTools.swift */; };
 		8934AFAF5D4F45FD34987B85 /* ICloudOutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A62D4FFC9408C3EEF874AA8 /* ICloudOutputParser.swift */; };
 		8974CA3DCD44BE55FC21671E /* LibrarySelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15AF2D1A16CBAD87F2CF6A13 /* LibrarySelection.swift */; };
+		8B5F51F2EF7A9403D40E2EFD /* AutoBackupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF828E81D48A8A62ECBF167 /* AutoBackupSettings.swift */; };
 		8C6FADBE434DEFEA65380440 /* PlaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA548814AF18B9549584E9 /* PlaceResolver.swift */; };
 		8C80DEABF6F12CD1B81E0084 /* fake_icloudpd.py in Resources */ = {isa = PBXBuildFile; fileRef = 1DB14758951E131F0E10F3FE /* fake_icloudpd.py */; };
 		8F98268929D7412E4B6E813F /* ExportRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC92839A6433C9E3A2A7894 /* ExportRun.swift */; };
 		8FC27F1CFD11C51F3A1C9B89 /* IconTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F79DB331BE406BDDBA688C4 /* IconTile.swift */; };
+		917B4CDCA3095FE7DFBF010F /* ICloudLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */; };
+		919C8D41BA0B1D4E5BEE9127 /* ResourceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5A92B70FD36570C1F8A98F /* ResourceWriter.swift */; };
 		93B4F08EE07BB8CAC08D9742 /* ICloudPageCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7AF5335D7FF4CF5E319361 /* ICloudPageCacheTests.swift */; };
 		998017548E20F6CBDEA8A09E /* StorageEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF26CD531FE2C834F788727 /* StorageEstimate.swift */; };
+		99843408E7D10D2BD9E6F035 /* ICloudPageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A14EF6C191BC2FD24D44985 /* ICloudPageCache.swift */; };
 		9D7BFDF0CACC0459B63B424F /* ICloudSignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EC52053002D4FE98AFE8ED /* ICloudSignInSheet.swift */; };
 		A0446530BAD6A985F678DFA5 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306E893DE47FB41133F84A46 /* TestSupport.swift */; };
 		A4163A2D65F2F6C925398BD4 /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE36718CD24BFD5C076C6767 /* PhotoLibrary.swift */; };
 		A6304E2DF36A2B0B15EB5EF0 /* ExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C963958EE52B95322E7B761 /* ExportEngine.swift */; };
+		A769E609815935E6BD14CD37 /* AssetFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD6AEDB8709BB238DAF496E /* AssetFiles.swift */; };
 		A7E3EA6EEAADDA2A92601558 /* BackupVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11F0FB474F82CFC886EFC56 /* BackupVerification.swift */; };
+		AA4AAD8889C512575FD47F25 /* ICloudSignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EC52053002D4FE98AFE8ED /* ICloudSignInSheet.swift */; };
 		ACC2A55AE1A04CA208176481 /* BackupToolSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063AE52551C1E2661DBADD1A /* BackupToolSheets.swift */; };
 		ADCB4CF6D679D20370A55013 /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906FB271A31124DF5CDF2B2D /* LibraryWindow.swift */; };
 		AE7F1B74ED21FCA380E3AB88 /* test_bridge.py in Resources */ = {isa = PBXBuildFile; fileRef = B3DB43F072227AB1DA2D6016 /* test_bridge.py */; };
+		AEAF312B5B3CC0F0BBA7E838 /* ICloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B998F6805CB94B1AF9AD237 /* ICloudDiagnostics.swift */; };
 		B0736BE53848B39DDF27E6CF /* AutoBackupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 021DD8E980C244B272F1A046 /* AutoBackupController.swift */; };
 		B0B68DE32A6D632D02A3C3B8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5893FF275C08AA53373F056D /* Assets.xcassets */; };
 		B0ED6806E8D44772464AB94E /* ICloudOutputParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC27406BA9D1C97FFE6E15D /* ICloudOutputParserTests.swift */; };
 		B16DCB2B5E1DDCE5F12E1DCC /* FolderLayoutAndSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73D5680F07F5660D4D4DEB3 /* FolderLayoutAndSelectionTests.swift */; };
+		B474050D36E43FDADEFAED7F /* BackupToolSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063AE52551C1E2661DBADD1A /* BackupToolSheets.swift */; };
+		B59A43A5B5A0E9D08F1C3EF5 /* AutoBackupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 021DD8E980C244B272F1A046 /* AutoBackupController.swift */; };
 		B604D636F663F3189CBAE63D /* LibrarySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = E514002B9E7B92DE11926635 /* LibrarySource.swift */; };
+		B93E3B45D796B47CEDE55AE6 /* LibraryBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C2E3B869C86CD6F4A297A3 /* LibraryBrowser.swift */; };
+		BA7555797B7569C0749E7E2C /* LibraryCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D953270EF95C71DFD3870D9D /* LibraryCleanup.swift */; };
 		BF1B6DDA11CEA0690C2AE554 /* ExportCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC06A9B2A29D7B6A2E9DE9A /* ExportCommands.swift */; };
+		C2834C3B7145A0B77118B367 /* PhotosAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */; };
 		C4D4D4FC42ACF95C6C8335F4 /* AutoBackupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF828E81D48A8A62ECBF167 /* AutoBackupSettings.swift */; };
+		C4EC48FFEF48CB35B644ECB5 /* ICloudOutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A62D4FFC9408C3EEF874AA8 /* ICloudOutputParser.swift */; };
 		C7007AA7DCB8648975AB66C2 /* LibraryCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D953270EF95C71DFD3870D9D /* LibraryCleanup.swift */; };
 		CA4ED0855FBABD0A6DD82097 /* BackupFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D1F1C631F406B5B11DE0A4 /* BackupFiles.swift */; };
 		CA5D0D1AC6AA6B31BA2B5FDB /* BackupVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF6ADDB21641963A45C3D4B /* BackupVerifier.swift */; };
+		CC5276AFF21004BB8193A45B /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38FE6A956ABFA986425CA1F2 /* Destination.swift */; };
 		CC58D6FA4AFA61432798BB50 /* LandingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878A1648B154D699511DAEF5 /* LandingView.swift */; };
+		CECE6A2939FA7658B8B80E22 /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906FB271A31124DF5CDF2B2D /* LibraryWindow.swift */; };
 		CF71146FFB60C1C6F6895370 /* ProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF20D22FA931E55EA0D92FC4 /* ProgressCard.swift */; };
 		D41675A00F291037B8D005D0 /* ICloudSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F242D7D8C735C12BFF2E8E /* ICloudSignIn.swift */; };
+		D91CC658DE0100356586E3A5 /* FileHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9736A5E6353391005528BB /* FileHasher.swift */; };
 		D9C017629EC23CF782E3C20C /* ICloudBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D954376B6D12663FE8BF4B5D /* ICloudBridge.swift */; };
 		DA5A1E85ECDDBCDB7FA1A38F /* FolderLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277CAE71F450D664252B9C72 /* FolderLayout.swift */; };
 		DF4BB1D418B2AD1F1EE2CBA0 /* FreeUpSpaceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7967553916F0F56BDF9814C6 /* FreeUpSpaceSheet.swift */; };
 		E05A9092927410FE2592457B /* PhotoSizeHeuristic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A22FAF47DB25363937CB221 /* PhotoSizeHeuristic.swift */; };
 		E0FEA35DF9B1E80C8EE30EF6 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F063C61478BBF7C92184C95 /* AppLogo.swift */; };
+		E192C25A50A0A22DF2B40357 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5893FF275C08AA53373F056D /* Assets.xcassets */; };
+		E5F818EECF7588363E7FCD54 /* FreeUpSpaceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7967553916F0F56BDF9814C6 /* FreeUpSpaceSheet.swift */; };
 		E6D31645B351D8A4D09A8A9D /* ExportManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3485816830987AAD03ECC120 /* ExportManifestTests.swift */; };
+		E7BF3032360F2C2349CFEBEA /* PlaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA548814AF18B9549584E9 /* PlaceResolver.swift */; };
 		E8D478BF8C95DC2665D70D14 /* SessionClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6CF0C13EC2FDC49683C04D /* SessionClock.swift */; };
 		EB0536A1852C408E570389B4 /* BackupFilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82534C8C8A68911C7DAD87D /* BackupFilesTests.swift */; };
+		EBEA659FAAB55D41070329A4 /* ICloudBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D954376B6D12663FE8BF4B5D /* ICloudBridge.swift */; };
 		EBFDF2FE3705EBD42325E4E0 /* VerifyBackupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15336D3C30890C8F72FAA919 /* VerifyBackupSheet.swift */; };
+		EEFF91FA21D8D149237E9BE8 /* GettingStartedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5772F36E0D0AB6932F4C1F /* GettingStartedView.swift */; };
+		EF4C95D422F4CC8A5F307246 /* ExportManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760AE024957625564089BF6E /* ExportManifest.swift */; };
+		F29BBB9C75EBF7ACBB378339 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F063C61478BBF7C92184C95 /* AppLogo.swift */; };
+		F44792CC0FF39FB5D3B38896 /* ICloudProcesses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */; };
 		F4B9451AEEB09B15A555DE39 /* ICloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6F349CDF700C94CEDBA6D2B /* ICloudAccount.swift */; };
+		F4EB01E97DB23A91141EA0C5 /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE36718CD24BFD5C076C6767 /* PhotoLibrary.swift */; };
 		F77ECD57A521453F99AE4F52 /* AssetMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874540AC2D921C7BEC2C5966 /* AssetMetadata.swift */; };
+		F7B0C18011853E17AAEF4FA8 /* FolderLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277CAE71F450D664252B9C72 /* FolderLayout.swift */; };
+		F802AB7DE5B1D95046C1081C /* AssetSizeIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61043C0C0F0B880426B3C1B /* AssetSizeIndex.swift */; };
+		F9E6889A427532BB8B3E10A8 /* ExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D4FFC1BF5BB484D16F27D0 /* ExportModel.swift */; };
 		FAB6EDDC819FE5BF0319E8A7 /* HelperProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB9A26D65807CE3C93CA56E /* HelperProbe.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		DCAA832DF6425AA9B9D76743 /* PBXContainerItemProxy */ = {
+		290A095B58DCC165827C6236 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1F1FE8D6D7B486267FD535B /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 2487F7287C926F666CA00CBB;
-			remoteInfo = Uncloud;
+			remoteGlobalIDString = 2D22A71D894164F501C58E8B;
+			remoteInfo = UncloudTestHost;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -141,6 +205,7 @@
 		8F79DB331BE406BDDBA688C4 /* IconTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconTile.swift; sourceTree = "<group>"; };
 		906FB271A31124DF5CDF2B2D /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWindow.swift; sourceTree = "<group>"; };
 		9A6AF9958305D6F4037AE0BB /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		9B998F6805CB94B1AF9AD237 /* ICloudDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudDiagnostics.swift; sourceTree = "<group>"; };
 		9CFD381FEAA670D99CC49142 /* BackupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupPane.swift; sourceTree = "<group>"; };
 		9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageEstimateTests.swift; sourceTree = "<group>"; };
 		9DC06A9B2A29D7B6A2E9DE9A /* ExportCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportCommands.swift; sourceTree = "<group>"; };
@@ -157,6 +222,7 @@
 		BE36718CD24BFD5C076C6767 /* PhotoLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
 		C11F0FB474F82CFC886EFC56 /* BackupVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupVerification.swift; sourceTree = "<group>"; };
 		CBEBA56640980AAD84951366 /* BackupTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupTools.swift; sourceTree = "<group>"; };
+		D32A78308E7BE6A54DBA4130 /* ICloudDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudDiagnosticsTests.swift; sourceTree = "<group>"; };
 		D4684CBB84E2FD289A7FFC70 /* ActivitySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivitySection.swift; sourceTree = "<group>"; };
 		D6F349CDF700C94CEDBA6D2B /* ICloudAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudAccount.swift; sourceTree = "<group>"; };
 		D953270EF95C71DFD3870D9D /* LibraryCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCleanup.swift; sourceTree = "<group>"; };
@@ -167,6 +233,7 @@
 		E514002B9E7B92DE11926635 /* LibrarySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySource.swift; sourceTree = "<group>"; };
 		E61043C0C0F0B880426B3C1B /* AssetSizeIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetSizeIndex.swift; sourceTree = "<group>"; };
 		E82534C8C8A68911C7DAD87D /* BackupFilesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupFilesTests.swift; sourceTree = "<group>"; };
+		F003BE4DC62937B83C0FF737 /* UncloudTestHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UncloudTestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0EC52053002D4FE98AFE8ED /* ICloudSignInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSignInSheet.swift; sourceTree = "<group>"; };
 		F7D1F1C631F406B5B11DE0A4 /* BackupFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupFiles.swift; sourceTree = "<group>"; };
 		FD7AF5335D7FF4CF5E319361 /* ICloudPageCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudPageCacheTests.swift; sourceTree = "<group>"; };
@@ -203,6 +270,7 @@
 				A0D2268BB87ECAD5B6FDB234 /* ExportCancellationTests.swift */,
 				3485816830987AAD03ECC120 /* ExportManifestTests.swift */,
 				B73D5680F07F5660D4D4DEB3 /* FolderLayoutAndSelectionTests.swift */,
+				D32A78308E7BE6A54DBA4130 /* ICloudDiagnosticsTests.swift */,
 				AEC27406BA9D1C97FFE6E15D /* ICloudOutputParserTests.swift */,
 				FD7AF5335D7FF4CF5E319361 /* ICloudPageCacheTests.swift */,
 				9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */,
@@ -218,6 +286,7 @@
 			isa = PBXGroup;
 			children = (
 				38771398C5AAD879239C617E /* Uncloud.app */,
+				F003BE4DC62937B83C0FF737 /* UncloudTestHost.app */,
 				3C05C4104FF7B1DDAFA7C0EB /* UncloudTests.xctest */,
 			);
 			name = Products;
@@ -269,6 +338,7 @@
 				D6F349CDF700C94CEDBA6D2B /* ICloudAccount.swift */,
 				D954376B6D12663FE8BF4B5D /* ICloudBridge.swift */,
 				53DDC73174FD14CDAD67EE61 /* ICloudCredentialStore.swift */,
+				9B998F6805CB94B1AF9AD237 /* ICloudDiagnostics.swift */,
 				4D8BE68EB07867A8CBB3BD1F /* ICloudExportEngine.swift */,
 				593CD78B3D2E6A5842C9F9FB /* ICloudHelperProcess.swift */,
 				27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */,
@@ -359,6 +429,26 @@
 			productReference = 38771398C5AAD879239C617E /* Uncloud.app */;
 			productType = "com.apple.product-type.application";
 		};
+		2D22A71D894164F501C58E8B /* UncloudTestHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1DD8AA3B1E4F811B04D0E6EF /* Build configuration list for PBXNativeTarget "UncloudTestHost" */;
+			buildPhases = (
+				EDB6F5C9BDDE7FA2C70FC2D1 /* Build icloudpd helper */,
+				DFEF9C17F3A796BA3932DD2F /* Sources */,
+				AA032B2C2D586AA2713EB6D0 /* Embed icloudpd runtime */,
+				D773786084CC871FB38E3C8E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = UncloudTestHost;
+			packageProductDependencies = (
+			);
+			productName = UncloudTestHost;
+			productReference = F003BE4DC62937B83C0FF737 /* UncloudTestHost.app */;
+			productType = "com.apple.product-type.application";
+		};
 		4C3E611B5FFA9CC5AE9A060B /* UncloudTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CFEF74090B99ADD8A5C08080 /* Build configuration list for PBXNativeTarget "UncloudTests" */;
@@ -369,7 +459,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				DC411BBDB337B6FB86D46053 /* PBXTargetDependency */,
+				D6C15C89B044D2F84D708D57 /* PBXTargetDependency */,
 			);
 			name = UncloudTests;
 			packageProductDependencies = (
@@ -390,6 +480,9 @@
 					2487F7287C926F666CA00CBB = {
 						ProvisioningStyle = Automatic;
 					};
+					2D22A71D894164F501C58E8B = {
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = B3ECA240966EEAB359E7084D /* Build configuration list for PBXProject "Uncloud" */;
@@ -407,6 +500,7 @@
 			projectRoot = "";
 			targets = (
 				2487F7287C926F666CA00CBB /* Uncloud */,
+				2D22A71D894164F501C58E8B /* UncloudTestHost */,
 				4C3E611B5FFA9CC5AE9A060B /* UncloudTests */,
 			);
 		};
@@ -428,6 +522,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				B0B68DE32A6D632D02A3C3B8 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D773786084CC871FB38E3C8E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E192C25A50A0A22DF2B40357 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -455,7 +557,47 @@
 			shellPath = /bin/sh;
 			shellScript = "set -eu\nSRC=\"$SRCROOT/Vendor/icloudpd-runtime\"\nDEST=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n# Hardened runtime only with a real identity: Python loads its own extension modules,\n# and ad hoc signatures have no team ID for library validation to match.\nRUNTIME=\"\"\nif [ \"$IDENTITY\" != \"-\" ]; then RUNTIME=\"--options runtime\"; fi\nif [ ! -f \"$SRC/.stamp\" ]; then\n    echo \"error: $SRC is missing; run scripts/build-icloudpd.sh\" >&2\n    exit 1\nfi\nmkdir -p \"$DEST\"\nrsync -a --delete --exclude .stamp \"$SRC/\" \"$DEST/\"\n# The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain\n# resource, sealed by the app's signature like the rest of the runtime's Python files.\ncp \"$SRCROOT/Uncloud/Helper/photo_bridge.py\" \"$DEST/photo_bridge.py\"\nINTERPRETER=\"$DEST/python/bin/python3.13\"\n# Sign the libraries and extension modules first, then the interpreter. Only the\n# interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.\nfind \"$DEST\" -type f ! -path \"$INTERPRETER\" -print0 | while IFS= read -r -d '' f; do\n    if file -b \"$f\" | grep -q '^Mach-O'; then\n        codesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \"$f\"\n    fi\ndone\ncodesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \\\n    --entitlements \"$SRCROOT/Uncloud/Helper.entitlements\" \"$INTERPRETER\"\n";
 		};
+		AA032B2C2D586AA2713EB6D0 /* Embed icloudpd runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Vendor/icloudpd-runtime",
+				"$(SRCROOT)/Uncloud/Helper/photo_bridge.py",
+			);
+			name = "Embed icloudpd runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nSRC=\"$SRCROOT/Vendor/icloudpd-runtime\"\nDEST=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n# Hardened runtime only with a real identity: Python loads its own extension modules,\n# and ad hoc signatures have no team ID for library validation to match.\nRUNTIME=\"\"\nif [ \"$IDENTITY\" != \"-\" ]; then RUNTIME=\"--options runtime\"; fi\nif [ ! -f \"$SRC/.stamp\" ]; then\n    echo \"error: $SRC is missing; run scripts/build-icloudpd.sh\" >&2\n    exit 1\nfi\nmkdir -p \"$DEST\"\nrsync -a --delete --exclude .stamp \"$SRC/\" \"$DEST/\"\n# The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain\n# resource, sealed by the app's signature like the rest of the runtime's Python files.\ncp \"$SRCROOT/Uncloud/Helper/photo_bridge.py\" \"$DEST/photo_bridge.py\"\nINTERPRETER=\"$DEST/python/bin/python3.13\"\n# Sign the libraries and extension modules first, then the interpreter. Only the\n# interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.\nfind \"$DEST\" -type f ! -path \"$INTERPRETER\" -print0 | while IFS= read -r -d '' f; do\n    if file -b \"$f\" | grep -q '^Mach-O'; then\n        codesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \"$f\"\n    fi\ndone\ncodesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \\\n    --entitlements \"$SRCROOT/Uncloud/Helper.entitlements\" \"$INTERPRETER\"\n";
+		};
 		B606D1DEA7EB1500AE2F5A4B /* Build icloudpd helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build icloudpd helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/build-icloudpd.sh\"";
+		};
+		EDB6F5C9BDDE7FA2C70FC2D1 /* Build icloudpd helper */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -510,6 +652,7 @@
 				F4B9451AEEB09B15A555DE39 /* ICloudAccount.swift in Sources */,
 				D9C017629EC23CF782E3C20C /* ICloudBridge.swift in Sources */,
 				7461ED0086CC775812F0DD27 /* ICloudCredentialStore.swift in Sources */,
+				387FB70A090730DF2E430024 /* ICloudDiagnostics.swift in Sources */,
 				2A80ED1A29712BF61EE17069 /* ICloudExportEngine.swift in Sources */,
 				52EEF7ED6ACC9AAB90BC11DD /* ICloudHelperProcess.swift in Sources */,
 				6E0E9F89A336214A74DB9F45 /* ICloudLibrary.swift in Sources */,
@@ -544,6 +687,74 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DFEF9C17F3A796BA3932DD2F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				589BDFE669B0194A94A80295 /* ActivityEntry.swift in Sources */,
+				66E3D13CE4B55144DB51FD47 /* ActivitySection.swift in Sources */,
+				125C822CF4463532024F759E /* AlbumIndex.swift in Sources */,
+				F29BBB9C75EBF7ACBB378339 /* AppLogo.swift in Sources */,
+				A769E609815935E6BD14CD37 /* AssetFiles.swift in Sources */,
+				080188438C3AAE977ADC3FD9 /* AssetMetadata.swift in Sources */,
+				F802AB7DE5B1D95046C1081C /* AssetSizeIndex.swift in Sources */,
+				B59A43A5B5A0E9D08F1C3EF5 /* AutoBackupController.swift in Sources */,
+				8B5F51F2EF7A9403D40E2EFD /* AutoBackupSettings.swift in Sources */,
+				3323465C1CF7971A63D3259A /* BackupFiles.swift in Sources */,
+				698BC72208B11E1498239BE3 /* BackupPane.swift in Sources */,
+				B474050D36E43FDADEFAED7F /* BackupToolSheets.swift in Sources */,
+				87AD0E7AEF8D8B897BDC0EFC /* BackupTools.swift in Sources */,
+				31189699762ABACA70F9FD9B /* BackupVerification.swift in Sources */,
+				6044F273B63930104885F1F4 /* BackupVerifier.swift in Sources */,
+				CC5276AFF21004BB8193A45B /* Destination.swift in Sources */,
+				3D2F7A296F271AE977A8100F /* ExportCommands.swift in Sources */,
+				69EF6D2774891D9CD1E87879 /* ExportEngine.swift in Sources */,
+				EF4C95D422F4CC8A5F307246 /* ExportManifest.swift in Sources */,
+				F9E6889A427532BB8B3E10A8 /* ExportModel.swift in Sources */,
+				7973CBA0784D707669426AD1 /* ExportRun.swift in Sources */,
+				D91CC658DE0100356586E3A5 /* FileHasher.swift in Sources */,
+				F7B0C18011853E17AAEF4FA8 /* FolderLayout.swift in Sources */,
+				E5F818EECF7588363E7FCD54 /* FreeUpSpaceSheet.swift in Sources */,
+				EEFF91FA21D8D149237E9BE8 /* GettingStartedView.swift in Sources */,
+				351BB1002BE78BDCFA4604D9 /* HelperProbe.swift in Sources */,
+				14654A51FF988A0F9F40A47D /* ICloudAccount.swift in Sources */,
+				EBEA659FAAB55D41070329A4 /* ICloudBridge.swift in Sources */,
+				64760326CAE73C7BD72A11E1 /* ICloudCredentialStore.swift in Sources */,
+				AEAF312B5B3CC0F0BBA7E838 /* ICloudDiagnostics.swift in Sources */,
+				4DD58AB4A50FAB741F2A4BA8 /* ICloudExportEngine.swift in Sources */,
+				471528B31D0C4DB3E60DE8AC /* ICloudHelperProcess.swift in Sources */,
+				917B4CDCA3095FE7DFBF010F /* ICloudLibrary.swift in Sources */,
+				C4EC48FFEF48CB35B644ECB5 /* ICloudOutputParser.swift in Sources */,
+				99843408E7D10D2BD9E6F035 /* ICloudPageCache.swift in Sources */,
+				F44792CC0FF39FB5D3B38896 /* ICloudProcesses.swift in Sources */,
+				20CB5FE1B8B8556A8A78132A /* ICloudSignIn.swift in Sources */,
+				AA4AAD8889C512575FD47F25 /* ICloudSignInSheet.swift in Sources */,
+				63E2B1553108D6497A592687 /* IconTile.swift in Sources */,
+				3C0B437267C7F16715BF2E45 /* LandingView.swift in Sources */,
+				B93E3B45D796B47CEDE55AE6 /* LibraryBrowser.swift in Sources */,
+				BA7555797B7569C0749E7E2C /* LibraryCleanup.swift in Sources */,
+				3214307C398F70F7F0118C83 /* LibrarySelection.swift in Sources */,
+				1DF044AD2DA5AC0F64631163 /* LibrarySource.swift in Sources */,
+				705432DA201570077E0A6B34 /* LibraryView.swift in Sources */,
+				CECE6A2939FA7658B8B80E22 /* LibraryWindow.swift in Sources */,
+				12583BE5C3E344933A0F61E3 /* MenuBarContent.swift in Sources */,
+				4F85151DC3FBDA5CFE678D4C /* PauseGate.swift in Sources */,
+				F4EB01E97DB23A91141EA0C5 /* PhotoLibrary.swift in Sources */,
+				38867E3737E6F0240BD94F03 /* PhotoSizeHeuristic.swift in Sources */,
+				C2834C3B7145A0B77118B367 /* PhotosAccessView.swift in Sources */,
+				E7BF3032360F2C2349CFEBEA /* PlaceResolver.swift in Sources */,
+				15CEC2A081834367951CE199 /* ProgressCard.swift in Sources */,
+				919C8D41BA0B1D4E5BEE9127 /* ResourceWriter.swift in Sources */,
+				73B422CDC9BE862E9907C302 /* SessionClock.swift in Sources */,
+				4113ACA390EE898D2271BE93 /* SettingsView.swift in Sources */,
+				1B6C5C5966E8A04515959EB8 /* StorageEstimate.swift in Sources */,
+				24167CE7E0C69E9DCF6EB022 /* StorageEstimator.swift in Sources */,
+				25CE95878FDD7E11A60B1E6A /* UncloudApp.swift in Sources */,
+				4F3B1BFD2685672271D1B28E /* VerifyBackupSheet.swift in Sources */,
+				8273BACBA4230C610F484747 /* XMPSidecar.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EDCF6D2D594C2ED5279B12ED /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -552,6 +763,7 @@
 				3A13214A4B22BF66A635A4BA /* ExportCancellationTests.swift in Sources */,
 				E6D31645B351D8A4D09A8A9D /* ExportManifestTests.swift in Sources */,
 				B16DCB2B5E1DDCE5F12E1DCC /* FolderLayoutAndSelectionTests.swift in Sources */,
+				7450C2D1883B31B1B384ED1D /* ICloudDiagnosticsTests.swift in Sources */,
 				B0ED6806E8D44772464AB94E /* ICloudOutputParserTests.swift in Sources */,
 				93B4F08EE07BB8CAC08D9742 /* ICloudPageCacheTests.swift in Sources */,
 				8278C0D260858BEA05B1BD88 /* StorageEstimateTests.swift in Sources */,
@@ -563,10 +775,10 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		DC411BBDB337B6FB86D46053 /* PBXTargetDependency */ = {
+		D6C15C89B044D2F84D708D57 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 2487F7287C926F666CA00CBB /* Uncloud */;
-			targetProxy = DCAA832DF6425AA9B9D76743 /* PBXContainerItemProxy */;
+			target = 2D22A71D894164F501C58E8B /* UncloudTestHost */;
+			targetProxy = 290A095B58DCC165827C6236 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -584,9 +796,32 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.UncloudTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Uncloud.app/Contents/MacOS/Uncloud";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/UncloudTestHost.app/Contents/MacOS/UncloudTestHost";
 			};
 			name = Debug;
+		};
+		41666C04D85602940DDEA00C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Uncloud/Uncloud.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Uncloud Test Host";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Uncloud reads your photo library so it can copy your photos and videos to the folder you choose.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Uncloud.TestHost;
+				PRODUCT_MODULE_NAME = Uncloud;
+				PRODUCT_NAME = UncloudTestHost;
+				SDKROOT = macosx;
+			};
+			name = Release;
 		};
 		500FB6A03382983FAC90A223 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -654,6 +889,29 @@
 			};
 			name = Debug;
 		};
+		967D2213B416E1A2B814B8B4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Uncloud/Uncloud.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Uncloud Test Host";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Uncloud reads your photo library so it can copy your photos and videos to the folder you choose.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Uncloud.TestHost;
+				PRODUCT_MODULE_NAME = Uncloud;
+				PRODUCT_NAME = UncloudTestHost;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
 		B0A56AF63290327F23712EDC /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -667,7 +925,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.UncloudTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Uncloud.app/Contents/MacOS/Uncloud";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/UncloudTestHost.app/Contents/MacOS/UncloudTestHost";
 			};
 			name = Release;
 		};
@@ -777,6 +1035,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1DD8AA3B1E4F811B04D0E6EF /* Build configuration list for PBXNativeTarget "UncloudTestHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				967D2213B416E1A2B814B8B4 /* Debug */,
+				41666C04D85602940DDEA00C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		7BBA10A139FC5FE3E334986D /* Build configuration list for PBXNativeTarget "Uncloud" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

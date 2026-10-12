@@ -20,6 +20,9 @@ struct GettingStartedView: View {
                         BenefitsGrid()
                     }
                     PrivacyNote(showsLearnMore: false)
+                    Text("Diagnostic logs stay on this Mac. When you report a problem, you can share them from Help > Show Diagnostic Logs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)

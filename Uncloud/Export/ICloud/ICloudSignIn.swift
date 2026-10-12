@@ -149,9 +149,10 @@ import Observation
             finish(helper, with: .failed(ICloudFailure.invalidCredentials.message))
         } else if let failure = helper.lastFailure {
             finish(helper, with: .failed(failure.message))
+        } else if let detail = helper.diagnosticSummary {
+            finish(helper, with: .failed("Sign-in stopped: \(detail)"))
         } else {
-            let error = ICloudError.exited(status, lastMessage: helper.lastMessage)
-            finish(helper, with: .failed(error.localizedDescription))
+            finish(helper, with: .failed("Sign-in stopped unexpectedly (code \(status))."))
         }
     }
 

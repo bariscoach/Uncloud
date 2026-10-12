@@ -42,7 +42,7 @@ enum HelperProbe {
         }
         let wroteCookies = FileManager.default.fileExists(atPath: cookies.path(percentEncoded: false))
         lines.append("cookie directory created: \(wroteCookies)")
-        lines.append("last message: \(helper.lastMessage ?? "-")")
+        lines.append("last message: \(helper.diagnosticSummary ?? "-")")
         return lines.joined(separator: "\n") + "\n"
     }
 }

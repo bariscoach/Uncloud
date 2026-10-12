@@ -8,7 +8,7 @@
       runPostActionsOnFailure = "NO">
       <BuildActionEntries>
          <BuildActionEntry
-            buildForTesting = "YES"
+            buildForTesting = "NO"
             buildForRunning = "YES"
             buildForProfiling = "YES"
             buildForArchiving = "YES"
@@ -18,6 +18,20 @@
                BlueprintIdentifier = "2487F7287C926F666CA00CBB"
                BuildableName = "Uncloud.app"
                BlueprintName = "Uncloud"
+               ReferencedContainer = "container:Uncloud.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "2D22A71D894164F501C58E8B"
+               BuildableName = "UncloudTestHost.app"
+               BlueprintName = "UncloudTestHost"
                ReferencedContainer = "container:Uncloud.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -46,9 +60,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "2487F7287C926F666CA00CBB"
-            BuildableName = "Uncloud.app"
-            BlueprintName = "Uncloud"
+            BlueprintIdentifier = "2D22A71D894164F501C58E8B"
+            BuildableName = "UncloudTestHost.app"
+            BlueprintName = "UncloudTestHost"
             ReferencedContainer = "container:Uncloud.xcodeproj">
          </BuildableReference>
       </MacroExpansion>

@@ -32,6 +32,8 @@ enum ICloudFailure: Equatable, Sendable {
     case serviceUnavailable
     /// Apple wants something finished on icloud.com first, usually accepting updated terms.
     case setupIncomplete
+    /// Apple is still indexing the library after sign-in or an account change; it finishes by itself.
+    case libraryIndexing
     case webAccessDisabled
     case network
     case other(String)
@@ -49,6 +51,8 @@ enum ICloudFailure: Equatable, Sendable {
             "Your iCloud session expired. Reconnecting…"
         case .serviceUnavailable:
             "iCloud is temporarily unavailable. Try again later."
+        case .libraryIndexing:
+            "iCloud is still preparing your photo library for access. This is normal after signing in or changing account settings, and can take from a few minutes to a few hours for large libraries. Uncloud will try again automatically."
         case .setupIncomplete:
             "Apple needs you to accept its updated iCloud Terms and Conditions before your photos can be downloaded. Apple shows them only in its own apps: in System Settings, click your name and look for a “Review” banner, or sign in at icloud.com. Uncloud checks again when you come back."
         case .webAccessDisabled:
@@ -306,6 +310,13 @@ final class ICloudOutputParser {
         if line == "KeyboardInterrupt" {
             return [.log(level: "STDERR", message: line)]
         }
+        if let failure = Self.classifyFailure(line) {
+            return [.failure(failure)]
+        }
+        // An exception the app doesn't classify is reported as a line, not as a failure.
+        if case .other = Self.failure(forException: line) {
+            return [.log(level: "EXCEPTION", message: line)]
+        }
         return [.failure(Self.failure(forException: line))]
     }
 
@@ -342,7 +353,8 @@ final class ICloudOutputParser {
             return [.authenticated]
         }
         if level == "ERROR" {
-            return [.failure(.other(message))]
+            // Not a classified failure: the exit diagnostics use the line (see ICloudDiagnostics).
+            return [.log(level: "ERROR", message: message)]
         }
         return [.log(level: level, message: message)]
     }
@@ -372,6 +384,8 @@ final class ICloudOutputParser {
             ("Session error, re-authenticating...", .sessionExpired(needsSignIn: false)),
             ("Two-step authentication required for account", .sessionExpired(needsSignIn: true)),
             ("Authentication required for Account.", .sessionExpired(needsSignIn: true)),
+            // Matched by message before the exception class, which icloudpd also uses for setup.
+            ("has not finished indexing", .libraryIndexing),
             ("Apple iCloud setup is not complete", .setupIncomplete),
             ("Webservice not available", .webAccessDisabled),
             ("Apple iCloud is temporary refusing to serve icloudpd", .serviceUnavailable),

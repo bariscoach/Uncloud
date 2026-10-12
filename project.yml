@@ -14,7 +14,7 @@ targets:
   Uncloud:
     type: application
     platform: macOS
-    sources:
+    sources: &appSources
       - path: Uncloud
         excludes:
           # photo_bridge.py is copied into the embedded runtime by "Embed icloudpd runtime".
@@ -31,11 +31,11 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Uncloud/Uncloud.entitlements
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: YES
-    preBuildScripts:
+    preBuildScripts: &preBuildScripts
       - name: Build icloudpd helper
         script: '"$SRCROOT/scripts/build-icloudpd.sh"'
         basedOnDependencyAnalysis: false
-    postCompileScripts:
+    postCompileScripts: &postCompileScripts
       - name: Embed icloudpd runtime
         basedOnDependencyAnalysis: false
         inputFiles:
@@ -69,24 +69,49 @@ targets:
           done
           codesign --force --timestamp=none $RUNTIME -s "$IDENTITY" \
               --entitlements "$SRCROOT/Uncloud/Helper.entitlements" "$INTERPRETER"
+  # The host the unit tests run in. It compiles the same sources as Uncloud, under the same module name
+  # (so `@testable import Uncloud` works), but with its own bundle identifier: its sandbox container,
+  # UserDefaults and Keychain access are separate from the real app's.
+  UncloudTestHost:
+    type: application
+    platform: macOS
+    sources: *appSources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.Uncloud.TestHost
+        PRODUCT_NAME: UncloudTestHost
+        PRODUCT_MODULE_NAME: Uncloud
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "Uncloud Test Host"
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Uncloud reads your photo library so it can copy your photos and videos to the folder you choose.
+        CODE_SIGN_ENTITLEMENTS: Uncloud/Uncloud.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+    preBuildScripts: *preBuildScripts
+    postCompileScripts: *postCompileScripts
   UncloudTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - path: UncloudTests
     dependencies:
-      - target: Uncloud
+      - target: UncloudTestHost
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.example.UncloudTests
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Uncloud.app/Contents/MacOS/Uncloud"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/UncloudTestHost.app/Contents/MacOS/UncloudTestHost"
         BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   Uncloud:
     build:
       targets:
-        Uncloud: all
+        # Not built for the test action: the app and the test host both define module Uncloud, and
+        # their module outputs would collide in the products folder if one run built both.
+        Uncloud: [build, run, profile, archive, analyze]
+        UncloudTestHost: [test]
         UncloudTests: [test]
     test:
       targets:

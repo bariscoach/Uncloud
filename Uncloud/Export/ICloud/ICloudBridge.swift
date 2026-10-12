@@ -116,11 +116,11 @@ final class ICloudBridge: Sendable {
         var nextID = 1
         /// Why the current process can't go on, once known.
         var failure: Error?
-        var lastMessage: String?
+        /// What the bridge's stderr said, for an error when it exits without one of its own.
+        var diagnostics = ICloudDiagnostics()
         var didSignalTermination = false
-        #if DEBUG
-        var transcript = Data()
-        #endif
+        /// Everything the bridge printed on stderr, saved redacted when it exits; see `HelperTranscript`.
+        var transcript = TranscriptBuffer()
     }
 
     private static let registry = OSAllocatedUnfairLock(initialState: [String: ICloudBridge]())
@@ -138,6 +138,8 @@ final class ICloudBridge: Sendable {
     let arguments: [String]
     let timing: Timing
     private let state = OSAllocatedUnfairLock(initialState: State())
+    /// Reads the bridge's stderr; only touched on `queue`, and reset for each process.
+    private let logParser = OSAllocatedUnfairLock(uncheckedState: ICloudOutputParser())
     private let queue = DispatchQueue(label: "ICloudBridge.output")
 
     init(
@@ -398,6 +400,7 @@ final class ICloudBridge: Sendable {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
+        logParser.withLockUnchecked { $0 = ICloudOutputParser() }
         let generation = state.withLock { state -> Int in
             state.generation += 1
             state.isLaunching = false
@@ -407,11 +410,9 @@ final class ICloudBridge: Sendable {
             state.count = nil
             state.isReady = false
             state.failure = nil
-            state.lastMessage = nil
+            state.diagnostics = ICloudDiagnostics()
             state.didSignalTermination = false
-            #if DEBUG
-            state.transcript = Data()
-            #endif
+            state.transcript = TranscriptBuffer()
             return state.generation
         }
         process.terminationHandler = { [self] process in
@@ -493,18 +494,14 @@ final class ICloudBridge: Sendable {
         }
     }
 
-    /// Runs on `queue`. Keeps the last error line for messages, and a transcript in debug builds.
+    /// Runs on `queue`. Reads stderr through the output parser, so the bridge's errors and tracebacks
+    /// are classified as icloudpd's are, and keeps the transcript.
     private func receivedLog(_ chunk: Data, generation: Int) {
-        let text = String(decoding: chunk, as: UTF8.self)
-        let lastError = text.split(separator: "\n").last { $0.contains("ERROR") || $0.contains("Error") }
+        let events = logParser.withLockUnchecked { $0.feed(chunk, fromStandardError: true) }
         state.withLock { state in
             guard state.generation == generation else { return }
-            #if DEBUG
             state.transcript.append(chunk)
-            #endif
-            if let lastError {
-                state.lastMessage = String(lastError)
-            }
+            events.forEach { state.diagnostics.note($0) }
         }
     }
 
@@ -609,11 +606,15 @@ final class ICloudBridge: Sendable {
         let ended = state.withLock { state -> Ended? in
             guard state.generation == generation, state.openPipes <= 0, let status = state.exitStatus,
                   state.process != nil else { return nil }
-            let error = state.failure ?? ICloudError.exited(status, lastMessage: state.lastMessage)
-            #if DEBUG
-            HelperTranscript.save(state.transcript, arguments: ["photo_bridge.py"] + Array(arguments.suffix(4)), exitStatus: status)
-            state.transcript = Data()
-            #endif
+            // Stderr's last lines are read to the end only now, when the pipes have closed.
+            logParser.withLockUnchecked { $0.finish() }.forEach { state.diagnostics.note($0) }
+            let error: Error = state.failure ?? ICloudDiagnostics.exitError(
+                status: status,
+                failure: state.diagnostics.failure,
+                summary: state.diagnostics.summary(arguments: arguments)
+            )
+            HelperTranscript.save(state.transcript.data, arguments: arguments, exitStatus: status)
+            state.transcript = TranscriptBuffer()
             let result = (error, Array(state.readyWaiters.values), Array(state.streams.values),
                           state.endWaiters.values.flatMap(\.values))
             state.process = nil

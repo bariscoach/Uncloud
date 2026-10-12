@@ -99,7 +99,7 @@ struct LibraryWindow: View {
             // The user may have changed Photos access in System Settings, or accepted Apple's updated iCloud terms.
             model.refreshAuthorization()
             if model.source == .iCloud, case let .failed(message)? = model.browser?.state,
-               message == ICloudFailure.setupIncomplete.message {
+               message == ICloudFailure.setupIncomplete.message || message == ICloudFailure.libraryIndexing.message {
                 model.browser?.reload()
             }
         }
