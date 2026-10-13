@@ -1055,6 +1055,96 @@ class HintTests(unittest.TestCase):
         self.assertEqual(len(pb.hint_windows(range(0, 250))), 3)
 
 
+class IndexingSession(FakeSession):
+    """Answers CheckIndexingState with `state`; `error` is raised instead when given (as session.py does)."""
+
+    def __init__(self, samples, state=None, error=None):
+        super().__init__(samples)
+        self.state = state
+        self.error = error
+
+    def post(self, url, data=None, headers=None):
+        if self.error is not None:
+            raise self.error
+        assert json.loads(data)["query"]["recordType"] == "CheckIndexingState"
+        return FakeResponse({"records": [{"fields": {"state": {"value": self.state}}}]})
+
+
+class IndexingTests(unittest.TestCase):
+    def primary_library(self, session):
+        from pyicloud_ipd.services import photos
+
+        return photos.PhotoLibrary("https://fake", {}, session, {"zoneName": "PrimarySync"}, "private")
+
+    def test_running_index_still_reaches_ready_and_pages(self):
+        import types
+
+        import icloudpd.authentication as auth
+
+        session = IndexingSession(SAMPLES, state="RUNNING")
+        holder = types.SimpleNamespace(private_libraries={"PrimarySync": self.primary_library(session)}, shared_libraries={})
+        channel = Collector()
+        original = auth.authenticator
+        auth.authenticator = lambda *a, **k: FakeICloud(holder)
+        try:
+            icloud, library = pb.authenticate(channel, "user@example.com", "/cookies")
+        finally:
+            auth.authenticator = original
+        self.assertEqual(library.zone_id["zoneName"], "PrimarySync")
+        self.assertEqual(channel.messages, [])
+        # The fake service serves paging from memory, so the bridge pages the fake library; the
+        # library above proves startup, which is what RUNNING used to stop.
+        bridge = pb.Bridge(channel, icloud, FakeLibrary(SAMPLES, session), "user@example.com", "/nonexistent-cookies")
+        bridge.handle({"id": 7, "cmd": "page", "offset": 0, "limit": 2}, downloading=False)
+        page = channel.messages[-1]
+        self.assertEqual(page["event"], "page")
+        self.assertEqual(page["id"], 7)
+        self.assertEqual([item["filename"] for item in page["items"]], ["IMG_0001.HEIC", "IMG_0002.JPG"])
+        self.assertEqual([m for m in channel.messages if m.get("event") == "error"], [])
+
+    def test_running_sends_one_note_and_logs_a_warning(self):
+        notes = []
+        pb.patch_icloudpd_for_bridge(notes.append)
+        pb._indexing_notice["sent"] = False
+        try:
+            with self.assertLogs("photo_bridge", level="WARNING") as logs:
+                self.primary_library(IndexingSession(SAMPLES, state="RUNNING"))
+                self.primary_library(IndexingSession(SAMPLES, state="RUNNING"))
+            self.assertEqual(notes, [pb.INDEXING_NOTE])
+            self.assertEqual(len(logs.records), 2)
+        finally:
+            pb.patch_icloudpd_for_bridge(None)
+            pb._indexing_notice["sent"] = False
+
+    def test_finished_index_state_is_silent(self):
+        notes = []
+        pb.patch_icloudpd_for_bridge(notes.append)
+        try:
+            library = self.primary_library(IndexingSession(SAMPLES, state="FINISHED"))
+            self.assertEqual(library.library_type, "private")
+            self.assertEqual(notes, [])
+        finally:
+            pb.patch_icloudpd_for_bridge(None)
+
+    def test_setup_not_complete_still_errors(self):
+        from pyicloud_ipd.exceptions import PyiCloudServiceNotActivatedException
+
+        error = PyiCloudServiceNotActivatedException(
+            "Apple iCloud setup is not complete. Please log into https://icloud.com/", "ZONE_NOT_FOUND"
+        )
+        with self.assertRaises(PyiCloudServiceNotActivatedException) as raised:
+            self.primary_library(IndexingSession(SAMPLES, error=error))
+        self.assertIn("setup is not complete", str(raised.exception))
+
+    def test_other_indexing_states_still_error(self):
+        # Anything but RUNNING with the indexing message is not what this patch tolerates.
+        from pyicloud_ipd.exceptions import PyiCloudServiceNotActivatedException
+
+        error = PyiCloudServiceNotActivatedException("Some other reason", None)
+        with self.assertRaises(PyiCloudServiceNotActivatedException):
+            self.primary_library(IndexingSession(SAMPLES, error=error))
+
+
 class SignInTests(unittest.TestCase):
     def test_two_factor_and_missing_password_need_sign_in(self):
         import icloudpd.authentication as auth

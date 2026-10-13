@@ -10,7 +10,8 @@ Usage: python3.13 -I -B photo_bridge.py -u APPLE_ID --cookie-directory DIR
 
 Startup events: {"event":"needPassword"} (answer with one line {"password":"..."}),
 {"event":"signInRequired"} (two-factor needed; the bridge exits), {"event":"ready","count":N},
-or {"event":"error","kind":...,"message":...}.
+or {"event":"error","kind":...,"message":...}. A {"event":"note","message":...} may come before those; it is
+information only (for example, iCloud is still indexing the library), and nothing waits for it.
 
 Requests, each with an "id" that every reply carries. Ranks are positions in icloudpd's walk: rank 0
 is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting every other rank by one.
@@ -405,12 +406,44 @@ class Capture(logging.Handler):
                 self.errors.append(str(record.msg))
 
 
-def patch_icloudpd_for_bridge() -> None:
+def patch_icloudpd_for_bridge(notify: Optional[Callable[[str], None]] = None) -> None:
     """icloudpd shortens paths in its log lines; the bridge reads full paths from them."""
     from icloudpd import base
 
     base.truncate_middle = lambda text, _length: text
     patch_downloads_for_bridge()
+    patch_indexing_state_for_bridge(notify)
+
+
+INDEXING_NOTE = "iCloud is still indexing this library; continuing. Very recent changes may appear in a later export."
+_indexing_notice: Dict[str, Any] = {"notify": None, "sent": False}
+
+
+def patch_indexing_state_for_bridge(notify: Optional[Callable[[str], None]] = None) -> None:
+    """Apple answers CheckIndexingState with RUNNING while it indexes a library that can still be read. pyicloud_ipd
+    raises then, and the library would be dropped. PhotoLibrary sets all its attributes before that check, so the
+    library is usable: keep it, log a warning, and send `notify` the note once. Other errors are still raised."""
+    from pyicloud_ipd.exceptions import PyiCloudServiceNotActivatedException
+    from pyicloud_ipd.services import photos
+
+    _indexing_notice["notify"] = notify
+    original = photos.PhotoLibrary.__init__
+    if getattr(original, "_uncloud", False):
+        return
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        try:
+            original(self, *args, **kwargs)
+        except PyiCloudServiceNotActivatedException as error:
+            if "not finished indexing" not in str(error):
+                raise
+            LOGGER.warning(INDEXING_NOTE)
+            if not _indexing_notice["sent"] and _indexing_notice["notify"] is not None:
+                _indexing_notice["sent"] = True
+                _indexing_notice["notify"](INDEXING_NOTE)
+
+    __init__._uncloud = True  # type: ignore[attr-defined]
+    photos.PhotoLibrary.__init__ = __init__
 
 
 def patch_downloads_for_bridge() -> None:
@@ -1184,7 +1217,7 @@ def main(argv: List[str]) -> int:
 
     from pyicloud_ipd.exceptions import PyiCloud2SARequiredException, PyiCloudFailedMFAException
 
-    patch_icloudpd_for_bridge()
+    patch_icloudpd_for_bridge(lambda message: channel.send({"event": "note", "message": message}))
     try:
         icloud, library = authenticate(channel, options["username"], options["cookie_directory"])
     except (NeedsSignIn, PyiCloud2SARequiredException, PyiCloudFailedMFAException):
