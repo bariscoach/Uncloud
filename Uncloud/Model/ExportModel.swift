@@ -115,7 +115,58 @@ final class ExportModel {
     @ObservationIgnored private let storage = StorageEstimator()
     @ObservationIgnored private var freeSpaceReadAt: ContinuousClock.Instant?
 
-    private static let bookmarkKey = "destinationBookmark"
+    /// The export that stopped for a reason that usually passes, and when it starts again by itself.
+    /// The phase stays `.failed` meanwhile; views show it as waiting.
+    private(set) var autoResume: AutoResume?
+    /// True while the current run was started by an automatic resume, which, like an automatic backup,
+    /// doesn't announce itself.
+    private(set) var isAutoResumedRunInProgress = false
+    /// How long automatic resumes wait. Tests shorten it.
+    @ObservationIgnored var autoResumeTiming = AutoResumeTiming()
+    /// The wall clock automatic resumes are scheduled against. Tests move it forward.
+    @ObservationIgnored var currentDate: @MainActor () -> Date = { Date() }
+    /// Sleeps until the pending resume is due, then starts it, re-checking the clock at least every `recheckInterval`.
+    @ObservationIgnored private var autoResumeTask: Task<Void, Never>?
+    /// Wake and mount observers, while a resume is pending.
+    @ObservationIgnored private var autoResumeObservers: [NSObjectProtocol] = []
+    /// How the current run was started, so a retryable failure can start it again the same way.
+    @ObservationIgnored private var currentRun: (selection: LibrarySelection?, automatic: Bool, resumeAttempt: Int?)?
+
+    // MARK: Sessions and the drive check (state for the views)
+
+    /// What "Check the drive" is doing, or what it last found.
+    enum DriveCheckState: Equatable {
+        case notChecked
+        /// Listing the drive: files so far, and the last check's file count when there was one.
+        case checking(filesListed: Int, expectedFiles: Int?, mode: DriveInventory.Mode)
+        case checked(DriveCheckReport)
+        case failed(String)
+    }
+
+    /// The drive check's state. Runs before every export (quick), when a folder is chosen or reconnected
+    /// (quick), and on `checkDrive()` (full by default).
+    private(set) var driveCheckState: DriveCheckState = .notChecked
+    /// The last finished check's report for this destination, kept while a new check runs.
+    private(set) var lastDriveCheck: DriveCheckReport?
+    /// This destination's export sessions, oldest first, as read from `.photo-export/sessions/` and kept
+    /// up to date by the running export. Empty while the drive isn't connected.
+    private(set) var sessions: [ExportSession] = []
+    /// One per app launch; tells this launch's running sessions from orphaned ones.
+    static let launchID = UUID()
+    /// How often a running export's session file gets its heartbeat during long waits.
+    @ObservationIgnored var sessionHeartbeatInterval: Duration = .seconds(30)
+    /// The running export's session.
+    @ObservationIgnored private var recorder: SessionRecorder?
+    /// The session of the last export this launch ran, for chaining an automatic resume to it.
+    @ObservationIgnored private var lastSession: ExportSession?
+    @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
+    /// The running export's destination, while it's in `exportingDestinations`.
+    @ObservationIgnored private var exportingURL: URL?
+    /// The drive check in progress, so Cancel and a starting export can stop it.
+    @ObservationIgnored private var driveCheckTask: Task<DriveCheckReport?, Never>?
+    @ObservationIgnored private var driveCheckToken = UUID()
+
+    static let bookmarkKey = "destinationBookmark"
     private static let layoutKey = "folderLayout"
     private static let writesSidecarsKey = "writeSidecars"
     private static let sourceKey = "librarySource"
@@ -183,6 +234,7 @@ final class ExportModel {
     // MARK: - Library
 
     private func sourceDidChange() {
+        cancelAutoResume()
         if !layout.isAvailable(for: source) {
             layout = .month
         }
@@ -192,8 +244,12 @@ final class ExportModel {
         hasIncompleteRun = false
         previousLayout = nil
         estimatedTimeRemaining = nil
+        isOnDriveCountApproximate = false
+        lastDriveCheck = nil
+        driveCheckState = .notChecked
         updateBrowser()
         refreshProgress()
+        checkDriveWhenIdle()
     }
 
     // MARK: - Browsing and selection
@@ -273,6 +329,7 @@ final class ExportModel {
             refreshProgress()
         case .idle where ICloudAccount.appleID == nil:
             // Signed out.
+            cancelAutoResume()
             updateBrowser()
             refreshProgress()
         default:
@@ -414,7 +471,7 @@ final class ExportModel {
                 isConfirmingStorageWarning = true
                 // Stays on the current pane, so the user can keep browsing; progress is in the Library toolbar and Backup.
                 Task {
-                    let proceed = await confirmExport(despite: warning)
+                    let proceed = await (storageWarningConfirmation ?? confirmExport(despite:))(warning)
                     isConfirmingStorageWarning = false
                     guard proceed else { return }
                     await startExport(selection: selection)
@@ -424,6 +481,9 @@ final class ExportModel {
             }
         }
     }
+
+    /// Replaces the "may not be enough space" alert, for tests.
+    @ObservationIgnored var storageWarningConfirmation: (@MainActor (String) async -> Bool)?
 
     /// True while the "may not be enough space" question is showing.
     @ObservationIgnored private var isConfirmingStorageWarning = false
@@ -448,6 +508,7 @@ final class ExportModel {
         clock.pause()
         estimatedTimeRemaining = nil
         phase = .paused
+        recorder?.checkpoint()
         record(.info, source == .iCloud ? "Paused." : "Paused. The item in progress will finish first.")
     }
 
@@ -456,8 +517,10 @@ final class ExportModel {
     /// if it hasn't after `cancelTimeout`, the export shows as cancelled anyway, and "Finishing up"
     /// (`isFinishingUp`) until the engine has ended, before which no new export starts.
     func cancel() {
+        cancelAutoResume()
         guard canCancel else { return }
         phase = .cancelling
+        driveCheckTask?.cancel()
         runTask?.cancel()
         // Let a paused engine wake up and observe the cancellation.
         gate?.resume()
@@ -477,40 +540,63 @@ final class ExportModel {
     /// the engine has stopped (or nil when there's none). The manifest then shows the run as
     /// unfinished, so Resume continues it after the next launch.
     func stopForTermination() -> Task<Void, Never>? {
+        cancelAutoResume()
+        // The history says why this run stopped; the manifest keeps it resumable.
+        recorder?.finish(status: .interrupted, reason: "Uncloud quit while exporting")
         if canCancel {
             cancel()
         }
         return engine.task
     }
 
+    /// Waits until session files handed to the background writer are on disk, for quitting.
+    func flushSessionWrites() async {
+        await (recorder ?? lastSessionRecorder)?.flush()
+    }
+
+    /// The last finished run's recorder, until its writes are flushed at quit.
+    @ObservationIgnored private var lastSessionRecorder: SessionRecorder?
+
     private func resume() {
         guard let gate else { return }
         clock.start()
         phase = .running
         gate.resume()
+        recorder?.checkpoint()
         record(.info, "Resumed.")
     }
 
     /// `selection` overrides the saved selection for this run only (Export All Photos).
     /// `automatic` marks the run as started by automatic backup, once it has really started.
-    private func startExport(selection override: LibrarySelection? = nil, automatic: Bool = false) async {
-        guard !isExporting, !isEngineRunning else { return }
+    /// `resumeAttempt` marks it as an automatic resume; any other run replaces a pending resume.
+    /// Returns whether the run started.
+    @discardableResult
+    private func startExport(
+        selection override: LibrarySelection? = nil,
+        automatic: Bool = false,
+        resumeAttempt: Int? = nil
+    ) async -> Bool {
+        guard !isExporting, !isEngineRunning else { return false }
         let previousPhase = phase
         phase = .preparing
 
         guard isSourceReady, let destination else {
             phase = previousPhase
-            return
+            return false
         }
         let appleID = ICloudAccount.appleID
         if source == .iCloud, appleID == nil {
             phase = previousPhase
-            return
+            return false
         }
         guard destination.isWritable() else {
             destinationIssue = Self.notWritableMessage(for: destination)
             phase = previousPhase
-            return
+            return false
+        }
+        if resumeAttempt == nil {
+            // This run replaces a pending automatic resume.
+            cancelAutoResume()
         }
 
         failedCount = 0
@@ -518,7 +604,8 @@ final class ExportModel {
         skippedThisRun = 0
         estimatedTimeRemaining = nil
         clock = SessionClock()
-        record(.info, "\(hasIncompleteRun ? "Resuming" : "Starting") export to “\(destination.displayName)”, \(layout.title.lowercased()).")
+        let isResuming = hasIncompleteRun
+        record(.info, "\(isResuming ? "Resuming" : "Starting") export to “\(destination.displayName)”, \(layout.title.lowercased()).")
 
         if !layout.isAvailable(for: source) {
             layout = .month
@@ -527,11 +614,60 @@ final class ExportModel {
         runNumber += 1
         let number = runNumber
         isAutomaticRun = automatic
+        isAutoResumedRunInProgress = resumeAttempt != nil
+        currentRun = (override, automatic, resumeAttempt)
         let gate = PauseGate()
         self.gate = gate
         storage.exportDidStart()
         saveSelectionNow()
         let selection = override ?? selection
+        exportingURL = destination.url.standardizedFileURL
+        exportingURL.map { _ = Self.exportingDestinations.insert($0) }
+        beginSession(
+            destination: destination.url,
+            selection: selection,
+            override: override,
+            automatic: automatic,
+            resumeAttempt: resumeAttempt,
+            isResuming: isResuming,
+            appleID: appleID
+        )
+
+        // Check the drive first, so the run starts from what is already there. An idle check gives way.
+        await stopDriveCheck()
+        var report: DriveCheckReport?
+        if number == runNumber, phase == .preparing {
+            let mode: DriveInventory.Mode = layout == .flat ? .full : .quick
+            let folder = recorder.map { SessionStore.baseName(for: $0.session) } ?? Self.checkFolderName()
+            // Held in driveCheckTask, so Cancel stops it.
+            let check = Task<DriveCheckReport?, Never> { [weak self] in
+                await self?.performDriveCheck(mode: mode, setAsideFolder: folder)
+            }
+            driveCheckTask = check
+            report = await check.value
+            if driveCheckTask == check {
+                driveCheckTask = nil
+            }
+        }
+        // Cancelled while checking: don't start the engine at all.
+        guard number == runNumber, phase == .preparing else {
+            if number == runNumber {
+                finish(.cancelled)
+            }
+            return true
+        }
+        if let report {
+            recorder?.update { $0.driveCheck = report.summary }
+            recorder?.checkpoint()
+            if report.selectedCount > 0 {
+                totalCount = report.selectedCount
+            }
+            processedCount = report.onDrive
+            if report.onDrive > 0 {
+                record(.info, "Continuing from where the last export stopped: \(report.isApproximate ? "about " : "")\(report.onDrive.formatted()) already on this drive.")
+            }
+        }
+
         let run: ExportRun
         switch source {
         case .photosLibrary:
@@ -551,7 +687,7 @@ final class ExportModel {
                     if number == runNumber {
                         finish(.cancelled)
                     }
-                    return
+                    return true
                 }
             }
             run = ICloudExportEngine(
@@ -561,12 +697,14 @@ final class ExportModel {
                 appleID: appleID ?? "",
                 gate: gate,
                 selection: selection,
-                rankHints: hints
+                rankHints: hints,
+                alreadyOnDrive: report?.onDrive
             ).start()
         }
         runTask = run.task
         engine.track(run.task) { [weak self] in self?.refreshProgress() }
         exportTask = Task { await consume(ExportEventBatcher.batches(of: run.events, interval: Self.progressInterval), run: number) }
+        return true
     }
 
     /// Applies the run's events in batches, a few times a second however fast they arrive, so a
@@ -580,7 +718,11 @@ final class ExportModel {
             case .success:
                 finish(.completed)
             case .failure(let error):
-                finish(phase == .cancelling || error is CancellationError ? .cancelled : .failed(error.localizedDescription))
+                if phase == .cancelling || error is CancellationError {
+                    finish(.cancelled)
+                } else {
+                    finish(.failed(error.localizedDescription), error: error)
+                }
             }
             return
         }
@@ -591,6 +733,23 @@ final class ExportModel {
     }
 
     private func apply(_ batch: ExportBatch) {
+        if let recorder {
+            if let prepared = batch.prepared {
+                let source = source
+                recorder.update { session in
+                    // The engine knows the selection's size exactly; the session only guessed it.
+                    if session.selection.kind != .only {
+                        session.selection.count = prepared.total
+                    }
+                    if source == .photosLibrary, session.selection.kind == .everything {
+                        session.libraryCount = prepared.total
+                    }
+                }
+                recorder.markPrepared()
+            }
+            recorder.record(exported: batch.exported, skipped: batch.skipped, failures: batch.failures,
+                            failedCount: batch.failed, bytes: batch.bytes)
+        }
         if let prepared = batch.prepared {
             totalCount = prepared.total
             processedCount = prepared.alreadyExported
@@ -619,7 +778,11 @@ final class ExportModel {
         }
     }
 
-    private func finish(_ result: Phase) {
+    /// `error` is what ended a failed run, which decides whether it's resumed automatically.
+    private func finish(_ result: Phase, error: Error? = nil) {
+        let run = currentRun
+        currentRun = nil
+        isAutoResumedRunInProgress = false
         clock.pause()
         estimatedTimeRemaining = nil
         exportTask = nil
@@ -649,11 +812,403 @@ final class ExportModel {
         default:
             break
         }
-        if isAutomaticRun {
-            notifyBackupFinished(result)
-            isAutomaticRun = false
+        var notifies = isAutomaticRun
+        var scheduled: AutoResume?
+        if case .failed = result, let error, let run, let reason = AutoResumePolicy.reason(for: error) {
+            // Notified only if Uncloud gives up, not for each pause.
+            notifies = false
+            if let attempt = AutoResumePolicy.nextAttempt(after: run.resumeAttempt, downloaded: exportedThisRun, timing: autoResumeTiming) {
+                scheduled = AutoResume(
+                    attempt: attempt,
+                    resumeAt: currentDate().addingTimeInterval(autoResumeTiming.delay(beforeAttempt: attempt).timeInterval),
+                    reason: reason,
+                    selection: run.selection,
+                    automatic: run.automatic
+                )
+                scheduled.map(scheduleAutoResume)
+            } else {
+                phase = .failed(AutoResumePolicy.gaveUpMessage)
+                record(.error, AutoResumePolicy.gaveUpMessage)
+                postNotification(AutoResumePolicy.gaveUpMessage)
+            }
         }
+        finishSession(result, error: error, scheduled: scheduled)
+        if notifies {
+            notifyBackupFinished(result)
+        }
+        isAutomaticRun = false
         refreshProgress()
+    }
+
+    // MARK: - Export sessions
+
+    /// Starts the session file for a run attempt. An automatic resume continues the chain of the attempt it
+    /// resumes; Resume within a day, with the same source, account, layout and kind of selection, continues
+    /// the chain of the export that didn't finish. Anything else starts a new chain.
+    private func beginSession(
+        destination url: URL,
+        selection: LibrarySelection,
+        override: LibrarySelection?,
+        automatic: Bool,
+        resumeAttempt: Int?,
+        isResuming: Bool,
+        appleID: String?
+    ) {
+        heartbeatTask?.cancel()
+        let now = currentDate()
+        let account = source == .iCloud ? appleID.map { ExportSession.accountHash(appleID: $0) } : nil
+        let summary = Self.selectionSummary(
+            selection, libraryTotal: source == .iCloud ? ICloudLibrary.cachedLibraryCount : nil
+        )
+        var trigger: ExportSession.Trigger = automatic ? .automaticBackup : (override?.isEverything == true ? .exportAll : .manual)
+        var previous: ExportSession?
+        let newest = sessions.last { $0.kind == .export && !$0.isReadOnly }
+        if resumeAttempt != nil {
+            trigger = .autoResume
+            previous = newest
+        } else if isResuming, let newest, newest.isFinished,
+                  now.timeIntervalSince(newest.endedAt ?? newest.updatedAt) <= 24 * 3600,
+                  newest.source == source, newest.account == account, newest.layout == layout,
+                  newest.selection.kind == summary.kind {
+            trigger = .resume
+            previous = newest
+        }
+
+        var session = ExportSession(
+            chainID: previous?.chainID,
+            attempt: (previous?.attempt ?? 0) + 1,
+            trigger: trigger,
+            startedAt: now,
+            appVersion: Self.appVersion,
+            launchID: Self.launchID,
+            source: source,
+            account: account,
+            layout: layout,
+            writesSidecars: writesSidecars,
+            selection: summary
+        )
+        session.libraryCount = source == .iCloud ? ICloudLibrary.cachedLibraryCount : nil
+        let recorder = SessionRecorder(session: session, store: SessionStore(destination: url), now: { Date() })
+        recorder.onWriteFailure = { [weak self] message in
+            self?.record(.warning, message)
+        }
+        recorder.onSave = { [weak self] saved in
+            self?.upsertSession(saved, destination: url)
+        }
+        self.recorder = recorder
+        recorder.start()
+
+        let interval = sessionHeartbeatInterval
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled, let self, let recorder = self.recorder else { return }
+                recorder.heartbeat()
+            }
+        }
+    }
+
+    /// Ends the running attempt's session with the run's outcome.
+    private func finishSession(_ result: Phase, error: Error?, scheduled: AutoResume?) {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        if let exportingURL {
+            Self.exportingDestinations.remove(exportingURL)
+            self.exportingURL = nil
+        }
+        guard let recorder else { return }
+        self.recorder = nil
+        var reason: String?
+        var retryable: Bool?
+        let status: ExportSession.Status
+        switch result {
+        case .completed:
+            status = failedCount > 0 ? .completedWithFailures : .completed
+        case let .failed(message):
+            status = .failed
+            reason = error.flatMap { AutoResumePolicy.reason(for: $0) } ?? message
+            retryable = error.map { AutoResumePolicy.isRetryable($0) } ?? false
+        default:
+            status = .cancelled
+        }
+        recorder.finish(
+            status: status,
+            reason: reason,
+            retryable: retryable,
+            autoResume: scheduled.map { ExportSession.AutoResumeNote(attempt: $0.attempt, resumeAt: $0.resumeAt) }
+        )
+        lastSession = recorder.session
+        lastSessionRecorder = recorder
+    }
+
+    private func upsertSession(_ session: ExportSession, destination url: URL) {
+        guard destination?.url == url else { return }
+        if let index = sessions.lastIndex(where: { $0.id == session.id }) {
+            sessions[index] = session
+        } else {
+            sessions.append(session)
+        }
+    }
+
+    /// Reads the destination's sessions, after ending as interrupted any that an earlier launch left running.
+    /// Runs when a folder is chosen, restored at launch, or its drive is connected.
+    private func loadSessions() {
+        guard let url = destination?.url, destinationIssue == nil else {
+            sessions = []
+            return
+        }
+        let launch = Self.launchID
+        Task {
+            let loaded = await Task.detached(priority: .utility) { () -> [ExportSession] in
+                let store = SessionStore(destination: url)
+                _ = try? store.markInterrupted(currentLaunch: launch)
+                return store.list()
+            }.value
+            guard destination?.url == url else { return }
+            // Sessions this launch wrote meanwhile are newer in memory than on disk (the writer may still
+            // have them queued), and the running attempt's state is newer than its last checkpoint.
+            var merged = loaded
+            var ours = sessions.filter { $0.launchID == Self.launchID }
+            if let current = recorder?.session {
+                ours.removeAll { $0.id == current.id }
+                ours.append(current)
+            }
+            for session in ours {
+                if let index = merged.firstIndex(where: { $0.id == session.id }) {
+                    merged[index] = session
+                } else {
+                    merged.append(session)
+                }
+            }
+            sessions = merged.sorted { $0.startedAt < $1.startedAt }
+        }
+    }
+
+    /// Export History: this destination's sessions grouped into chains, newest first. The newest chain reads
+    /// "Resuming at HH:MM" while its automatic resume is pending.
+    var exportHistory: [ExportHistoryChain] {
+        ExportHistory.chains(from: sessions, pendingResume: autoResume)
+    }
+
+    /// Shown instead of the history while the destination's drive isn't connected.
+    var exportHistoryUnavailableText: String? {
+        guard let destination, destinationIssue != nil else { return nil }
+        return "Connect “\(destination.displayName)” to see its export history."
+    }
+
+    /// Reveals `.photo-export/sessions` in Finder, with the newest session file selected.
+    func showSessionsInFinder() {
+        guard let url = destination?.url else { return }
+        let store = SessionStore(destination: url)
+        if let newest = store.newestFileURL() {
+            NSWorkspace.shared.activateFileViewerSelecting([newest])
+        } else if FileManager.default.fileExists(atPath: store.directory.path(percentEncoded: false)) {
+            NSWorkspace.shared.activateFileViewerSelecting([store.directory])
+        }
+    }
+
+    private static func selectionSummary(_ selection: LibrarySelection, libraryTotal: Int?) -> ExportSession.SelectionSummary {
+        switch selection {
+        case .only(let ids):
+            return ExportSession.SelectionSummary(kind: .only, count: ids.count)
+        case .allExcept(let excluded):
+            let count = libraryTotal.map { max(0, $0 - excluded.count) } ?? 0
+            return ExportSession.SelectionSummary(kind: excluded.isEmpty ? .everything : .allExcept, count: count)
+        }
+    }
+
+    /// "0.1.4 (14)".
+    static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
+    }
+
+    // MARK: - Checking the drive
+
+    /// Whether a drive check can start: a reachable destination, a ready source, and no export, no export
+    /// still stopping, and no backup tool running.
+    var canCheckDrive: Bool {
+        guard let url = destination?.url else { return false }
+        return !isExporting && !isEngineRunning && !isExportBlocked() && destinationIssue == nil
+            && isSourceReady && driveCheckTask == nil && !Self.exportingDestinations.contains(url.standardizedFileURL)
+    }
+
+    /// Destinations an export of this app is writing to. A check never runs on one, even from another model
+    /// (tests and previews make several), since it may rewrite the manifest the export appends to.
+    private static var exportingDestinations: Set<URL> = []
+
+    var isCheckingDrive: Bool {
+        if case .checking = driveCheckState { true } else { false }
+    }
+
+    /// "41,000 of about 93,000 files" while checking; nil otherwise.
+    var driveCheckProgressText: String? {
+        guard case let .checking(listed, expected, _) = driveCheckState else { return nil }
+        if let expected, expected > 0 {
+            return "\(listed.formatted()) of about \(max(expected, listed).formatted()) files"
+        }
+        return "\(listed.formatted()) files"
+    }
+
+    /// Already on this drive, for the current selection: from the last drive check, or (idle) the manifest.
+    var onDriveCount: Int? {
+        guard destination != nil, isSourceReady else { return nil }
+        return processedCount
+    }
+
+    /// Still to export, for the current selection.
+    var toGoCount: Int? {
+        guard onDriveCount != nil, totalCount > 0 else { return nil }
+        return max(0, totalCount - processedCount)
+    }
+
+    /// True when the on-drive count includes items counted from file paths ("about 9,200").
+    private(set) var isOnDriveCountApproximate = false
+
+    /// "9,207 already on this drive · 83,808 to go", with "about" when counted from file paths.
+    var onDriveSummaryText: String? {
+        guard let onDrive = onDriveCount, let toGo = toGoCount else { return nil }
+        let about = isOnDriveCountApproximate ? "about " : ""
+        return "\(about)\(onDrive.formatted()) already on this drive · \(about)\(toGo.formatted()) to go"
+    }
+
+    /// Checks the drive now: `full` stats every file (Backup Tools > Check Drive); otherwise only folders
+    /// that changed since the last check. Does nothing while an export or another check runs.
+    func checkDrive(full: Bool = true) {
+        checkDrive(full: full, changesDrive: true)
+    }
+
+    private func checkDrive(full: Bool, changesDrive: Bool) {
+        guard canCheckDrive else { return }
+        let mode: DriveInventory.Mode = full || layout == .flat ? .full : .quick
+        let task = Task<DriveCheckReport?, Never> { [weak self] in
+            guard let self else { return nil }
+            return await performDriveCheck(mode: mode, setAsideFolder: Self.checkFolderName(), changesDrive: changesDrive)
+        }
+        driveCheckTask = task
+        Task {
+            _ = await task.value
+            if driveCheckTask == task {
+                driveCheckTask = nil
+            }
+        }
+    }
+
+    /// Stops a check that's in progress. Nothing on the drive has changed while it is still listing.
+    func cancelDriveCheck() {
+        driveCheckTask?.cancel()
+    }
+
+    /// The quick check when a folder is chosen, restored or reconnected, so its figures are current.
+    private func checkDriveWhenIdle() {
+        guard canCheckDrive else { return }
+        // Only reports: the drive isn't changed until the person exports or chooses Check Drive.
+        checkDrive(full: false, changesDrive: false)
+    }
+
+    /// Cancels an idle check and waits until it has stopped, so nothing else touches the manifest meanwhile.
+    private func stopDriveCheck() async {
+        guard let task = driveCheckTask else { return }
+        task.cancel()
+        _ = await task.value
+        if driveCheckTask == task {
+            driveCheckTask = nil
+        }
+    }
+
+    /// Runs the check against the current destination, source, layout and selection, and updates
+    /// `driveCheckState` and the on-drive figures. Nil when cancelled or when the check failed.
+    private func performDriveCheck(
+        mode: DriveInventory.Mode,
+        setAsideFolder: String,
+        changesDrive: Bool = true
+    ) async -> DriveCheckReport? {
+        guard let url = destination?.url else { return nil }
+        let token = UUID()
+        driveCheckToken = token
+        let source = source
+        let selection = selection(forCheckDuring: phase)
+        let hadSnapshot = await Task.detached(priority: .utility) { ExportManifest.filesSnapshot(in: url) != nil }.value
+        driveCheckState = .checking(filesListed: 0, expectedFiles: nil, mode: mode)
+        if !hadSnapshot, phase == .preparing {
+            record(.info, "First check of this drive takes a little longer.")
+        }
+
+        let input: DriveCheck.Input
+        switch source {
+        case .iCloud:
+            input = DriveCheck.Input(
+                destination: url, source: source, layout: layout, selection: selection,
+                selectedCount: selection.selectedCount(total: ICloudLibrary.cachedLibraryCount ?? 0),
+                libraryIDs: nil, setAsideFolder: setAsideFolder, changesDrive: changesDrive
+            )
+        case .photosLibrary:
+            let ids = await Task.detached(priority: .utility) { () -> Set<String> in
+                var ids: Set<String> = []
+                PhotoLibrary.allAssets().enumerateObjects { asset, _, _ in ids.insert(asset.localIdentifier) }
+                return ids
+            }.value
+            input = DriveCheck.Input(
+                destination: url, source: source, layout: layout, selection: selection,
+                selectedCount: ids.count { selection.contains($0) },
+                libraryIDs: ids, setAsideFolder: setAsideFolder, changesDrive: changesDrive
+            )
+        }
+
+        do {
+            let report = try await DriveCheck.run(input, mode: mode) { [weak self] progress in
+                Task { @MainActor [weak self] in
+                    guard let self, driveCheckToken == token, case .checking = driveCheckState else { return }
+                    driveCheckState = .checking(filesListed: progress.filesListed, expectedFiles: progress.expectedFiles, mode: mode)
+                }
+            }
+            guard driveCheckToken == token else { return report }
+            driveCheckState = .checked(report)
+            lastDriveCheck = report
+            if destination?.url == url, self.source == source {
+                if report.selectedCount > 0 {
+                    totalCount = report.selectedCount
+                }
+                processedCount = report.onDrive
+                isOnDriveCountApproximate = report.isApproximate
+            }
+            if report.foundProblems {
+                let count = report.missingFiles.count + report.damagedFiles.count
+                let files = count == 1 ? "file is" : "files are"
+                record(.warning, changesDrive
+                    ? "\(count.formatted()) \(files) missing or damaged and will be exported again."
+                    : "\(count.formatted()) \(files) missing or damaged. They’ll be fixed when you export or choose Check Drive.")
+            }
+            if !report.setAsideFiles.isEmpty {
+                record(.info, "Moved \(report.setAsideFiles.count.formatted()) damaged \(report.setAsideFiles.count == 1 ? "file" : "files") to .photo-export/set-aside on the drive.")
+            }
+            return report
+        } catch {
+            guard driveCheckToken == token else { return nil }
+            if error is CancellationError || Task.isCancelled {
+                driveCheckState = lastDriveCheck.map { .checked($0) } ?? .notChecked
+            } else {
+                driveCheckState = .failed("Couldn’t check “\(destination?.displayName ?? "the drive")”: \(error.localizedDescription)")
+            }
+            return nil
+        }
+    }
+
+    /// The selection a check counts: the running export's (such as Export All Photos), else the saved one.
+    private func selection(forCheckDuring phase: Phase) -> LibrarySelection {
+        if phase == .preparing, let override = currentRun?.selection {
+            return override
+        }
+        return selection
+    }
+
+    /// The set-aside folder name for a check outside an export: "check-2026-10-12T14-03-27Z".
+    private static func checkFolderName() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        return "check-" + formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
     }
 
     // MARK: - Photos access
@@ -688,28 +1243,30 @@ final class ExportModel {
             let progress = await Task.detached {
                 source == .iCloud
                     ? Self.iCloudProgress(toward: url, selection: selection)
-                    : PhotoLibrary.progress(toward: url, selection: selection)
+                    : (progress: PhotoLibrary.progress(toward: url, selection: selection), isApproximate: false)
             }.value
             guard !isExporting, destination?.url == url, self.source == source, self.selection == selection else { return }
-            totalCount = progress.total
-            processedCount = progress.exported
-            hasIncompleteRun = progress.hasIncompleteRun
-            previousLayout = progress.previousLayout
+            totalCount = progress.progress.total
+            processedCount = progress.progress.exported
+            isOnDriveCountApproximate = progress.isApproximate
+            hasIncompleteRun = progress.progress.hasIncompleteRun
+            previousLayout = progress.progress.previousLayout
         }
     }
 
-    /// The selected part of the iCloud library's last known size, and how many files the destination's
-    /// manifest records from iCloud.
-    private nonisolated static func iCloudProgress(toward destination: URL, selection: LibrarySelection) -> LibraryProgress {
+    /// The selected part of the iCloud library's last known size, and how many selected items the destination's
+    /// manifest records. Items, not files: items recorded by asset ID count exactly, and path-only records are
+    /// grouped (a Live Photo's movie and XMP sidecars don't count), which makes the figure approximate.
+    nonisolated static func iCloudProgress(toward destination: URL, selection: LibrarySelection) -> (progress: LibraryProgress, isApproximate: Bool) {
         let total = selection.selectedCount(total: ICloudLibrary.cachedLibraryCount ?? 0)
-        let recorded = ExportManifest.exportedIDs(in: destination)
-            .count { $0.hasPrefix(ICloudChecksumScanner.recordPrefix) }
-        return LibraryProgress(
+        let items = ICloudItemCount.count(records: ExportManifest.records(in: destination), selection: selection)
+        let progress = LibraryProgress(
             total: total,
-            exported: min(total, recorded),
+            exported: total > 0 ? min(total, items.total) : items.total,
             hasIncompleteRun: ExportManifest.hasIncompleteRun(in: destination),
             previousLayout: ExportManifest.layout(in: destination)
         )
+        return (progress, items.isApproximate)
     }
 
     // MARK: - Storage
@@ -745,6 +1302,9 @@ final class ExportModel {
 
     /// A warning when the export looks too big for the destination's free space.
     var storageWarning: String? {
+        #if DEBUG
+        if let storageWarningOverride { return storageWarningOverride }
+        #endif
         guard let destination, destinationIssue == nil, let storageEstimate else { return nil }
         return StorageCheck.warning(
             needed: storageNeededBytes,
@@ -753,6 +1313,11 @@ final class ExportModel {
             destinationName: destination.displayName
         )
     }
+
+    #if DEBUG
+    /// Test-only: a warning in place of the estimate's.
+    @ObservationIgnored var storageWarningOverride: String?
+    #endif
 
     /// Reads the destination volume's free space off the main actor. Without `force`, at most once
     /// per `freeSpaceInterval`.
@@ -778,6 +1343,8 @@ final class ExportModel {
         pendingExportSelection = nil
         switch result {
         case let .success(url):
+            // A different folder: the export that was waiting to resume belongs to the old one.
+            cancelAutoResume()
             setDestination(url, persist: true)
             if startsExport {
                 startRun(selection: exportSelection)
@@ -799,6 +1366,13 @@ final class ExportModel {
         isAccessingDestination = url.startAccessingSecurityScopedResource()
 
         let destination = Destination(url: url)
+        // A folder chosen or restored, or a drive connected again: read its history and check it. Re-resolving the
+        // same reachable folder (before each automatic resume, for instance) does neither again.
+        let isNewOrReconnected = persist || self.destination?.url != url || destinationIssue != nil
+        if self.destination?.url != url {
+            // Another folder: its history is read afresh.
+            sessions = []
+        }
         self.destination = destination
         destinationIssue = destination.isWritable() ? nil : Self.notWritableMessage(for: destination)
         destinationFreeBytes = nil
@@ -807,7 +1381,15 @@ final class ExportModel {
         if persist, let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
             UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
         }
+        if lastDriveCheck != nil || driveCheckState != .notChecked, driveCheckTask == nil {
+            lastDriveCheck = nil
+            driveCheckState = .notChecked
+        }
         refreshProgress()
+        if isNewOrReconnected {
+            loadSessions()
+            checkDriveWhenIdle()
+        }
     }
 
     private func restoreDestination() {
@@ -835,6 +1417,7 @@ final class ExportModel {
         self.destination = destination
         destinationFreeBytes = nil
         destinationIssue = "“\(destination.displayName)” isn’t available. Connect the drive or choose a different folder."
+        sessions = []
     }
 
     private static func notWritableMessage(for destination: Destination) -> String {
@@ -876,6 +1459,11 @@ final class ExportModel {
     /// Copies new items without leaving the current screen.
     func backUpAutomatically(reason: String) {
         guard canBackUpAutomatically else { return }
+        // A run waiting to resume goes first, the way it was started, rather than being replaced.
+        if autoResume != nil {
+            resumeNow()
+            return
+        }
         reconnectDestination()
         if let destinationIssue {
             record(.warning, "Automatic backup didn’t run: \(destinationIssue)")
@@ -916,6 +1504,144 @@ final class ExportModel {
             let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
             try? await UNUserNotificationCenter.current().add(request)
         }
+    }
+
+    // MARK: - Automatic resume
+
+    /// Starts the waiting export now instead of at its time.
+    func resumeNow() {
+        guard autoResume != nil else { return }
+        attemptAutoResume()
+    }
+
+    /// Forgets the pending automatic resume, if there is one. The export stays failed; Resume continues it.
+    func cancelAutoResume() {
+        autoResumeTask?.cancel()
+        autoResumeTask = nil
+        let center = NSWorkspace.shared.notificationCenter
+        autoResumeObservers.forEach(center.removeObserver)
+        autoResumeObservers = []
+        if autoResume != nil {
+            autoResume = nil
+        }
+    }
+
+    /// The pending resume's time as the user's locale shows it, such as "22:40".
+    nonisolated static func resumeTimeText(_ resumeAt: Date) -> String {
+        resumeAt.formatted(date: .omitted, time: .shortened)
+    }
+
+    private func scheduleAutoResume(_ pending: AutoResume) {
+        cancelAutoResume()
+        autoResume = pending
+        record(.warning, "Paused because \(Self.lowercasingFirst(pending.reason)). Resuming at \(Self.resumeTimeText(pending.resumeAt)) (attempt \(pending.attempt)).")
+        observeWakeAndMount()
+        startAutoResumeTimer()
+    }
+
+    /// Wakes up when the pending resume is due, by the wall clock: it sleeps at most `recheckInterval` at a
+    /// time and looks at the date again, so time the Mac spent asleep counts. A resume that's due but has to
+    /// wait (for the drive, or for the last run to stop) is tried again every `recheckInterval`.
+    private func startAutoResumeTimer() {
+        autoResumeTask?.cancel()
+        autoResumeTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let pending = autoResume else { return }
+                let recheck = autoResumeTiming.recheckInterval
+                let remaining = pending.resumeAt.timeIntervalSince(currentDate())
+                if remaining <= 0 {
+                    attemptAutoResume()
+                    guard !Task.isCancelled, autoResume != nil else { return }
+                    try? await Task.sleep(for: recheck)
+                } else {
+                    try? await Task.sleep(for: min(.milliseconds(Int64((remaining * 1000).rounded(.up))), recheck))
+                }
+            }
+        }
+    }
+
+    /// A Mac that slept past the resume time resumes as soon as it wakes; a drive that's connected resumes
+    /// an export that was waiting for it.
+    private func observeWakeAndMount() {
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.didMountNotification] {
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.resumeIfDue()
+                }
+            }
+            autoResumeObservers.append(observer)
+        }
+    }
+
+    /// Starts the pending resume if its time has come.
+    private func resumeIfDue() {
+        guard let pending = autoResume, pending.resumeAt <= currentDate() else { return }
+        attemptAutoResume()
+    }
+
+    /// Starts the pending resume the way its run was started, if everything is ready. Keeps waiting while
+    /// the last run is still stopping or the drive isn't connected; gives up when the source needs the user.
+    private func attemptAutoResume() {
+        guard var pending = autoResume else { return }
+        if isExporting {
+            // Another export runs; it replaced this one.
+            cancelAutoResume()
+            return
+        }
+        guard !isEngineRunning, !isExportBlocked() else { return }
+        switch source {
+        case .iCloud:
+            guard ICloudAccount.appleID != nil else {
+                cancelAutoResume()
+                return
+            }
+            if browser?.state == .signInRequired {
+                cancelAutoResume()
+                record(.warning, "Didn’t resume: sign in to iCloud again to continue.")
+                isShowingICloudSignIn = true
+                return
+            }
+        case .photosLibrary:
+            guard hasPhotosAccess else {
+                cancelAutoResume()
+                return
+            }
+        }
+        reconnectDestination()
+        guard destination != nil, destinationIssue == nil else {
+            if !pending.isWaitingForDestination {
+                pending.isWaitingForDestination = true
+                autoResume = pending
+                if let destinationIssue {
+                    record(.info, "Waiting to resume: \(destinationIssue)")
+                }
+            }
+            if autoResumeTask == nil {
+                startAutoResumeTimer()
+            }
+            return
+        }
+
+        // From here the run is started; nothing else may start it a second time.
+        cancelAutoResume()
+        record(.info, "Resuming automatically (attempt \(pending.attempt)).")
+        Task {
+            let started = await startExport(selection: pending.selection, automatic: pending.automatic, resumeAttempt: pending.attempt)
+            guard !started, !isExporting, autoResume == nil, phase != .completed else { return }
+            // Couldn't start after all, such as a folder that can't be written to: wait and try again.
+            pending.isWaitingForDestination = destinationIssue != nil
+            autoResume = pending
+            observeWakeAndMount()
+            startAutoResumeTimer()
+        }
+    }
+
+    private static func lowercasingFirst(_ text: String) -> String {
+        guard let first = text.first else { return text }
+        // "Apple", "iCloud" and "Uncloud" keep their capital.
+        if text.hasPrefix("Apple") || text.hasPrefix("iCloud") { return text }
+        return first.lowercased() + text.dropFirst()
     }
 
     // MARK: - Activity

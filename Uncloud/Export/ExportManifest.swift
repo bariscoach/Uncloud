@@ -13,7 +13,18 @@ final class ExportManifest {
     private static let checksumsName = "checksums.tsv"
     private static let markerName = "run-in-progress"
     private static let layoutName = "layout"
+    private static let filesSnapshotName = "files.tsv"
+    private static let setAsideFolderName = "set-aside"
+    /// Journal key prefix for iCloud items recorded by asset ID: `icloud-id:<assetID><TAB>path…`.
+    static let iCloudIDPrefix = "icloud-id:"
+    /// Journal key prefix for iCloud items that are only partly on the drive, such as a Live Photo whose
+    /// movie failed: `icloud-partial:<assetID><TAB>path…`. They don't count as exported; their files aren't
+    /// taken for untracked downloads. An `icloud-id:` record for the same asset supersedes it.
+    static let iCloudPartialPrefix = "icloud-partial:"
+    /// Journal key prefix for files recorded by path, without an asset ID (icloudpd runs, the drive check).
+    static let iCloudPathPrefix = "icloud:"
 
+    private let destination: URL
     private let markerURL: URL
     private let layoutURL: URL
     private let journal: FileHandle
@@ -22,6 +33,7 @@ final class ExportManifest {
 
     /// Opens the manifest for a new run and marks the run as in progress.
     init(destination: URL) throws {
+        self.destination = destination
         let directory = Self.folder(in: destination)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
@@ -63,6 +75,94 @@ final class ExportManifest {
 
     func recordLayout(_ layout: FolderLayout) throws {
         try Data(layout.rawValue.utf8).write(to: layoutURL, options: .atomic)
+    }
+
+    /// Records an iCloud item by its asset ID, with the relative paths of its files:
+    /// `icloud-id:<assetID><TAB>path<TAB>path…`. A later record for the same ID replaces the earlier one.
+    /// Older app versions read the line as an opaque ID, so they keep working. Nothing is written for an empty `paths`.
+    func recordICloudItem(id: String, paths: [String]) throws {
+        guard !paths.isEmpty else { return }
+        let fields = [id] + paths
+        guard fields.allSatisfy({ $0.rangeOfCharacter(from: .controlCharacters) == nil }), !id.isEmpty else {
+            throw ManifestError.unrecordableField
+        }
+        let line = Self.iCloudIDPrefix + fields.joined(separator: "\t") + "\n"
+        try journal.write(contentsOf: Data(line.utf8))
+        exportedIDs.insert(Self.iCloudIDPrefix + id)
+    }
+
+    /// Records the files an iCloud item left on the drive when it failed partway, such as a Live Photo whose
+    /// movie couldn't be downloaded: `icloud-partial:<assetID><TAB>path…`. Nothing is written for an empty `paths`.
+    func recordPartialICloudItem(id: String, paths: [String]) throws {
+        guard !paths.isEmpty else { return }
+        let fields = [id] + paths
+        guard fields.allSatisfy({ $0.rangeOfCharacter(from: .controlCharacters) == nil }), !id.isEmpty else {
+            throw ManifestError.unrecordableField
+        }
+        let line = Self.iCloudPartialPrefix + fields.joined(separator: "\t") + "\n"
+        try journal.write(contentsOf: Data(line.utf8))
+    }
+
+    /// Writes the files.tsv snapshot. The file is replaced as a whole, so a crash leaves the old snapshot or the new one.
+    func writeFilesSnapshot(_ snapshot: FilesSnapshot) throws {
+        try Self.writeFilesSnapshot(snapshot, in: destination)
+    }
+
+    /// `writeFilesSnapshot(_:)` without opening a run, for the drive check.
+    static func writeFilesSnapshot(_ snapshot: FilesSnapshot, in destination: URL) throws {
+        let directory = folder(in: destination)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(snapshot.tsv.utf8).write(to: directory.appending(path: filesSnapshotName), options: .atomic)
+    }
+
+    /// Moves files into `.photo-export/set-aside/<session>/<relative path>` instead of deleting them. Used for
+    /// damaged or truncated files that are about to be downloaded again. Never overwrites: a name already taken
+    /// gets a number, like `IMG_0001 (1).HEIC`. Paths that don't exist are skipped.
+    /// Returns the new location of each file that was moved, keyed by its original relative path.
+    @discardableResult
+    func setAside(paths: [String], session: String) throws -> [String: URL] {
+        try Self.setAside(paths: paths, session: session, in: destination)
+    }
+
+    /// `setAside(paths:session:)` without opening a run, for the drive check.
+    @discardableResult
+    static func setAside(paths: [String], session: String, in destination: URL) throws -> [String: URL] {
+        guard isSafeComponent(session) else { throw ManifestError.unsafePath(session) }
+        // Check every path before moving any, so a refused call changes nothing.
+        if let unsafe = paths.first(where: { !isSafeRelativePath($0) }) {
+            throw ManifestError.unsafePath(unsafe)
+        }
+        let sessionFolder = folder(in: destination)
+            .appending(path: setAsideFolderName, directoryHint: .isDirectory)
+            .appending(path: session, directoryHint: .isDirectory)
+        var moved: [String: URL] = [:]
+        for path in paths {
+            let source = destination.appending(path: path)
+            guard FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) else { continue }
+
+            let target = uniqueURL(for: sessionFolder.appending(path: path))
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: source, to: target)
+            moved[path] = target
+        }
+        return moved
+    }
+
+    /// Appends records (`key<TAB>path…`) to `exported.tsv` without opening a run, for the drive check.
+    /// A cut-off last line is removed first, as when a run opens the journal. Don't call while an export runs.
+    static func appendRecords(_ records: [(key: String, paths: [String])], in destination: URL) throws {
+        guard !records.isEmpty else { return }
+        let fields = records.flatMap { [$0.key] + $0.paths }
+        guard fields.allSatisfy({ !$0.isEmpty && $0.rangeOfCharacter(from: .controlCharacters) == nil }) else {
+            throw ManifestError.unrecordableField
+        }
+        let directory = folder(in: destination)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: journalName)
+        let handle = try openForAppending(url, endsMidLine: readLines(at: url).endsMidLine)
+        defer { try? handle.close() }
+        let text = records.map { ([$0.key] + $0.paths).joined(separator: "\t") + "\n" }.joined()
+        try handle.write(contentsOf: Data(text.utf8))
     }
 
     func markRunFinished() {
@@ -137,8 +237,53 @@ final class ExportManifest {
         return FolderLayout(rawValue: String(decoding: data, as: UTF8.self))
     }
 
+    /// The last files.tsv snapshot, or nil when the drive has none yet (older app versions never wrote one).
+    static func filesSnapshot(in destination: URL) -> FilesSnapshot? {
+        let url = folder(in: destination).appending(path: filesSnapshotName)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return FilesSnapshot(tsv: String(decoding: data, as: UTF8.self))
+    }
+
+    /// The iCloud items recorded by asset ID (`icloud-id:` records): asset ID to relative paths.
+    /// Legacy `icloud:<path>` records are not included; they have no asset ID.
+    static func iCloudItems(in destination: URL) -> [String: [String]] {
+        var items: [String: [String]] = [:]
+        for (key, paths) in records(in: destination) where key.hasPrefix(iCloudIDPrefix) {
+            items[String(key.dropFirst(iCloudIDPrefix.count))] = paths
+        }
+        return items
+    }
+
     private static func folder(in destination: URL) -> URL {
         destination.appending(path: folderName, directoryHint: .isDirectory)
+    }
+
+    /// A relative path made of plain components: no leading slash, no `.`/`..`/empty parts, no control characters.
+    static func isSafeRelativePath(_ path: String) -> Bool {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { isSafeComponent(String($0)) }
+            && path.rangeOfCharacter(from: .controlCharacters) == nil
+    }
+
+    private static func isSafeComponent(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.contains("/")
+            && name.rangeOfCharacter(from: .controlCharacters) == nil
+    }
+
+    /// `path` if nothing is there yet, otherwise `name (1).ext`, `name (2).ext`, and so on.
+    private static func uniqueURL(for url: URL) -> URL {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else { return url }
+        let directory = url.deletingLastPathComponent()
+        let base = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        var number = 1
+        while true {
+            let name = ext.isEmpty ? "\(base) (\(number))" : "\(base) (\(number)).\(ext)"
+            let candidate = directory.appending(path: name)
+            if !fileManager.fileExists(atPath: candidate.path(percentEncoded: false)) { return candidate }
+            number += 1
+        }
     }
 
     private static func readJournal(at url: URL) -> (ids: Set<String>, endsMidLine: Bool) {
@@ -188,5 +333,67 @@ final class ExportManifest {
         } else {
             try FileManager.default.moveItem(at: temporary, to: url)
         }
+    }
+}
+
+/// What the manifest refuses to write or move.
+enum ManifestError: Error, Equatable {
+    /// An ID or path would break the tab-separated lines (a tab or line break, or an empty ID).
+    case unrecordableField
+    /// A path or session name that could point outside the destination or its `.photo-export` folder.
+    case unsafePath(String)
+}
+
+/// The `files.tsv` snapshot: what the last drive check saw, kept so the next quick check can tell which
+/// folders changed. Stored as lines, in sorted order:
+/// - `file<TAB>relative path<TAB>size<TAB>modification time`
+/// - `dir<TAB>relative folder<TAB>modification time` (the destination root is the empty string)
+/// Times are seconds since 1970. Lines that don't parse are skipped.
+struct FilesSnapshot: Equatable, Sendable {
+    struct FileEntry: Equatable, Sendable {
+        var size: Int64
+        var modified: Double
+    }
+
+    /// Relative path to its size and modification time.
+    var files: [String: FileEntry]
+    /// Relative folder to its modification time.
+    var directories: [String: Double]
+
+    init(files: [String: FileEntry] = [:], directories: [String: Double] = [:]) {
+        self.files = files
+        self.directories = directories
+    }
+
+    init(tsv: String) {
+        var snapshot = FilesSnapshot()
+        for line in tsv.split(separator: "\n") {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            switch fields.first {
+            case "file" where fields.count == 4:
+                if let size = Int64(fields[2]), let modified = Double(fields[3]) {
+                    snapshot.files[String(fields[1])] = FileEntry(size: size, modified: modified)
+                }
+            case "dir" where fields.count == 3:
+                if let modified = Double(fields[2]) {
+                    snapshot.directories[String(fields[1])] = modified
+                }
+            default:
+                continue
+            }
+        }
+        self = snapshot
+    }
+
+    var tsv: String {
+        var lines: [String] = []
+        lines.reserveCapacity(files.count + directories.count)
+        for (path, entry) in files {
+            lines.append("file\t\(path)\t\(entry.size)\t\(entry.modified)")
+        }
+        for (folder, modified) in directories {
+            lines.append("dir\t\(folder)\t\(modified)")
+        }
+        return lines.sorted().map { $0 + "\n" }.joined()
     }
 }

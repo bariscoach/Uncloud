@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Help > Getting Started: the same three steps and privacy note as the landing page.
+/// Help > Getting Started: the same three steps, benefits and privacy note as the landing page.
+/// The benefits are a plain list here; the landing page shows them as a carousel.
 struct GettingStartedView: View {
     @Environment(ExportModel.self) private var model
 
@@ -14,10 +15,12 @@ struct GettingStartedView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     HowItWorksSteps()
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 16) {
                         Text("Why Uncloud")
                             .font(.headline)
-                        BenefitsGrid()
+                        ForEach(Benefit.all) { benefit in
+                            BenefitRow(benefit: benefit)
+                        }
                     }
                     PrivacyNote(showsLearnMore: false)
                     Text("Diagnostic logs stay on this Mac. When you report a problem, you can share them from Help > Show Diagnostic Logs.")

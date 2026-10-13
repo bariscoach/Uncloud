@@ -58,6 +58,17 @@ private struct LibraryToolbar: ToolbarContent {
                 }
                 .help("Show export progress")
                 .accessibilityLabel("Export progress, \(Int(model.fractionComplete * 100)) percent")
+            } else if model.autoResume != nil {
+                // The export stopped for a while, such as Apple limiting downloads; Backup has the details.
+                Button {
+                    model.pane = .backup
+                } label: {
+                    Label("Waiting to resume", systemImage: "clock")
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.orange)
+                }
+                .help("The export resumes automatically. Show Backup for details.")
+                .accessibilityLabel("Export waiting to resume. Show Backup.")
             }
 
             Button(model.primaryExportTitle(total: total)) {

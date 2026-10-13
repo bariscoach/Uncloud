@@ -117,9 +117,9 @@ struct LibraryWindow: View {
         )
     }
 
-    /// True when the run that just started was an automatic backup, which shouldn't announce itself.
+    /// True when the run that just started was an automatic backup or an automatic resume, which shouldn't announce itself.
     private var startedAutomatically: Bool {
-        model.isAutomaticRunInProgress
+        model.isAutomaticRunInProgress || model.isAutoResumedRunInProgress
     }
 
     /// The export percentage on the Backup row while an export runs.

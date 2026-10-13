@@ -5,7 +5,8 @@ enum ExportEvent: Sendable {
     case prepared(total: Int, alreadyExported: Int)
     /// More items were found after `prepared`, such as the next album of an iCloud export.
     case totalIncreased(by: Int)
-    case exported(name: String, fileCount: Int)
+    /// `bytes` is what the item wrote to the destination, when the engine knows it.
+    case exported(name: String, fileCount: Int, bytes: Int64? = nil)
     /// An item that was already in the destination. Counted, not logged.
     case skipped
     case failed(name: String, reason: String)
@@ -80,7 +81,8 @@ struct ExportEngine: Sendable {
                 let checksums = try await export(files, into: paths, metadata: metadata)
                 try manifest.recordChecksums(checksums)
                 try manifest.recordExport(of: asset.localIdentifier, files: checksums.keys.sorted())
-                emit(.exported(name: files.displayName, fileCount: files.items.count))
+                let bytes = Self.totalSize(of: checksums.keys.map { destination.appending(path: $0) })
+                emit(.exported(name: files.displayName, fileCount: files.items.count, bytes: bytes))
             } catch {
                 if Task.isCancelled {
                     throw CancellationError()
@@ -118,18 +120,20 @@ struct ExportEngine: Sendable {
         return [try await folderPath(for: asset, places: places, emit: emit)]
     }
 
-    /// The item's folder relative to the destination, such as `2024/07` or `Italy/Rome/2024-07`.
+    /// The item's folder relative to the destination, such as `2024/07` or `Italy/Rome/2024-07`. Empty for the
+    /// flat layout, which writes into the destination itself.
     private func folderPath(
         for asset: PHAsset,
         places: PlaceResolver?,
         emit: @escaping @Sendable (ExportEvent) -> Void
     ) async throws -> String {
+        guard layout != .flat else { return "" }
         let month = asset.creationDate.map { date in
             let parts = Calendar.current.dateComponents([.year, .month], from: date)
             return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
         }
         guard let places else {
-            return month?.replacingOccurrences(of: "-", with: "/") ?? "Undated"
+            return Self.folderPath(for: layout, monthKey: month, place: nil)
         }
 
         var place = PlaceResolver.unknownFolder
@@ -138,7 +142,39 @@ struct ExportEngine: Sendable {
                 emit(.note("Place lookups are busy. Trying again in \(delay.formatted(.units(width: .wide)))…"))
             }
         }
-        return layout == .placeThenMonth ? "\(place)/\(month ?? "Undated")" : place
+        return Self.folderPath(for: layout, monthKey: month, place: place)
+    }
+
+    /// The folder for layouts that don't need an album lookup. `monthKey` is `2024-07`; `place` is a resolved folder name.
+    static func folderPath(for layout: FolderLayout, monthKey: String?, place: String?) -> String {
+        switch layout {
+        case .flat:
+            return ""
+        case .place:
+            return place ?? PlaceResolver.unknownFolder
+        case .placeThenMonth:
+            return "\(place ?? PlaceResolver.unknownFolder)/\(monthKey ?? "Undated")"
+        case .month, .album:
+            return monthKey?.replacingOccurrences(of: "-", with: "/") ?? "Undated"
+        }
+    }
+
+    /// The combined size of the files that exist, for an item's `bytes`.
+    static func totalSize(of urls: [URL]) -> Int64 {
+        urls.reduce(Int64(0)) { total, url in
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            return total + Int64(size)
+        }
+    }
+
+    /// The folder URL for a folder path from `folderPath`. An empty path is the destination itself.
+    static func folderURL(in destination: URL, folderPath: String) -> URL {
+        folderPath.isEmpty ? destination : destination.appending(path: folderPath, directoryHint: .isDirectory)
+    }
+
+    /// `folderPath/filename` relative to the destination, or just `filename` when the folder is the destination.
+    static func relativePath(in folderPath: String, filename: String) -> String {
+        folderPath.isEmpty ? filename : "\(folderPath)/\(filename)"
     }
 
     /// Writes an item's files into the first folder, copies them into each further folder, and writes a sidecar
@@ -147,7 +183,7 @@ struct ExportEngine: Sendable {
     private func export(_ files: AssetFiles, into folderPaths: [String], metadata: AssetMetadata?) async throws -> [String: String] {
         guard !files.items.isEmpty else { throw ExportError.noExportableFiles }
 
-        let folders = folderPaths.map { destination.appending(path: $0, directoryHint: .isDirectory) }
+        let folders = folderPaths.map { Self.folderURL(in: destination, folderPath: $0) }
         // The primary file is the item's main original, found by position so a renamed copy still counts.
         let primaryIndex = files.items.firstIndex { $0.filename == files.displayName } ?? 0
 
@@ -164,7 +200,7 @@ struct ExportEngine: Sendable {
                 let digest = try await ResourceWriter.write(item.resource, to: url)
                 written.append(url)
                 originals.append((url: url, digest: digest))
-                checksums[relativePath(of: url, in: folderPaths[0])] = digest
+                checksums[Self.relativePath(in: folderPaths[0], filename: url.lastPathComponent)] = digest
             }
 
             var placed: [[URL]] = [originals.map { $0.url }]
@@ -175,7 +211,7 @@ struct ExportEngine: Sendable {
                     try FileManager.default.copyItem(at: original.url, to: url)
                     written.append(url)
                     copies.append(url)
-                    checksums[relativePath(of: url, in: folderPath)] = original.digest
+                    checksums[Self.relativePath(in: folderPath, filename: url.lastPathComponent)] = original.digest
                 }
                 placed.append(copies)
             }
@@ -184,7 +220,7 @@ struct ExportEngine: Sendable {
                 for (folderPath, urls) in zip(folderPaths, placed) {
                     let sidecar = try XMPSidecar.write(metadata, nextTo: urls[primaryIndex])
                     written.append(sidecar)
-                    checksums[relativePath(of: sidecar, in: folderPath)] = try FileHasher.sha256(of: sidecar)
+                    checksums[Self.relativePath(in: folderPath, filename: sidecar.lastPathComponent)] = try FileHasher.sha256(of: sidecar)
                 }
             }
             return checksums
@@ -195,13 +231,9 @@ struct ExportEngine: Sendable {
             throw error
         }
     }
-
-    private func relativePath(of url: URL, in folderPath: String) -> String {
-        "\(folderPath)/\(url.lastPathComponent)"
-    }
 }
 
-private extension FileManager {
+extension FileManager {
     /// `name.ext`, or `name (1).ext`, `name (2).ext`… if that's taken.
     func availableURL(in folder: URL, for filename: String) -> URL {
         let stem = (filename as NSString).deletingPathExtension

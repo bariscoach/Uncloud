@@ -10,7 +10,7 @@ ICLOUDPD_COMMIT=9857dd88c4c7de49deb712b7d6b12193e23864b9
 ICLOUDPD_SHA256=d340efa5bbd56d21aec9cd21f26233f3658836c1c7cdfc9393751e152ce9e300
 PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.13.15%2B20260901-aarch64-apple-darwin-install_only_stripped.tar.gz"
 PYTHON_SHA256=d3904bd6a072246e07aa0bdadee9a14e80521e42a943c0848059feb16a2816dc
-RECIPE_REVISION=3  # bump when anything above or below changes, to force a rebuild
+RECIPE_REVISION=4  # bump when anything above or below changes, to force a rebuild
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR_DIR="$REPO_ROOT/Vendor"
@@ -76,7 +76,12 @@ class _Value:
 multiprocessing.Lock = threading.Lock
 multiprocessing.RawValue = _Value
 
+from icloudpd import base
 from icloudpd.cli import cli
+
+# icloudpd shortens the paths in its "Downloaded" and "already exists" log lines to 96 characters. The app
+# reads those lines to record files, so keep the full path, as photo_bridge.py does.
+base.truncate_middle = lambda text, _length: text
 
 if __name__ == "__main__":
     sys.argv[0] = "icloudpd"

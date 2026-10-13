@@ -36,6 +36,11 @@ struct MenuBarContent: View {
         if model.isExporting {
             return "Exporting… \(Int(model.fractionComplete * 100))%"
         }
+        if let pending = model.autoResume {
+            return pending.isWaitingForDestination
+                ? "Waiting for the backup drive to resume"
+                : "Resuming at \(ExportModel.resumeTimeText(pending.resumeAt))"
+        }
         if let date = model.lastBackupDate {
             return "Last backup: \(date.formatted(.relative(presentation: .named)))"
         }

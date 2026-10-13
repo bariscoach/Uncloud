@@ -592,6 +592,223 @@ class DownloadTests(unittest.TestCase):
         self.assertIn("Could not find URL", failed[0]["reason"])
 
 
+class SessionsProtocolTests(unittest.TestCase):
+    """startRank, ranks, the flat layout, full paths and the run-ending throttle (sessions plan, C1)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def download(self, bridge, request_id=9, **request):
+        request = {"id": request_id, "cmd": "download", "dest": self.root, "layout": "month", "xmp": False, **request}
+        bridge.handle(request, downloading=False)
+        return [m for m in bridge.channel.messages if m.get("id") == request_id]
+
+    @staticmethod
+    def many(count):
+        return [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(count)]
+
+    def test_page_items_carry_their_rank(self):
+        bridge, channel, _ = make_bridge()
+        bridge.handle({"id": 1, "cmd": "page", "offset": 2, "limit": 3}, downloading=False)
+        self.assertEqual([(i["id"], i["rank"]) for i in channel.messages[-1]["items"]],
+                         [("ID03", 2), ("ID04", 3), ("ID05", 4)])
+
+    def test_start_rank_pages_from_that_rank_only(self):
+        samples = self.many(250)
+        bridge, channel, session = make_bridge(samples)
+        offsets = []
+        original = FakeAlbum.photos_request
+
+        def photos_request(album):
+            offsets.append(album.offset)
+            return original(album)
+
+        FakeAlbum.photos_request = photos_request
+        try:
+            events = self.download(bridge, mode="allExcept", ids=["N0141"], startRank=140)
+        finally:
+            FakeAlbum.photos_request = original
+        # Queries for ranks 140-239 and 240-249 (and icloudpd's empty one that ends its walk), none before 140.
+        self.assertEqual(offsets, [140, 240, 250])
+        done = [e for e in events if e["event"] in ("downloaded", "skipped", "failed")]
+        self.assertEqual(done[0]["asset"], "N0140")
+        self.assertEqual(len(done), 109)
+        self.assertTrue(all(e["rank"] == int(e["asset"][1:]) for e in done))
+        self.assertNotIn("N0141", [e["asset"] for e in done])
+        progress = [e for e in events if e["event"] == "progress"]
+        self.assertEqual(progress[0]["total"], 110)
+        self.assertEqual((progress[-1]["done"], progress[-1]["total"]), (109, 109))
+        self.assertEqual(events[-1]["event"], "done")
+        self.assertEqual(events[-1]["downloaded"], 109)
+        self.assertEqual(len(tree(self.root)), 109)
+
+    def test_start_rank_in_only_mode_skips_lower_ranks_and_their_hints(self):
+        samples = self.many(30)
+        bridge, channel, session = make_bridge(samples)
+        events = self.download(bridge, mode="only", ids=["N0003", "N0020"], hints={"N0003": 3, "N0020": 20},
+                               startRank=10)
+        done = [e for e in events if e["event"] == "downloaded"]
+        self.assertEqual([(e["asset"], e["rank"]) for e in done], [("N0020", 20)])
+        self.assertEqual(events[-2]["total"], 1)  # N0003 lies below startRank, so it no longer counts
+
+    def test_bad_start_rank_is_refused(self):
+        bridge, channel, _ = make_bridge()
+        for value in (-1, "5", True):
+            events = self.download(bridge, mode="allExcept", ids=[], startRank=value)
+            self.assertEqual(events[-1]["event"], "error")
+            self.assertEqual(events[-1]["kind"], "badRequest")
+
+    def test_flat_layout_paths_match_icloudpd(self):
+        self.assertEqual(
+            pb.icloudpd_arguments("u", "/c", "/d", "none", False)[-4:], ["-d", "/d", "--folder-structure", "none"]
+        )
+        expected_dir = os.path.join(self.root, "icloudpd")
+        bridge_dir = os.path.join(self.root, "bridge")
+        run_icloudpd(SAMPLES, expected_dir, layout="none")
+        expected = tree(expected_dir)
+        for path in ["IMG_0001.HEIC", "IMG_0001.MOV", "IMG_0002.JPG", "MVI_0003.MOV", "Bad_Name_.PNG",
+                     "IMG_0006.HEIC", "IMG_0006.MOV"]:
+            self.assertIn(path, expected)
+        self.assertTrue(any(p.startswith("IMG_0002-") for p in expected), expected.keys())
+        self.assertFalse(any(os.sep in p for p in expected), expected.keys())
+
+        bridge, channel, _ = make_bridge()
+        events = self.download(bridge, mode="allExcept", ids=[], dest=bridge_dir, layout="none")
+        self.assertEqual(tree(bridge_dir), expected)
+        self.assertEqual(events[-1]["downloaded"], 6)
+        for event in events:
+            for path in event.get("paths", []):
+                self.assertEqual(os.path.dirname(path), bridge_dir)
+
+        # A plain icloudpd --folder-structure none run finds everything already there, and so does the bridge.
+        session, log = run_icloudpd(SAMPLES, bridge_dir, layout="none")
+        self.assertEqual(session.downloads, [], log)
+        bridge, channel, session = make_bridge()
+        events = self.download(bridge, request_id=10, mode="allExcept", ids=[], dest=bridge_dir, layout="none")
+        self.assertEqual(events[-1]["skipped"], 6)
+        self.assertEqual(session.downloads, [])
+
+    def test_events_carry_asset_rank_and_full_paths(self):
+        # A long folder name, so icloudpd's 96-character log truncation would show.
+        dest = os.path.join(self.root, "A folder with a long name " * 4)
+        bridge, channel, _ = make_bridge()
+        events = self.download(bridge, mode="allExcept", ids=[], dest=dest, xmp=True)
+        downloaded = {e["asset"]: e for e in events if e["event"] == "downloaded"}
+        self.assertEqual(sorted(downloaded), ["ID01", "ID02", "ID03", "ID04", "ID05", "ID06"])
+        self.assertEqual([downloaded[f"ID0{i}"]["rank"] for i in range(1, 7)], list(range(6)))
+        live = downloaded["ID01"]
+        main = os.path.join(dest, "2023", "12", "IMG_0001.HEIC")
+        self.assertEqual(live["path"], main)
+        self.assertEqual(live["paths"], [main, os.path.join(dest, "2023", "12", "IMG_0001.MOV")])
+        self.assertEqual(live["files"], live["paths"] + [main + ".xmp"])
+        for event in downloaded.values():
+            for path in event["files"]:
+                self.assertTrue(os.path.isabs(path) and os.path.isfile(path), path)
+                self.assertNotIn("...", path)
+
+        # Again: every item is skipped, with the same files and ranks, and the movie of a Live Photo
+        # whose image was already there is reported with both.
+        os.remove(os.path.join(dest, "2024", "07", "IMG_0006.MOV"))
+        bridge, channel, _ = make_bridge()
+        events = self.download(bridge, request_id=11, mode="allExcept", ids=[], dest=dest, xmp=True)
+        skipped = {e["asset"]: e for e in events if e["event"] == "skipped"}
+        self.assertEqual(sorted(skipped), ["ID01", "ID02", "ID03", "ID04", "ID05"])
+        for asset, event in skipped.items():
+            self.assertEqual(event["files"], downloaded[asset]["files"])
+            self.assertEqual(event["paths"], downloaded[asset]["paths"])
+            self.assertEqual(event["rank"], downloaded[asset]["rank"])
+        partial = next(e for e in events if e.get("asset") == "ID06")
+        self.assertEqual(partial["event"], "downloaded")
+        self.assertEqual(partial["paths"], [os.path.join(dest, "2024", "07", "IMG_0006.MOV")])
+        self.assertEqual(partial["files"], downloaded["ID06"]["files"])
+
+    def throttle_on(self, session, asset_id, error=None):
+        """Answers the download of `asset_id`'s original the way iCloud's throttle does: HTTP 503,
+        which icloudpd's session turns into PyiCloudServiceUnavailableException."""
+        from pyicloud_ipd.utils import throw_on_503
+
+        original_get = session.get
+
+        def get(url, headers=None, stream=False):
+            if f"/{asset_id}/" in url:
+                if error is not None:
+                    raise error
+                response = FakeResponse(b"")
+                response.ok = False
+                response.status_code = 503
+                return throw_on_503(response)
+            return original_get(url, headers=headers, stream=stream)
+
+        session.get = get
+
+    def test_throttle_ends_the_download_with_a_run_ending_error(self):
+        bridge, channel, session = make_bridge()
+        self.throttle_on(session, "ID03")
+        events = self.download(bridge, mode="allExcept", ids=[])
+        kinds = [e["event"] for e in events]
+        self.assertEqual([e["asset"] for e in events if e["event"] == "downloaded"], ["ID01", "ID02"])
+        self.assertNotIn("failed", kinds)  # not one failure per remaining item
+        self.assertNotIn("done", kinds)
+        final = events[-1]
+        self.assertEqual(final["event"], "error")
+        self.assertEqual(final["kind"], "PyiCloudServiceUnavailableException")
+        self.assertIn("Apple iCloud is temporary refusing to serve icloudpd", final["message"])
+        self.assertEqual((final["asset"], final["rank"]), ("ID03", 2))
+        self.assertEqual((final["downloaded"], final["skipped"], final["failed"]), (2, 0, 0))
+        # Items after the throttled one weren't asked for.
+        self.assertFalse(any("/ID04/" in url or "/ID05/" in url for url in session.downloads))
+        self.assertFalse(channel.is_cancelled(9))
+
+        # The bridge goes on serving: the next download starts normally.
+        session.get = FakeSession(SAMPLES).get
+        events = self.download(bridge, request_id=12, mode="allExcept", ids=[])
+        self.assertEqual(events[-1]["event"], "done")
+
+    def test_throttle_while_paging_ends_the_download_too(self):
+        from pyicloud_ipd.exceptions import PyiCloudServiceUnavailableException
+
+        samples = self.many(150)
+        bridge, channel, session = make_bridge(samples)
+        original = FakeAlbum.photos_request
+
+        def photos_request(album):
+            if album.offset >= 100:
+                raise PyiCloudServiceUnavailableException("Apple iCloud is temporary refusing to serve icloudpd")
+            return original(album)
+
+        FakeAlbum.photos_request = photos_request
+        try:
+            events = self.download(bridge, mode="allExcept", ids=[])
+        finally:
+            FakeAlbum.photos_request = original
+        self.assertEqual(events[-1]["event"], "error")
+        self.assertEqual(events[-1]["kind"], "PyiCloudServiceUnavailableException")
+        self.assertEqual(events[-1]["downloaded"], 100)
+        self.assertNotIn("failed", [e["event"] for e in events])
+
+    def test_lost_connection_ends_the_download(self):
+        from pyicloud_ipd.exceptions import PyiCloudConnectionErrorException
+
+        bridge, channel, session = make_bridge()
+        self.throttle_on(session, "ID02", PyiCloudConnectionErrorException("Cannot connect to Apple iCloud service"))
+        events = self.download(bridge, mode="only", ids=["ID02", "ID03"])
+        self.assertEqual(events[-1]["event"], "error")
+        self.assertEqual(events[-1]["kind"], "PyiCloudConnectionErrorException")
+        self.assertNotIn("failed", [e["event"] for e in events])
+
+    def test_other_errors_still_fail_only_their_item(self):
+        bridge, channel, session = make_bridge()
+        self.throttle_on(session, "ID02", ValueError("odd record"))
+        events = self.download(bridge, mode="only", ids=["ID02", "ID03"])
+        self.assertEqual([e["asset"] for e in events if e["event"] == "failed"], ["ID02"])
+        self.assertEqual(events[-1]["event"], "done")
+        self.assertEqual(events[-1]["downloaded"], 1)
+
+
 class StatsTests(unittest.TestCase):
     @staticmethod
     def expected_bytes(samples):

@@ -50,6 +50,7 @@ struct UncloudApp: App {
                 .environment(model)
                 .environment(backupTools)
         }
+        .defaultSize(width: 1000, height: 700)
         .windowResizability(.contentMinSize)
         .commands {
             ExportCommands(model: model, tools: backupTools)
@@ -98,6 +99,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard engine != nil || ICloudProcesses.areRunning else { return .terminateNow }
         Task { @MainActor in
             await Self.shutDown(engine: engine)
+            // The export history's last write (the run ended as interrupted) goes to the drive before quitting.
+            _ = await Task { await Self.model?.flushSessionWrites() }.value(timeout: Self.exportStopTimeout)
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

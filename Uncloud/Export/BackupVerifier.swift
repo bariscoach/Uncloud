@@ -38,7 +38,9 @@ enum BackupVerifier {
         libraryIDs: Set<String>?,
         progress: @Sendable (Int, Int) -> Void
     ) throws -> VerificationReport {
+        // Items only partly downloaded (`icloud-partial:`) aren't backed up, so they aren't verified as items.
         let records = ExportManifest.records(in: destination)
+            .filter { !$0.key.hasPrefix(ExportManifest.iCloudPartialPrefix) }
         let checksums = ExportManifest.checksums(in: destination)
         let selected = (itemIDs ?? Set(records.keys)).filter { records[$0] != nil }.sorted()
 

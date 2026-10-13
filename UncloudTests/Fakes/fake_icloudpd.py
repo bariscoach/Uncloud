@@ -12,6 +12,15 @@ Fake options:
   --launch-log PATH     append "<pid> <args>" to PATH at start
   --term-delay S        on SIGTERM, keep running S seconds before exiting (status 143), like a slow
                         shutdown; with --launch-log, append "<pid> exited" right before exiting
+  --throttle-after N    after downloading N new items, log Apple's 503 throttle line, "Apple iCloud is
+                        temporary refusing to serve icloudpd", and exit with status 1, as icloudpd does
+  --throttle-level L    the level of that line: INFO (icloudpd's own) or ERROR (default INFO)
+  --throttle-message M  log M instead, such as an error the app doesn't retry
+  --throttle-runs K     throttle only the first K runs (default: every run); needs --throttle-state
+  --throttle-state PATH counts the throttled runs across launches
+  --live-every K        item numbers divisible by K (K > 0) are Live Photos: IMG_NNNNNN.JPG plus IMG_NNNNNN.MOV,
+                        each reported on its own line, as icloudpd does
+With icloudpd's --xmp-sidecar, each photo also gets a NAME.xmp sidecar next to it (not reported).
 
 Behaves like icloudpd where the app depends on it: log lines on stdout as
 "YYYY-MM-DD HH:MM:SS LEVEL    message", "Downloading N ... to DEST ..." once, then per item
@@ -34,7 +43,9 @@ def log(level: str, message: str) -> None:
 
 def parse(argv):
     fake = {"total": 100, "rate": 50.0, "prepare_delay": 0.0, "child": False, "child_ignores_term": False,
-            "launch_log": None, "term_delay": None}
+            "launch_log": None, "term_delay": None, "throttle_after": None, "throttle_level": "INFO",
+            "throttle_message": "Apple iCloud is temporary refusing to serve icloudpd",
+            "throttle_runs": None, "throttle_state": None, "live_every": 0}
     if "--" in argv:
         split = argv.index("--")
         own, rest = argv[:split], argv[split + 1:]
@@ -53,13 +64,26 @@ def parse(argv):
             fake["launch_log"] = own[index + 1]; index += 2
         elif flag == "--term-delay":
             fake["term_delay"] = float(own[index + 1]); index += 2
+        elif flag == "--throttle-after":
+            fake["throttle_after"] = int(own[index + 1]); index += 2
+        elif flag == "--throttle-level":
+            fake["throttle_level"] = own[index + 1]; index += 2
+        elif flag == "--throttle-message":
+            fake["throttle_message"] = own[index + 1]; index += 2
+        elif flag == "--throttle-runs":
+            fake["throttle_runs"] = int(own[index + 1]); index += 2
+        elif flag == "--throttle-state":
+            fake["throttle_state"] = own[index + 1]; index += 2
+        elif flag == "--live-every":
+            fake["live_every"] = int(own[index + 1]); index += 2
         elif flag == "--child":
             fake["child"] = True; index += 1
         elif flag == "--child-ignores-term":
             fake["child"] = True; fake["child_ignores_term"] = True; index += 1
         else:
             index += 1
-    real = {"dest": None, "auth_only": "--auth-only" in rest, "list_albums": "--list-albums" in rest}
+    real = {"dest": None, "auth_only": "--auth-only" in rest, "list_albums": "--list-albums" in rest,
+            "xmp": "--xmp-sidecar" in rest}
     if "-d" in rest:
         real["dest"] = rest[rest.index("-d") + 1]
     return fake, real
@@ -93,6 +117,24 @@ def slow_exit(delay: float, launch_log):
     return handler
 
 
+def throttles_this_run(fake) -> bool:
+    """Whether this run stops after --throttle-after items; counts throttled runs in --throttle-state."""
+    if fake["throttle_after"] is None:
+        return False
+    if fake["throttle_runs"] is None or not fake["throttle_state"]:
+        return True
+    try:
+        with open(fake["throttle_state"]) as handle:
+            done = int(handle.read().strip() or "0")
+    except FileNotFoundError:
+        done = 0
+    if done >= fake["throttle_runs"]:
+        return False
+    with open(fake["throttle_state"], "w") as handle:
+        handle.write(str(done + 1))
+    return True
+
+
 def main(argv) -> int:
     fake, real = parse(argv)
     if fake["launch_log"]:
@@ -120,17 +162,33 @@ def main(argv) -> int:
     total = fake["total"]
     log("INFO", f"Downloading {total} original photos and videos to {dest} ...")
     rate = fake["rate"]
+    throttles = throttles_this_run(fake)
+    downloaded = 0
     started = time.monotonic()
     for index in range(total):
         path = item_path(dest, index)
-        if os.path.exists(path):
-            log("DEBUG", f"{path} already exists")
-        else:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path + ".part", "wb") as handle:
+        live = fake["live_every"] > 0 and index % fake["live_every"] == 0
+        for file_path in [path] + ([os.path.splitext(path)[0] + ".MOV"] if live else []):
+            if os.path.exists(file_path):
+                log("DEBUG", f"{file_path} already exists")
+                continue
+            if throttles and downloaded >= fake["throttle_after"]:
+                # Like icloudpd when Apple answers 503: it logs the exception and returns 1.
+                log(fake["throttle_level"], fake["throttle_message"])
+                sys.stdout.flush()
+                if child is not None:
+                    child.terminate()
+                return 1
+            if file_path == path:
+                downloaded += 1
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path + ".part", "wb") as handle:
                 handle.write(f"photo {index}\n".encode())
-            os.replace(path + ".part", path)
-            log("INFO", f"Downloaded {path}")
+            os.replace(file_path + ".part", file_path)
+            log("INFO", f"Downloaded {file_path}")
+            if real["xmp"] and file_path == path:
+                with open(path + ".xmp", "w", encoding="utf-8") as handle:
+                    handle.write("<x:xmpmeta/>\n")
         if rate > 0:
             wait = started + (index + 1) / rate - time.monotonic()
             if wait > 0:

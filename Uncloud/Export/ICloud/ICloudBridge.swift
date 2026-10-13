@@ -13,8 +13,10 @@ struct ICloudBridgeRequest: Encodable, Sendable {
     var layout: String?
     var album: String?
     var xmp: Bool?
-    /// Download only: where each ID was last seen, as its rank in icloudpd's (oldest first) order.
+    /// Download only: where each ID was last seen, as its rank in icloudpd's order (rank 0 is the newest).
     var hints: [String: Int]?
+    /// Download only: the first rank visited; items ranked below it are skipped without being paged.
+    var startRank: Int?
     /// Cancel, pause and resume: the request they apply to.
     var target: Int?
 }
@@ -23,6 +25,8 @@ struct ICloudBridgeRequest: Encodable, Sendable {
 struct ICloudBridgeMessage: Decodable, Sendable {
     struct Item: Decodable, Sendable, Hashable {
         let id: String
+        /// Position in icloudpd's walk (rank 0 is the newest item). Nil from a bridge too old to say.
+        var rank: Int?
         let filename: String
         let created: String?
         let type: String
@@ -42,13 +46,24 @@ struct ICloudBridgeMessage: Decodable, Sendable {
     var done: Int?
     var total: Int?
     var asset: String?
+    /// Download events: the item's rank in icloudpd's walk (rank 0 is the newest).
+    var rank: Int?
     var filename: String?
+    /// Download events: the item's first file, as an absolute, untruncated path.
     var path: String?
+    /// `downloaded`: the files this request wrote; `skipped`: the files found already there.
     var paths: [String]?
+    /// `downloaded` and `skipped`: every file the item has on disk now (written or found), plus its
+    /// XMP sidecar when there is one. What an `icloud-id:` manifest record lists.
+    var files: [String]?
     var reason: String?
     var kind: String?
     var message: String?
     var cancelled: Bool?
+    /// `done` (and a run-ending `error`): the request's item counts.
+    var downloaded: Int?
+    var skipped: Int?
+    var failed: Int?
     /// Stats: the bytes of this request's items so far, each page's item sizes (and the page's items
     /// without a size), and whether the walk reached the end.
     var bytes: Int64?
@@ -61,6 +76,115 @@ struct ICloudBridgeMessage: Decodable, Sendable {
 struct ICloudBridgeDownload: Sendable {
     let id: Int
     let messages: AsyncThrowingStream<ICloudBridgeMessage, Error>
+
+    /// The same events, typed. Ends after `.done`. A run-ending failure is thrown, not yielded: Apple's
+    /// throttle (HTTP 503) as `ICloudError.failed(.serviceUnavailable)` and a lost connection as
+    /// `ICloudError.failed(.network)`, both retryable by `AutoResumePolicy`; the item the bridge was on
+    /// when it happened gets no event and isn't finished.
+    var events: AsyncCompactMapSequence<AsyncThrowingStream<ICloudBridgeMessage, Error>, ICloudBridgeDownloadEvent> {
+        messages.compactMap { ICloudBridgeDownloadEvent($0) }
+    }
+}
+
+/// What to download through the bridge, for `ICloudBridge.download(_:)`.
+///
+/// Ranks are positions in icloudpd's walk: rank 0 is the newest item, and a photo added to iCloud is
+/// inserted at rank 0, shifting every other rank up by one.
+struct ICloudBridgeDownloadOptions: Sendable, Equatable {
+    enum Mode: String, Sendable {
+        /// Only the items in `ids`.
+        case only
+        /// Everything except the items in `ids`. Excluded items cost no file check.
+        case allExcept
+    }
+
+    enum Layout: String, Sendable {
+        /// `DEST/YYYY/MM/NAME`, icloudpd's `--folder-structure {:%Y/%m}`.
+        case month
+        /// `DEST/NAME` for the items of `album`.
+        case album
+        /// `DEST/NAME` for the whole library, icloudpd's `--folder-structure none` ("All in One Folder").
+        case none
+    }
+
+    var mode: Mode
+    var ids: [String] = []
+    var destination: URL
+    var layout: Layout = .month
+    /// Required with `.album`.
+    var album: String?
+    var writesSidecars = false
+    /// `.only`: where each ID was last seen, so the bridge fetches those pages instead of walking.
+    var rankHints: [String: Int]?
+    /// The first rank visited: the walk pages from here, and items ranked below it (and their hints)
+    /// are never visited. 0 walks everything.
+    var startRank = 0
+
+    var request: ICloudBridgeRequest {
+        ICloudBridgeRequest(
+            cmd: "download",
+            mode: mode.rawValue,
+            ids: ids,
+            dest: destination.path(percentEncoded: false),
+            layout: layout.rawValue,
+            album: album,
+            xmp: writesSidecars,
+            hints: rankHints,
+            startRank: startRank > 0 ? startRank : nil
+        )
+    }
+}
+
+/// One finished item of a bridge download.
+struct ICloudBridgeItemResult: Sendable, Equatable {
+    /// The iCloud asset ID.
+    let asset: String
+    /// Its rank in icloudpd's walk at the time of this download; nil from an older bridge.
+    let rank: Int?
+    let filename: String
+    /// The files this download wrote (`.downloaded`) or found already there (`.skipped`), as absolute paths.
+    let paths: [String]
+    /// Every file the item has on disk now, written or found, plus its XMP sidecar: the paths an
+    /// `icloud-id:<asset>` manifest record lists.
+    let files: [String]
+}
+
+/// A typed event of a bridge download; see `ICloudBridgeDownload.events`.
+enum ICloudBridgeDownloadEvent: Sendable, Equatable {
+    /// Items finished so far, of the items this request visits (its total can shrink or grow).
+    case progress(done: Int, total: Int)
+    case downloaded(ICloudBridgeItemResult)
+    case skipped(ICloudBridgeItemResult)
+    case failed(asset: String, rank: Int?, filename: String, reason: String)
+    case done(downloaded: Int, skipped: Int, failed: Int, cancelled: Bool)
+
+    /// Nil for messages that aren't download events.
+    init?(_ message: ICloudBridgeMessage) {
+        switch message.event {
+        case "progress":
+            self = .progress(done: message.done ?? 0, total: message.total ?? 0)
+        case "downloaded", "skipped":
+            guard let asset = message.asset else { return nil }
+            let paths = message.paths ?? message.path.map { [$0] } ?? []
+            let result = ICloudBridgeItemResult(
+                asset: asset,
+                rank: message.rank,
+                filename: message.filename ?? (paths.first as NSString?)?.lastPathComponent ?? asset,
+                paths: paths,
+                files: message.files ?? paths
+            )
+            self = message.event == "downloaded" ? .downloaded(result) : .skipped(result)
+        case "failed":
+            guard let asset = message.asset else { return nil }
+            self = .failed(asset: asset, rank: message.rank, filename: message.filename ?? asset,
+                           reason: message.reason ?? "iCloud reported a problem.")
+        case "done":
+            self = .done(downloaded: message.downloaded ?? 0, skipped: message.skipped ?? 0,
+                         failed: message.failed ?? 0, cancelled: message.cancelled ?? false)
+        default:
+            return nil
+        }
+    }
 }
 
 /// A persistent `photo_bridge.py` process for one Apple ID: request/response by ID, plus event
@@ -256,11 +380,17 @@ final class ICloudBridge: Sendable {
     }
 
     /// Starts a download and streams its events through the final `done`. Ending the stream early
-    /// asks the bridge to stop the download, which it does after the chunk in progress.
+    /// asks the bridge to stop the download, which it does after the chunk in progress. A throttle or
+    /// lost connection ends the stream with a retryable error instead (see `ICloudBridgeDownload.events`).
     func download(_ request: ICloudBridgeRequest) async throws -> ICloudBridgeDownload {
         precondition(request.cmd == "download")
         let (id, messages) = try await start(request)
         return ICloudBridgeDownload(id: id, messages: messages)
+    }
+
+    /// Starts a download described by `options`; see `download(_:)` with a request.
+    func download(_ options: ICloudBridgeDownloadOptions) async throws -> ICloudBridgeDownload {
+        try await download(options.request)
     }
 
     /// Sends a request once the bridge is ready. The stream ends after the request's final
@@ -787,6 +917,12 @@ final class ICloudBridge: Sendable {
             return ICloudError.signInRequired
         case "badRequest", "albumNotFound", "libraryNotFound":
             return ICloudError.failed(.other(message))
+        // What ends a bridge download early, as it ends an icloudpd run: Apple's throttle and a lost
+        // connection. Mapped by kind, whatever the message, so automatic resume always sees them.
+        case "PyiCloudServiceUnavailableException":
+            return ICloudError.failed(.serviceUnavailable)
+        case "PyiCloudConnectionErrorException":
+            return ICloudError.failed(.network)
         default:
             let failure = ICloudOutputParser.failure(forException: "\(kind): \(message)")
             switch failure {

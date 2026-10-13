@@ -94,7 +94,8 @@ struct BackupPane: View {
                     LimitedAccessNotice()
                 }
                 ProgressCard()
-                if !model.isExporting {
+                // While an export waits to resume, the card's Resume Now and Don't Resume take its place.
+                if !model.isExporting, model.autoResume == nil {
                     Button(model.primaryExportTitle(total: total)) {
                         model.performPrimaryAction()
                     }

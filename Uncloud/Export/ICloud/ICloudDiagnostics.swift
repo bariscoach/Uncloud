@@ -63,6 +63,9 @@ struct ICloudDiagnostics: Sendable {
     }
 
     /// Removes the Apple ID (the value after `-u` in the arguments), email addresses and long tokens.
+    /// A token is 40 or more characters of base64 or URL-safe characters. `/` is not one of them, so file
+    /// paths such as `/Volumes/X/Photos Archive/2026/IMG_7210.MOV` stay readable. A base64 token that
+    /// contains `/` is redacted in each piece of 40 or more characters.
     static func redact(_ text: String, arguments: [String]) -> String {
         var result = text
         if let index = arguments.firstIndex(of: "-u"), arguments.indices.contains(index + 1),
@@ -74,7 +77,7 @@ struct ICloudDiagnostics: Sendable {
             with: "<email>",
             options: .regularExpression
         )
-        return result.replacingOccurrences(of: #"[A-Za-z0-9+/=_\-]{40,}"#, with: "<redacted>", options: .regularExpression)
+        return result.replacingOccurrences(of: #"[A-Za-z0-9+=_\-]{40,}"#, with: "<redacted>", options: .regularExpression)
     }
 }
 

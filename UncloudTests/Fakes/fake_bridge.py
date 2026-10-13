@@ -3,10 +3,13 @@
 Usage: python3 fake_bridge.py [fake options] -- -u APPLE_ID --cookie-directory DIR
 
 Fake options:
-  --total N           items in the library (default 1000), IDs "asset-0" (oldest) ...
+  --total N           items in the library (default 1000), IDs "asset-0" ... "asset-(N-1)"; asset-i is the
+                      item at rank i. Used only when there is no --state file yet.
   --rate R            downloads per second; 0 means as fast as possible (default 50)
   --auth-delay S      seconds before "ready" (default 0)
-  --launch-log PATH   append "<pid> bridge" to PATH at start
+  --launch-log PATH   append "<pid> bridge" to PATH at start, then "<pid> page offset=N" for each page request,
+                      "<pid> download-start <id> startRank=R mode=M layout=L" for each download, and
+                      "<pid> download-ended <id>" when a download ends in the bridge
   --stats-delay S     seconds per stats page of 100 items (default 0)
   --chunks N          chunks per downloaded file (default 1)
   --chunk-delay S     seconds per chunk (default 0), for slow downloads of large files
@@ -14,14 +17,39 @@ Fake options:
   --remove-dest-at N  in a download, the Nth item (counted from 0) finds the destination gone: the fake
                       deletes the destination folder and reports that item failed, as a vanished drive would;
                       then it waits for the cancel the app sends and finishes the chunk in progress
+  --state PATH        the library's order, kept in this JSON file across launches. Created on first use from
+                      --total. The --insert-at and --delete-at changes below are written back to it, so the
+                      next launch sees them. Without --state, changes last for this launch only.
+  --insert-at N       before serving, insert --insert-count new items at rank N (0 prepends, len appends).
+                      New items get new IDs and file names that are never reused, even after a delete.
+  --insert-count K    how many items --insert-at adds (default 1)
+  --delete-at N       before serving, remove the item at rank N. Its file, if already downloaded, stays on disk.
+                      Changes apply in the order: delete, then insert. Ranks refer to the list as it stands
+                      at that step, and an out-of-range rank is a usage error (exit status 2).
+  --throttle-after N  a download ends with a service-unavailable error (the bridge's reply for Apple's 503)
+                      when it reaches item N+1 that needs downloading. The N new items before it are
+                      downloaded. Counted across all downloads in this launch; skipped items don't count.
+  --live-every K      item numbers divisible by K (K > 0) are Live Photos: IMG_NNNNNN.JPG plus IMG_NNNNNN.MOV
+  --movie-fails-at N  item number N's Live Photo movie fails to download: its photo is written, and the item is
+                      reported "failed" with "paths" listing the photo, as the bridge reports a half-done item
 
 Speaks the bridge's JSON-lines protocol (page, count, albums, download, stats, cancel, pause, resume,
 ping) closely enough for the app: "ready" after signing in, downloads write DEST/YYYY/MM files through
-a ".part" file and report progress/downloaded/skipped and a final done with "cancelled"; item i is
-fake_bytes(i) bytes in page and stats replies. Like the real bridge, a download checks for cancel,
-pause and pings after every chunk (a cancel removes the partial file) and answers page, count,
-albums and ping requests between chunks and items and while paused. Closing stdin ends it; SIGTERM,
-SIGSTOP and SIGCONT keep their default meaning.
+a ".part" file and report progress/downloaded/skipped/failed with the item's "rank", and a final done with
+"cancelled". Like the real bridge, a download checks for cancel, pause and pings after every chunk (a cancel
+removes the partial file) and answers page, count, albums and ping requests between chunks and items and while
+paused.
+
+Downloaded and skipped events carry "paths" (the files written, or found) and "files" (every file the item has
+on disk now, plus its XMP sidecar when the request asks for sidecars, written as NAME.xmp next to the photo).
+
+Ranks: rank 0 is the newest item, as in icloudpd's walk, so an item added since the last walk is inserted at
+rank 0 and shifts every older item's rank by one. A page reply lists items from the "offset" rank on, with
+"rank" set on each. A download request walks ranks from "startRank" (default 0) to the end, and
+"layout": "none" puts files directly in DEST instead of DEST/YYYY/MM. Item i (by ID number) is
+fake_bytes(i) bytes in page and stats replies, and its file is IMG_NNNNNN.JPG.
+
+Closing stdin ends it; SIGTERM, SIGSTOP and SIGCONT keep their default meaning.
 """
 
 import json
@@ -33,10 +61,15 @@ import sys
 import threading
 import time
 
+THROTTLE_KIND = "PyiCloudServiceUnavailableException"
+THROTTLE_MESSAGE = "Apple iCloud is temporary refusing to serve icloudpd"
+
 
 def parse(argv):
     fake = {"total": 1000, "rate": 50.0, "auth_delay": 0.0, "launch_log": None, "stats_delay": 0.0,
-            "chunks": 1, "chunk_delay": 0.0, "stuck": False, "remove_dest_at": None}
+            "chunks": 1, "chunk_delay": 0.0, "stuck": False, "remove_dest_at": None,
+            "state": None, "insert_at": None, "insert_count": 1, "delete_at": None, "throttle_after": None,
+            "live_every": 0, "movie_fails_at": None}
     own = argv[:argv.index("--")] if "--" in argv else []
     index = 0
     while index < len(own):
@@ -59,9 +92,52 @@ def parse(argv):
             fake["stuck"] = True; index += 1
         elif flag == "--remove-dest-at":
             fake["remove_dest_at"] = int(own[index + 1]); index += 2
+        elif flag == "--state":
+            fake["state"] = own[index + 1]; index += 2
+        elif flag == "--insert-at":
+            fake["insert_at"] = int(own[index + 1]); index += 2
+        elif flag == "--insert-count":
+            fake["insert_count"] = int(own[index + 1]); index += 2
+        elif flag == "--delete-at":
+            fake["delete_at"] = int(own[index + 1]); index += 2
+        elif flag == "--throttle-after":
+            fake["throttle_after"] = int(own[index + 1]); index += 2
+        elif flag == "--live-every":
+            fake["live_every"] = int(own[index + 1]); index += 2
+        elif flag == "--movie-fails-at":
+            fake["movie_fails_at"] = int(own[index + 1]); index += 2
         else:
             index += 1
     return fake
+
+
+def load_library(fake):
+    """The library's order as a list of (asset ID, item number), rank 0 first, after the --state changes."""
+    state = fake["state"]
+    if state and os.path.exists(state):
+        with open(state, encoding="utf-8") as handle:
+            data = json.load(handle)
+        order = [(asset_id, number) for asset_id, number in data["order"]]
+        next_number = int(data["next"])
+    else:
+        order = [(f"asset-{i}", i) for i in range(fake["total"])]
+        next_number = fake["total"]
+    if fake["delete_at"] is not None:
+        if not 0 <= fake["delete_at"] < len(order):
+            sys.stderr.write(f"fake bridge: --delete-at {fake['delete_at']} is outside 0..{len(order) - 1}\n")
+            sys.exit(2)
+        del order[fake["delete_at"]]
+    if fake["insert_at"] is not None:
+        if not 0 <= fake["insert_at"] <= len(order):
+            sys.stderr.write(f"fake bridge: --insert-at {fake['insert_at']} is outside 0..{len(order)}\n")
+            sys.exit(2)
+        added = [(f"asset-{next_number + k}", next_number + k) for k in range(fake["insert_count"])]
+        order[fake["insert_at"]:fake["insert_at"]] = added
+        next_number += len(added)
+    if state and (fake["insert_at"] is not None or fake["delete_at"] is not None or not os.path.exists(state)):
+        with open(state, "w", encoding="utf-8") as handle:
+            json.dump({"order": [list(item) for item in order], "next": next_number}, handle)
+    return order
 
 
 class Channel:
@@ -123,10 +199,16 @@ class Channel:
             return request_id in self.paused
 
 
-def item_path(dest, index):
+def filename(index):
+    return f"IMG_{index:06d}.JPG"
+
+
+def item_path(dest, index, flat=False):
+    if flat:
+        return os.path.join(dest, filename(index))
     year = 2001 + index // 1200
     month = 1 + (index // 100) % 12
-    return os.path.join(dest, f"{year:04d}", f"{month:02d}", f"IMG_{index:06d}.JPG")
+    return os.path.join(dest, f"{year:04d}", f"{month:02d}", filename(index))
 
 
 def fake_bytes(index):
@@ -134,11 +216,18 @@ def fake_bytes(index):
 
 
 class Bridge:
-    def __init__(self, channel, fake):
+    def __init__(self, channel, fake, order):
         self.channel = channel
         self.fake = fake
-        self.total = fake["total"]
+        self.order = order
+        self.total = len(order)
         self.deferred = []
+        self.downloaded = 0
+
+    def log(self, text):
+        if self.fake["launch_log"]:
+            with open(self.fake["launch_log"], "a") as handle:
+                handle.write(f"{os.getpid()} {text}\n")
 
     def serve(self):
         while True:
@@ -171,11 +260,15 @@ class Bridge:
         elif command == "albums":
             self.channel.send({"id": request_id, "event": "albums", "albums": ["Trip"]})
         elif command == "page":
-            offset = int(request.get("offset", 0))
+            offset = max(0, int(request.get("offset", 0)))
             limit = int(request.get("limit", 200))
-            items = [{"id": f"asset-{i}", "filename": f"IMG_{i:06d}.JPG", "created": None, "type": "image",
-                      "size": fake_bytes(i), "bytes": fake_bytes(i), "thumbURL": None}
-                     for i in range(offset, min(total, offset + limit))]
+            self.log(f"page offset={offset}")
+            items = []
+            for rank in range(offset, min(total, offset + limit)):
+                asset_id, number = self.order[rank]
+                items.append({"id": asset_id, "rank": rank, "filename": filename(number), "created": None,
+                              "type": "image", "size": fake_bytes(number), "bytes": fake_bytes(number),
+                              "thumbURL": None})
             self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
         elif command in ("download", "stats") and busy:
             self.deferred.append(request)
@@ -195,7 +288,8 @@ class Bridge:
         total_bytes = 0
         complete = True
         for start in range(offset, total, 100):
-            sizes = {f"asset-{i}": fake_bytes(i) for i in range(start, min(total, start + 100))}
+            sizes = {self.order[i][0]: fake_bytes(self.order[i][1])
+                     for i in range(start, min(total, start + 100))}
             if self.fake["stats_delay"] > 0:
                 time.sleep(self.fake["stats_delay"])
             done += len(sizes)
@@ -241,27 +335,42 @@ class Bridge:
         os.replace(part, path)
         return True
 
+    def end(self, request_id, reply):
+        """Clears the download's cancel and pause marks, logs its end, and sends its final reply."""
+        with self.channel.lock:
+            self.channel.cancelled.discard(request_id)
+            self.channel.paused.discard(request_id)
+        # Logged when the download has really ended in the bridge, before its final reply.
+        self.log(f"download-ended {request_id}")
+        self.channel.send(reply)
+
     def download(self, request):
         channel = self.channel
         request_id = request.get("id")
         ids = set(request.get("ids") or [])
-        everything = [f"asset-{i}" for i in range(self.total)]
-        chosen = [a for a in everything if (a in ids) == (request.get("mode") == "only")]
+        only = request.get("mode") == "only"
+        start_rank = max(0, int(request.get("startRank") or 0))
+        layout = request.get("layout") or "month"
+        flat = layout == "none"
+        self.log(f"download-start {request_id} startRank={start_rank} "
+                 f"mode={'only' if only else 'allExcept'} layout={layout}")
+        chosen = [(rank, asset_id, number)
+                  for rank, (asset_id, number) in enumerate(self.order)
+                  if rank >= start_rank and ((asset_id in ids) == only)]
         counts = {"downloaded": 0, "skipped": 0, "failed": 0}
         channel.send({"id": request_id, "event": "progress", "done": 0, "total": len(chosen)})
         rate = self.fake["rate"]
         started = time.monotonic()
         done = 0
-        for position, asset in enumerate(chosen):
+        for position, (rank, asset, number) in enumerate(chosen):
             if not self.fake["stuck"]:
                 self.channel.answer_pings()
                 if not self.hold(request_id):
                     break
             if channel.is_cancelled(request_id):
                 break
-            index = int(asset.split("-")[1])
-            path = item_path(request["dest"], index)
-            base = {"id": request_id, "asset": asset, "filename": os.path.basename(path)}
+            path = item_path(request["dest"], number, flat)
+            base = {"id": request_id, "asset": asset, "rank": rank, "filename": filename(number)}
             if position == self.fake["remove_dest_at"]:
                 shutil.rmtree(request["dest"], ignore_errors=True)
                 counts["failed"] += 1
@@ -275,14 +384,45 @@ class Bridge:
                     time.sleep(0.01)
                 time.sleep(self.fake["chunk_delay"])
                 break
-            if os.path.exists(path):
+            live = self.fake["live_every"] > 0 and number % self.fake["live_every"] == 0
+            needed = [path] + ([os.path.splitext(path)[0] + ".MOV"] if live else [])
+            missing = [item for item in needed if not os.path.exists(item)]
+            sidecar = path + ".xmp"
+            if not missing:
                 counts["skipped"] += 1
-                channel.send({**base, "event": "skipped", "path": path})
-            elif self.write_item(request_id, path, index):
-                counts["downloaded"] += 1
-                channel.send({**base, "event": "downloaded", "path": path, "paths": [path]})
+                files = needed + ([sidecar] if request.get("xmp") and os.path.exists(sidecar) else [])
+                channel.send({**base, "event": "skipped", "path": path, "paths": needed, "files": files})
             else:
-                break
+                if self.fake["throttle_after"] is not None and self.downloaded >= self.fake["throttle_after"]:
+                    self.end(request_id, {"id": request_id, "event": "error", "kind": THROTTLE_KIND,
+                                          "message": THROTTLE_MESSAGE})
+                    return
+                written = []
+                stopped = False
+                failed_movie = False
+                for item in missing:
+                    if item.endswith(".MOV") and number == self.fake["movie_fails_at"]:
+                        failed_movie = True
+                        break
+                    if not self.write_item(request_id, item, number):
+                        stopped = True
+                        break
+                    written.append(item)
+                if stopped:
+                    break
+                if failed_movie:
+                    counts["failed"] += 1
+                    channel.send({**base, "event": "failed", "reason": "ConnectionError: the movie didn't download",
+                                  "paths": written})
+                else:
+                    if request.get("xmp"):
+                        with open(sidecar, "w", encoding="utf-8") as handle:
+                            handle.write("<x:xmpmeta/>\n")
+                    self.downloaded += 1
+                    counts["downloaded"] += 1
+                    files = needed + ([sidecar] if request.get("xmp") else [])
+                    channel.send({**base, "event": "downloaded", "path": written[0] if written else path,
+                                  "paths": written, "files": files})
             done += 1
             channel.send({"id": request_id, "event": "progress", "done": done, "total": len(chosen)})
             if not self.fake["stuck"]:
@@ -292,14 +432,7 @@ class Bridge:
                 if wait > 0:
                     time.sleep(wait)
         cancelled = channel.is_cancelled(request_id)
-        with channel.lock:
-            channel.cancelled.discard(request_id)
-            channel.paused.discard(request_id)
-        if self.fake["launch_log"]:
-            # Logged when the download has really ended in the bridge, before its final reply.
-            with open(self.fake["launch_log"], "a") as handle:
-                handle.write(f"{os.getpid()} download-ended {request_id}\n")
-        channel.send({"id": request_id, "event": "done", "cancelled": cancelled, **counts})
+        self.end(request_id, {"id": request_id, "event": "done", "cancelled": cancelled, **counts})
 
 
 def main(argv):
@@ -307,6 +440,7 @@ def main(argv):
     if fake["launch_log"]:
         with open(fake["launch_log"], "a") as handle:
             handle.write(f"{os.getpid()} bridge\n")
+    order = load_library(fake)
     protocol = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
     os.dup2(2, 1)
     channel = Channel(protocol)
@@ -315,8 +449,8 @@ def main(argv):
     sys.stderr.write("fake bridge: Authenticating...\n")
     time.sleep(fake["auth_delay"])
     sys.stderr.write("fake bridge: Authentication completed successfully\n")
-    channel.send({"event": "ready", "count": fake["total"]})
-    return Bridge(channel, fake).serve()
+    channel.send({"event": "ready", "count": len(order)})
+    return Bridge(channel, fake, order).serve()
 
 
 if __name__ == "__main__":

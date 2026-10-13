@@ -37,6 +37,10 @@ struct ExportBatch: Sendable {
     var skipped = 0
     var exported = 0
     var failed = 0
+    /// Bytes the exported items wrote, as far as the engine reported them.
+    var bytes: Int64 = 0
+    /// The first failures of the batch, by item name, for the export session. `failed` counts them all.
+    var failures: [ExportSession.Failure] = []
     /// Whether a skip arrived, after which only `finishedSinceSkip` items count toward the time estimate.
     var sawSkip = false
     var finishedSinceSkip = 0
@@ -68,14 +72,18 @@ struct ExportBatch: Sendable {
             // Skips take almost no time, so they restart the rate the estimate uses.
             sawSkip = true
             finishedSinceSkip = 0
-        case let .exported(name, fileCount):
+        case let .exported(name, fileCount, bytes):
             processed += 1
             exported += 1
+            self.bytes += bytes ?? 0
             finishedSinceSkip += 1
             log(.success, fileCount > 1 ? "Exported \(name) (\(fileCount) files)" : "Exported \(name)")
         case let .failed(name, reason):
             processed += 1
             failed += 1
+            if failures.count < SessionRecorder.failureLimit {
+                failures.append(ExportSession.Failure(name: name, reason: reason))
+            }
             finishedSinceSkip += 1
             log(.warning, "Couldn’t export \(name): \(reason)")
         case let .note(message):

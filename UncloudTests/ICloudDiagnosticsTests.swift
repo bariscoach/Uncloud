@@ -76,6 +76,48 @@ struct ICloudDiagnosticsTests {
         #expect(redacted.contains("exit status: 1"))
     }
 
+    @Test func keepsFilePathsReadableInATranscript() {
+        let path = "/Volumes/X/Photos Archive - Name/2026/02/IMG_7210-77840192.MOV"
+        let transcript = """
+        2026-02-11 10:02:14 INFO     Downloaded \(path)
+        2026-02-11 10:02:15 ERROR    Failed writing \(path): [Errno 28] No space left on device
+        """
+        let redacted = ICloudDiagnostics.redact(transcript, arguments: arguments)
+        #expect(redacted.contains(path))
+        #expect(!redacted.contains("<redacted>"))
+    }
+
+    @Test func redactsTrustTokensButNotTheLinesAroundThem() {
+        let trust = "AQAAAB0ZXN0LXRydXN0LXRva2VuLXZhbHVlLWZvci1yZWRhY3Rpb24tdGVzdGluZw=="
+        let transcript = """
+        2026-02-11 10:02:14 DEBUG    Set-Cookie: X-APPLE-WEBAUTH-HSA-TRUST=\(trust); Path=/; Secure
+        2026-02-11 10:02:14 DEBUG    trust token \(trust) saved to /Users/someone/Library/Caches/session
+        """
+        let redacted = ICloudDiagnostics.redact(transcript, arguments: arguments)
+        #expect(!redacted.contains(trust))
+        // The cookie name has no slash, so it joins the token in one redacted run.
+        #expect(redacted.contains("<redacted>; Path=/; Secure"))
+        #expect(redacted.contains("/Users/someone/Library/Caches/session"))
+    }
+
+    @Test func redactsBase64TokensThatContainASlash() {
+        // Each side of the slash is 40 or more characters, so both pieces are redacted.
+        let token = "dGhpcy1pcy1hLWZha2UtdHJ1c3QtdG9rZW4tZm9yLXRlc3Rz/YW5kLWl0LWhhcy1hLXNsYXNoLWluLWl0LWFuZC1tb3JlLXBhZGRpbmc"
+        let redacted = ICloudDiagnostics.redact("token \(token) saved", arguments: arguments)
+        #expect(!redacted.contains("dGhpcy1p"))
+        #expect(!redacted.contains("YW5kLWl0"))
+        #expect(redacted == "token <redacted>/<redacted> saved")
+    }
+
+    @Test func redactsEmailsAndAppleIDsNextToPaths() {
+        let transcript = "INFO Sharing with friend@example.org, Logging in as someone@example.com, exporting to /Volumes/X/Photos Archive/2026/IMG_7210.MOV"
+        let redacted = ICloudDiagnostics.redact(transcript, arguments: arguments)
+        #expect(!redacted.contains("someone@example.com"))
+        #expect(!redacted.contains("friend@example.org"))
+        #expect(redacted.contains("Sharing with <email>, Logging in as <apple-id>"))
+        #expect(redacted.contains("/Volumes/X/Photos Archive/2026/IMG_7210.MOV"))
+    }
+
     @Test func exitWithoutClassifiedFailureCarriesTheSummary() {
         let error = ICloudDiagnostics.exitError(status: 1, failure: nil, summary: "KeyError: 'photo'")
         #expect(error == .exited(1, lastMessage: "KeyError: 'photo'"))

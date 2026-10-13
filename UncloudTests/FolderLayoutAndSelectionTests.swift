@@ -21,6 +21,121 @@ struct FolderLayoutTests {
     }
 }
 
+@Suite("FolderLayout flat")
+struct FolderLayoutFlatTests {
+    @Test func flatIsTitledAndExampledAsInThePlan() {
+        #expect(FolderLayout.flat.title == "All in One Folder")
+        #expect(FolderLayout.flat.example == "IMG_0001.HEIC")
+        #expect(FolderLayout.flat.rawValue == "flat")
+        #expect(FolderLayout(rawValue: "flat") == .flat)
+        #expect(FolderLayout.allCases.last == .flat)
+    }
+
+    @Test func flatIsAvailableForPhotosLibrary() {
+        #expect(FolderLayout.flat.isAvailable(for: .photosLibrary))
+    }
+
+    @Test func flatIsOffForICloudUntilTheICloudEngineRecordsItSafely() {
+        // Plan D3: until then the iCloud engine would route flat to the month arguments.
+        #expect(!FolderLayout.flat.isAvailable(for: .iCloud))
+    }
+
+    @Test func flatUsesNoFolderStructureInIcloudpd() {
+        #expect(FolderLayout.flat.icloudpdFolderStructure == "none")
+        #expect(FolderLayout.month.icloudpdFolderStructure == "{:%Y/%m}")
+    }
+
+    @Test func flatHasNoPlacesOrAlbums() {
+        #expect(!FolderLayout.flat.usesPlaces)
+        #expect(!FolderLayout.flat.usesAlbums)
+    }
+
+    @Test func captionsNameTheCollisionRuleOfEachSource() {
+        let iCloud = FolderLayout.flat.caption(for: .iCloud) ?? ""
+        #expect(iCloud.hasPrefix("Every photo and video is saved directly in the folder you chose, with no subfolders."))
+        #expect(iCloud.contains("like IMG_0001-2483921.HEIC."))
+        let photos = FolderLayout.flat.caption(for: .photosLibrary) ?? ""
+        #expect(photos.contains("the second gets a number"))
+        #expect(photos.contains("IMG_0001 (1).HEIC"))
+        #expect(FolderLayout.month.caption(for: .iCloud) == nil)
+    }
+}
+
+@Suite("PhotoKit flat export")
+struct PhotoKitFlatExportTests {
+    @Test func flatFolderIsEmptyAndTheDestinationItself() {
+        #expect(ExportEngine.folderPath(for: .flat, monthKey: "2024-07", place: nil) == "")
+        let destination = URL(filePath: "/Volumes/Photos Archive", directoryHint: .isDirectory)
+        #expect(ExportEngine.folderURL(in: destination, folderPath: "") == destination)
+        #expect(ExportEngine.folderURL(in: destination, folderPath: "2024/07").path(percentEncoded: false) .hasPrefix("/Volumes/Photos Archive/2024/07"))
+    }
+
+    @Test func relativePathHasNoLeadingSlashWhenFlat() {
+        #expect(ExportEngine.relativePath(in: "", filename: "IMG_0001.HEIC") == "IMG_0001.HEIC")
+        #expect(ExportEngine.relativePath(in: "2024/07", filename: "IMG_0001.HEIC") == "2024/07/IMG_0001.HEIC")
+        #expect(ExportEngine.relativePath(in: "Italy/Rome/2024-07", filename: "a.mov") == "Italy/Rome/2024-07/a.mov")
+    }
+
+    @Test func monthAndPlaceFoldersAreUnchanged() {
+        #expect(ExportEngine.folderPath(for: .month, monthKey: "2024-07", place: nil) == "2024/07")
+        #expect(ExportEngine.folderPath(for: .month, monthKey: nil, place: nil) == "Undated")
+        #expect(ExportEngine.folderPath(for: .place, monthKey: "2024-07", place: "Rome") == "Rome")
+        #expect(ExportEngine.folderPath(for: .placeThenMonth, monthKey: "2024-07", place: "Italy/Rome") == "Italy/Rome/2024-07")
+        #expect(ExportEngine.folderPath(for: .placeThenMonth, monthKey: nil, place: "Italy/Rome") == "Italy/Rome/Undated")
+    }
+
+    @Test func collidingNamesGetDistinctFilesInTheRoot() throws {
+        try withTemporaryDirectory { destination in
+            var names: [String] = []
+            for _ in 0..<3 {
+                let url = FileManager.default.availableURL(in: destination, for: "IMG_0001.HEIC")
+                try Data("photo".utf8).write(to: url)
+                names.append(url.lastPathComponent)
+            }
+            #expect(names == ["IMG_0001.HEIC", "IMG_0001 (1).HEIC", "IMG_0001 (2).HEIC"])
+            #expect(Set(names).count == names.count)
+            #expect(names.allSatisfy { !$0.hasPrefix("/") })
+        }
+    }
+
+    /// The manifest and checksum records of two flat items, the second one a name collision, with a sidecar.
+    @Test func flatManifestRecordsHaveRootPathsAndWork() throws {
+        try withTemporaryDirectory { destination in
+            let manifest = try ExportManifest(destination: destination)
+            let digest = { (letter: String) in String(repeating: letter, count: 64) }
+
+            var checksums: [String: String] = [:]
+            var recordedFiles: [String] = []
+            for (id, name, hash) in [("asset-1", "IMG_0001.HEIC", "a"), ("asset-2", "IMG_0001.HEIC", "b")] {
+                let url = FileManager.default.availableURL(in: destination, for: name)
+                try Data(hash.utf8).write(to: url)
+                let path = ExportEngine.relativePath(in: "", filename: url.lastPathComponent)
+                checksums[path] = digest(hash)
+                try manifest.recordExport(of: id, files: [path])
+                recordedFiles.append(path)
+            }
+            let sidecar = ExportEngine.relativePath(in: "", filename: "IMG_0001 (1).xmp")
+            checksums[sidecar] = digest("c")
+            try manifest.recordChecksums(checksums)
+            try manifest.recordLayout(.flat)
+
+            #expect(recordedFiles == ["IMG_0001.HEIC", "IMG_0001 (1).HEIC"])
+            #expect(ExportManifest.records(in: destination) == [
+                "asset-1": ["IMG_0001.HEIC"],
+                "asset-2": ["IMG_0001 (1).HEIC"],
+            ])
+            #expect(ExportManifest.exportedIDs(in: destination) == ["asset-1", "asset-2"])
+            #expect(ExportManifest.checksums(in: destination) == [
+                "IMG_0001.HEIC": digest("a"),
+                "IMG_0001 (1).HEIC": digest("b"),
+                "IMG_0001 (1).xmp": digest("c"),
+            ])
+            #expect(ExportManifest.layout(in: destination) == .flat)
+            #expect(ExportManifest.records(in: destination).values.flatMap { $0 }.allSatisfy { !$0.hasPrefix("/") })
+        }
+    }
+}
+
 @Suite("LibrarySelection")
 struct LibrarySelectionTests {
     @Test func everythingContainsAnyID() {

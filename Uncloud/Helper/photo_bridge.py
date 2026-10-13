@@ -12,17 +12,31 @@ Startup events: {"event":"needPassword"} (answer with one line {"password":"..."
 {"event":"signInRequired"} (two-factor needed; the bridge exits), {"event":"ready","count":N},
 or {"event":"error","kind":...,"message":...}.
 
-Requests, each with an "id" that every reply carries:
+Requests, each with an "id" that every reply carries. Ranks are positions in icloudpd's walk: rank 0
+is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting every other rank by one.
   {"cmd":"page","offset":O,"limit":L}  -> {"event":"page","offset":O,"items":[...]}
-      items oldest first (icloudpd's order): {id, filename, created, type, size, bytes, thumbURL}
+      items in icloudpd's order from rank O: {id, rank, filename, created, type, size, bytes, thumbURL}
       (size: the original's bytes; bytes: what a download writes, see stats)
   {"cmd":"count"}                     -> {"event":"count","count":N}
   {"cmd":"albums"}                    -> {"event":"albums","albums":[names]}  (no smart albums)
-  {"cmd":"download","mode":"only"|"allExcept","ids":[...],"dest":DIR,"layout":"month"|"album",
-   "album":NAME,"xmp":BOOL,"hints":{id: rank}}
+  {"cmd":"download","mode":"only"|"allExcept","ids":[...],"dest":DIR,"layout":"month"|"album"|"none",
+   "album":NAME,"xmp":BOOL,"hints":{id: rank},"startRank":R}
+      layout month: DEST/YYYY/MM/NAME; none: DEST/NAME (icloudpd's --folder-structure none, the
+      "All in One Folder" layout); album: DEST/NAME for the items of album NAME.
+      startRank (default 0): items at ranks below R are never visited, so a walk pages from rank R
+      (in only mode, hints below R are ignored too). In allExcept mode, IDs in "ids" cost no file check.
       -> {"event":"progress","done":D,"total":T} whenever either changes, then per item one of
-         {"event":"downloaded","id","filename","path","paths"}, {"event":"skipped","id","filename","path"},
-         {"event":"failed","id","filename","reason"}; finally {"event":"done",...counts,"cancelled":BOOL}
+         {"event":"downloaded","asset","rank","filename","path","paths","files"},
+         {"event":"skipped","asset","rank","filename","path","paths","files"},
+         {"event":"failed","asset","rank","filename","reason","paths"};
+         finally {"event":"done","downloaded":N,"skipped":N,"failed":N,"cancelled":BOOL}.
+         Paths are absolute and never shortened. path: the item's first file; paths: the files this
+         request wrote (downloaded) or found already there (skipped); files: every file the item has on
+         disk now, written or found, plus its XMP sidecar when there is one.
+      A throttle (Apple's 503, "Apple iCloud is temporary refusing to serve icloudpd") or a lost
+      connection ends the download instead of failing item after item, as it ends an icloudpd run:
+         {"event":"error","kind":"PyiCloudServiceUnavailableException"|"PyiCloudConnectionErrorException",
+          "message":...,"asset","rank",...counts}, with no "done". The item named isn't finished.
       Cancelling stops between chunks of a file, not only between items, and removes that file's
       partial download.
   {"cmd":"stats","offset":O}          walks the library from O (icloudpd's order) a page at a time
@@ -40,6 +54,7 @@ Requests, each with an "id" that every reply carries:
   {"cmd":"ping"}                      -> {"event":"pong"}, from the request loop itself (between items,
                                       pages and chunks), so a missing pong means the bridge is stuck.
 Errors: {"id"?, "event":"error","kind":...,"message":...}. Closing stdin or SIGTERM stops the bridge.
+Request lines have no length limit (an allExcept list of 100,000 IDs is a few MB).
 The password is never written anywhere.
 """
 
@@ -109,6 +124,27 @@ class DownloadCancelled(Exception):
 
 class DownloadInterrupted(Exception):
     """A download held by a pause couldn't be picked up where it stopped."""
+
+
+# Exceptions that end an icloudpd run (`run_with_configs` returns 1 on them), so they end a download
+# too, instead of failing every item that follows: Apple's throttle (HTTP 503, "Apple iCloud is
+# temporary refusing to serve icloudpd") and a lost connection. Named, not imported, so tests and
+# the module load without pyicloud_ipd's import order mattering.
+RUN_ENDING_ERRORS = ("PyiCloudServiceUnavailableException", "PyiCloudConnectionErrorException")
+
+
+def is_run_ending(error: BaseException) -> bool:
+    return any(cls.__name__ in RUN_ENDING_ERRORS for cls in type(error).__mro__)
+
+
+class DownloadStopped(Exception):
+    """A run-ending error during a download, with the item it stopped at."""
+
+    def __init__(self, error: BaseException, asset_id: Optional[str], rank: Optional[int]):
+        super().__init__(str(error))
+        self.kind = next(cls.__name__ for cls in type(error).__mro__ if cls.__name__ in RUN_ENDING_ERRORS)
+        self.asset_id = asset_id
+        self.rank = rank
 
 
 # MARK: - Channel
@@ -336,14 +372,18 @@ class Capture(logging.Handler):
     def reset(self) -> None:
         self.downloaded: List[str] = []
         self.existing: List[str] = []
+        # Both, in the order icloudpd reported them: the item's main file first.
+        self.files: List[str] = []
         self.errors: List[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
         args = record.args if isinstance(record.args, tuple) else ()
         if record.msg == "Downloaded %s" and args:
             self.downloaded.append(str(args[0]))
+            self.files.append(str(args[0]))
         elif record.msg == "%s already exists" and args:
             self.existing.append(str(args[0]))
+            self.files.append(str(args[0]))
         elif record.levelno >= logging.ERROR and record.msg not in _TRANSIENT_ERRORS:
             try:
                 self.errors.append(record.getMessage())
@@ -470,6 +510,19 @@ def fetch_assets(album: Any, offset: int, limit: int) -> List[Any]:
     return list(islice(view.photos, limit))
 
 
+def walk(album: Any, start: int = 0) -> Iterable[tuple]:
+    """(rank, asset) for every item of an album from rank `start` on, with icloudpd's own paging
+    (PAGE_CHUNK items per query). Pages a copy, so the album itself (albums are cached) keeps its
+    offset and can be walked again."""
+    view = copy.copy(album)
+    view.offset = max(0, start)
+    view.page_size = PAGE_CHUNK
+    rank = view.offset
+    for asset in view.photos:
+        yield rank, asset
+        rank += 1
+
+
 def thumb_url(asset: Any) -> Optional[str]:
     for record in (asset._asset_record, asset._master_record):
         entry = record.get("fields", {}).get("resJPEGThumbRes")
@@ -589,7 +642,10 @@ class Bridge:
             if command == "page":
                 offset = int(request.get("offset", 0))
                 limit = max(0, min(int(request.get("limit", 200)), MAX_PAGE_LIMIT))
-                items = [describe(a) for a in fetch_assets(self.library.all, offset, limit)]
+                items = [
+                    {**describe(a), "rank": max(0, offset) + i}
+                    for i, a in enumerate(fetch_assets(self.library.all, offset, limit))
+                ]
                 self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
             elif command == "count":
                 self.channel.send({"id": request_id, "event": "count", "count": len(self.library.all)})
@@ -695,11 +751,14 @@ class Bridge:
         if mode not in ("only", "allExcept"):
             raise RequestError("badRequest", "mode must be only or allExcept.")
         layout = request.get("layout", "month")
-        if layout not in ("month", "album"):
-            raise RequestError("badRequest", "layout must be month or album.")
+        if layout not in ("month", "album", "none"):
+            raise RequestError("badRequest", "layout must be month, album or none.")
         destination = request.get("dest")
         if not isinstance(destination, str) or not destination:
             raise RequestError("badRequest", "dest is required.")
+        start_rank = request.get("startRank") or 0
+        if not isinstance(start_rank, int) or isinstance(start_rank, bool) or start_rank < 0:
+            raise RequestError("badRequest", "startRank must be a rank, 0 or more.")
         ids = set(str(i) for i in (request.get("ids") or []))
         hints = request.get("hints") or {}
 
@@ -716,65 +775,86 @@ class Bridge:
         )
         plan = self.plan_factory(args, self.download_logger)
         run = _DownloadRun(self, request_id, plan)
+        try:
+            self._download(run, album, mode, layout, ids, hints, start_rank)
+        except DownloadStopped as stopped:
+            run.stop(stopped)
+            return
+        except Exception as error:  # noqa: BLE001
+            # Paging can hit the throttle too (it's a CloudKit query).
+            if not is_run_ending(error):
+                self.channel.forget(request_id)
+                raise
+            run.stop(DownloadStopped(error, None, None))
+            return
+        run.finish()
 
+    def _download(
+        self, run: "_DownloadRun", album: Any, mode: str, layout: str, ids: set, hints: Dict[str, Any],
+        start_rank: int,
+    ) -> None:
         if mode == "allExcept":
-            run.set_total(len(album))
-            for asset in album:
+            run.set_total(max(0, len(album) - start_rank))
+            for rank, asset in walk(album, start_rank):
                 if run.should_stop():
                     break
                 if asset.id in ids:
                     run.set_total(run.total - 1)
+                    run.idle()
                     continue
-                run.process(asset)
+                run.process(asset, rank)
+            return
+        remaining = set(ids)
+        if layout != "album":
+            run.set_total(len(remaining))
+            for rank, asset in self._hinted(album, remaining, hints, run, start_rank):
+                if run.should_stop():
+                    break
+                remaining.discard(asset.id)
+                run.process(asset, rank)
         else:
-            remaining = set(ids)
-            if layout == "month":
-                run.set_total(len(remaining))
-                for asset in self._hinted(album, remaining, hints, run):
-                    if run.should_stop():
-                        break
+            # Membership is only known by walking the album; the total grows with each match.
+            run.set_total(0)
+        if remaining and not run.should_stop():
+            for rank, asset in walk(album, start_rank):
+                if run.should_stop():
+                    break
+                if asset.id in remaining:
                     remaining.discard(asset.id)
-                    run.process(asset)
-            else:
-                # Membership is only known by walking the album; the total grows with each match.
-                run.set_total(0)
-            if remaining and not run.should_stop():
-                for asset in album:
-                    if run.should_stop():
+                    if layout == "album":
+                        run.set_total(run.total + 1)
+                    run.process(asset, rank)
+                    if not remaining:
                         break
-                    if asset.id in remaining:
-                        remaining.discard(asset.id)
-                        if layout == "album":
-                            run.set_total(run.total + 1)
-                        run.process(asset)
-                        if not remaining:
-                            break
-                    else:
-                        run.idle()
-            if layout == "month" and not run.should_stop() and remaining:
-                # Items deleted from iCloud since they were selected.
-                run.set_total(run.total - len(remaining))
-        run.finish()
+                else:
+                    run.idle()
+        if layout != "album" and not run.should_stop() and remaining:
+            # Items deleted from iCloud since they were selected (or, with startRank, ranked below it).
+            run.set_total(run.total - len(remaining))
 
-    def _hinted(self, album: Any, remaining: set, hints: Dict[str, Any], run: "_DownloadRun") -> Iterable[Any]:
+    def _hinted(
+        self, album: Any, remaining: set, hints: Dict[str, Any], run: "_DownloadRun", start_rank: int = 0
+    ) -> Iterable[tuple]:
         ranks = []
         for asset_id, rank in hints.items():
-            if asset_id in remaining and isinstance(rank, int) and rank >= 0:
+            if asset_id in remaining and isinstance(rank, int) and rank >= start_rank:
                 ranks.append(rank)
         if not ranks:
             return
         try:
             library_size = len(album)
-        except Exception:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001
+            if is_run_ending(error):
+                raise
             return
         if len(ranks) > library_size * HINT_FRACTION:
             return
         for window in hint_windows(ranks):
             if run.should_stop():
                 return
-            for asset in fetch_assets(album, window.start, len(window)):
+            for offset, asset in enumerate(fetch_assets(album, window.start, len(window))):
                 if asset.id in remaining:
-                    yield asset
+                    yield window.start + offset, asset
 
 
 class _DownloadRun:
@@ -828,7 +908,7 @@ class _DownloadRun:
             self._since_poll = 0
             self.bridge.serve_waiting()
 
-    def process(self, asset: Any) -> None:
+    def process(self, asset: Any, rank: Optional[int] = None) -> None:
         global _ACTIVE_RUN
         capture = self.bridge.capture
         capture.reset()
@@ -843,22 +923,35 @@ class _DownloadRun:
             capture.reset()
             return
         except Exception as error:  # noqa: BLE001
+            if is_run_ending(error):
+                # Not this item's fault: every item after it would fail the same way.
+                capture.reset()
+                raise DownloadStopped(error, asset.id, rank)
             capture.errors.append(f"{type(error).__name__}: {error}")
         finally:
             _ACTIVE_RUN = None
         downloaded, existing, errors = list(capture.downloaded), list(capture.existing), list(capture.errors)
+        files = list(capture.files)
         capture.reset()
+        if files and getattr(getattr(self.plan, "user_config", None), "xmp_sidecar", False):
+            sidecar = files[0] + ".xmp"
+            if os.path.isfile(sidecar):
+                files.append(sidecar)
 
         base = {"id": self.request_id, "asset": asset.id, "filename": filename}
+        if rank is not None:
+            base["rank"] = rank
         if errors:
             self.counts["failed"] += 1
             self.channel.send({**base, "event": "failed", "reason": errors[0], "paths": downloaded})
         elif downloaded:
             self.counts["downloaded"] += 1
-            self.channel.send({**base, "event": "downloaded", "path": downloaded[0], "paths": downloaded})
+            self.channel.send({
+                **base, "event": "downloaded", "path": downloaded[0], "paths": downloaded, "files": files,
+            })
         elif existing:
             self.counts["skipped"] += 1
-            self.channel.send({**base, "event": "skipped", "path": existing[0]})
+            self.channel.send({**base, "event": "skipped", "path": existing[0], "paths": existing, "files": files})
         else:
             self.counts["failed"] += 1
             self.channel.send({**base, "event": "failed", "reason": "iCloud didn't offer a file for this item."})
@@ -872,6 +965,20 @@ class _DownloadRun:
         cancelled = self.channel.is_cancelled(self.request_id)
         self.channel.forget(self.request_id)
         self.channel.send({"id": self.request_id, "event": "done", "cancelled": cancelled, **self.counts})
+
+    def stop(self, stopped: DownloadStopped) -> None:
+        """Ends the download with a run-ending error instead of `done`; the app treats it as the run's
+        failure (Apple's throttle maps to serviceUnavailable, which resumes automatically)."""
+        self._progress()
+        self.channel.forget(self.request_id)
+        reply: Dict[str, Any] = {
+            "id": self.request_id, "event": "error", "kind": stopped.kind, "message": str(stopped), **self.counts,
+        }
+        if stopped.asset_id is not None:
+            reply["asset"] = stopped.asset_id
+        if stopped.rank is not None:
+            reply["rank"] = stopped.rank
+        self.channel.send(reply)
 
 
 def _counter() -> Any:

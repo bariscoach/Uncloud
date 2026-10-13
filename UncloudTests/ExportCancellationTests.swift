@@ -7,10 +7,10 @@ import Testing
 /// helper process is left, and that the shared bridge survives. No Apple account, no network.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct ExportCancellationTests {
-    private final class BundleToken {}
+    final class BundleToken {}
 
     /// Counts a run's events off the main actor, the way the export screen's batcher reads them.
-    private final class Collector: Sendable {
+    final class Collector: Sendable {
         struct Counts {
             var prepared = false
             var processed = 0
@@ -45,7 +45,7 @@ struct ExportCancellationTests {
     }
 
     /// A fresh destination, a launch log, and the fakes in place of icloudpd and the bridge.
-    private struct Fixture {
+    struct Fixture {
         let root: URL
         let destination: URL
         let launchLog: URL
@@ -136,7 +136,7 @@ struct ExportCancellationTests {
         }
     }
 
-    private static func isRunning(_ pid: pid_t) -> Bool {
+    static func isRunning(_ pid: pid_t) -> Bool {
         kill(pid, 0) == 0 || errno == EPERM
     }
 
@@ -151,7 +151,7 @@ struct ExportCancellationTests {
 
     /// Polls until `condition` holds; returns how long that took, or nil after `timeout`.
     @discardableResult
-    private static func wait(
+    static func wait(
         timeout: Duration,
         isolation: isolated (any Actor)? = #isolation,
         _ condition: () -> Bool

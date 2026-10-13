@@ -6,6 +6,7 @@ enum FolderLayout: String, CaseIterable, Identifiable, Sendable {
     case place
     case placeThenMonth
     case album
+    case flat
 
     var id: Self { self }
 
@@ -15,6 +16,7 @@ enum FolderLayout: String, CaseIterable, Identifiable, Sendable {
         case .place: "By Place"
         case .placeThenMonth: "By Place, Then Month"
         case .album: "By Album"
+        case .flat: "All in One Folder"
         }
     }
 
@@ -24,7 +26,30 @@ enum FolderLayout: String, CaseIterable, Identifiable, Sendable {
         case .place: "Italy/Rome/IMG_0001.HEIC"
         case .placeThenMonth: "Italy/Rome/2024-07/IMG_0001.HEIC"
         case .album: "Trips/Rome 2024/IMG_0001.HEIC"
+        case .flat: "IMG_0001.HEIC"
         }
+    }
+
+    /// The caption shown under the picker when this layout is selected, for the given source.
+    /// Only `flat` has source-specific wording: icloudpd adds the file size to a clashing name, while
+    /// PhotoKit exports add a number (see `ExportEngine.availableURL`).
+    func caption(for source: LibrarySource) -> String? {
+        guard self == .flat else { return nil }
+        switch source {
+        case .iCloud:
+            return "Every photo and video is saved directly in the folder you chose, with no subfolders. "
+                + "Files keep their iCloud names; when two have the same name, the second gets its size added, "
+                + "like IMG_0001-2483921.HEIC."
+        case .photosLibrary:
+            return "Every photo and video is saved directly in the folder you chose, with no subfolders. "
+                + "Files keep their original names; when two have the same name, the second gets a number, "
+                + "like IMG_0001 (1).HEIC."
+        }
+    }
+
+    /// icloudpd's `--folder-structure` value for the whole-library run. `none` puts files directly in the folder.
+    var icloudpdFolderStructure: String {
+        self == .flat ? "none" : "{:%Y/%m}"
     }
 
     var usesPlaces: Bool {
@@ -35,7 +60,9 @@ enum FolderLayout: String, CaseIterable, Identifiable, Sendable {
         self == .album
     }
 
-    /// iCloud downloads only support folders by month or by album.
+    /// iCloud downloads support folders by month or by album. `flat` stays off for iCloud until the
+    /// iCloud engine records flat downloads safely (plan D3): icloudpd's file records would otherwise
+    /// include the user's own files in the folder.
     func isAvailable(for source: LibrarySource) -> Bool {
         switch source {
         case .photosLibrary: true
