@@ -28,6 +28,7 @@
 		21FA84C3879FA85F375224A8 /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B323FF83970C4D84959183E1 /* SessionStoreTests.swift */; };
 		22D893F297464E4DC1F5F415 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3ED0A36CD11690520DC5A1 /* SessionStore.swift */; };
 		24167CE7E0C69E9DCF6EB022 /* StorageEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223292FA231E5C2569A0EA6D /* StorageEstimator.swift */; };
+		2465C5CC69C6F7F37627D314 /* test_launcher.py in Resources */ = {isa = PBXBuildFile; fileRef = 9FE2C438DFF93F23FE709749 /* test_launcher.py */; };
 		25CE95878FDD7E11A60B1E6A /* UncloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BB841704199E1A9A83035CB /* UncloudApp.swift */; };
 		26C4E054F2E1A68CFB77F237 /* ICloudProcesses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */; };
 		2A80ED1A29712BF61EE17069 /* ICloudExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BE68EB07867A8CBB3BD1F /* ICloudExportEngine.swift */; };
@@ -269,6 +270,7 @@
 		9CFD381FEAA670D99CC49142 /* BackupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupPane.swift; sourceTree = "<group>"; };
 		9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageEstimateTests.swift; sourceTree = "<group>"; };
 		9DC06A9B2A29D7B6A2E9DE9A /* ExportCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportCommands.swift; sourceTree = "<group>"; };
+		9FE2C438DFF93F23FE709749 /* test_launcher.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = test_launcher.py; sourceTree = "<group>"; };
 		A0D2268BB87ECAD5B6FDB234 /* ExportCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportCancellationTests.swift; sourceTree = "<group>"; };
 		A442D2C0F3709A6E902B9D3C /* ManifestAdditionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManifestAdditionsTests.swift; sourceTree = "<group>"; };
 		ACD6AEDB8709BB238DAF496E /* AssetFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetFiles.swift; sourceTree = "<group>"; };
@@ -423,6 +425,7 @@
 			children = (
 				B3DB43F072227AB1DA2D6016 /* test_bridge.py */,
 				7160C3417C041E24FEDC94E1 /* test_fake_bridge.py */,
+				9FE2C438DFF93F23FE709749 /* test_launcher.py */,
 			);
 			path = Bridge;
 			sourceTree = "<group>";
@@ -618,6 +621,7 @@
 				8C80DEABF6F12CD1B81E0084 /* fake_icloudpd.py in Resources */,
 				AE7F1B74ED21FCA380E3AB88 /* test_bridge.py in Resources */,
 				634AAE14748B2EDA293A7F7E /* test_fake_bridge.py in Resources */,
+				2465C5CC69C6F7F37627D314 /* test_launcher.py in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1004,7 +1008,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1023,7 +1027,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1132,7 +1136,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1145,7 +1149,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
