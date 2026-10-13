@@ -1,11 +1,16 @@
 import Foundation
 
-/// Downloads the iCloud Photos library into the destination with icloudpd, once for the
-/// whole library (by month) or once per album. icloudpd decides what's already downloaded
-/// from its own file paths, so the files it writes are never moved or renamed afterwards.
+/// Downloads the iCloud Photos library into the destination.
 ///
-/// When only some items are selected, the bridge (`photo_bridge.py`) downloads them instead,
-/// with icloudpd's own download function, so they land exactly where icloudpd would put them.
+/// - The whole library in the month and flat layouts goes through the bridge (`photo_bridge.py`), which
+///   downloads with icloudpd's own download function, so files land exactly where icloudpd puts them and a
+///   later plain icloudpd run finds them all "already exists". Each item is recorded by asset ID, and the run
+///   continues from `.photo-export/resume.json` instead of walking the whole library again (`ICloudResumePlanner`).
+///   The `iCloudFullExportsUseBridge` default (on unless set to false) switches this off; the icloudpd process
+///   also takes over when the bridge can't start.
+/// - The album layout runs icloudpd once per album. icloudpd decides what's already downloaded from its own file
+///   paths, so the files it writes are never moved or renamed afterwards.
+/// - A partial selection goes through the bridge, by ID.
 struct ICloudExportEngine: Sendable {
     let destination: URL
     let layout: FolderLayout
@@ -20,6 +25,18 @@ struct ICloudExportEngine: Sendable {
     /// check recorded every file at icloudpd's paths, so each one belongs to an item it counted. The album
     /// layout has one run per album, and an item can be in several, so it counts skips as before.
     var alreadyOnDrive: Int?
+    /// Items the drive check just found missing or damaged (and forgot), so they're downloaded again even below
+    /// the resume point.
+    var missingItems: Set<String> = []
+    /// Whole-library exports in the month and flat layouts go through the bridge; false runs icloudpd instead.
+    var usesBridgeForEverything = ICloudExportEngine.fullExportsUseBridge
+    var resumeSettings = ICloudResumeSettings()
+
+    /// The hidden switch for whole-library bridge exports (on unless set to false).
+    static let fullExportsUseBridgeKey = "iCloudFullExportsUseBridge"
+    static var fullExportsUseBridge: Bool {
+        UserDefaults.standard.object(forKey: fullExportsUseBridgeKey) as? Bool ?? true
+    }
 
     /// Downloads between checksum scans while a run is in progress.
     private static let scanInterval = 200
@@ -41,9 +58,25 @@ struct ICloudExportEngine: Sendable {
             try manifest.recordLayout(layout)
             let scanner = ICloudChecksumScanner(destination: destination, manifest: manifest, layout: layout)
             guard selection.isEverything else {
+                emit(.continuation(.init(strategy: .selection)))
                 try await runWithBridge(manifest: manifest, scanner: scanner, emit: emit)
                 return
             }
+            var fallbackReason: String?
+            if layout != .album, usesBridgeForEverything {
+                let bridge = ICloudBridge.shared(appleID: appleID)
+                do {
+                    try await bridge.ready()
+                } catch {
+                    guard Self.isStartFailure(error) else { throw error }
+                    fallbackReason = "The iCloud bridge couldn’t start, so icloudpd checked the whole library"
+                }
+                if fallbackReason == nil {
+                    try await runEverythingWithBridge(bridge, manifest: manifest, scanner: scanner, emit: emit)
+                    return
+                }
+            }
+            emit(.continuation(.init(strategy: .fullWalk, startRank: nil, fallbackReason: fallbackReason)))
             let runs = try await helperRuns()
 
             let onDriveAtStart: Int? = layout == .album ? nil : alreadyOnDrive.map { max(0, $0) }
@@ -138,6 +171,10 @@ struct ICloudExportEngine: Sendable {
         }
 
         var downloadsSinceScan = 0
+        // In the flat layout the user's own files sit next to the downloads: only the files icloudpd reports
+        // are recorded and hashed, never the folder's other files (plan 7c).
+        let isFlat = layout == .flat
+        var reported: [String] = []
         do {
             try await withTaskCancellationHandler {
                 for try await event in events {
@@ -148,14 +185,26 @@ struct ICloudExportEngine: Sendable {
                         if !isPrepared() { prepare(0) }
                         let bytes = ExportEngine.totalSize(of: [URL(filePath: path)])
                         emit(.exported(name: Self.displayName(of: path), fileCount: 1, bytes: bytes))
+                        if isFlat {
+                            reported += relativePaths([path])
+                        }
                         downloadsSinceScan += 1
                         if downloadsSinceScan >= Self.scanInterval {
                             downloadsSinceScan = 0
-                            // Files icloudpd touched in the last few seconds may still be being written.
-                            try scanner.scan(folderURL, settledBefore: Date.now.addingTimeInterval(-10))
+                            if isFlat {
+                                scanner.noteReported(reported)
+                                try scanner.hash(reported)
+                                reported = []
+                            } else {
+                                // Files icloudpd touched in the last few seconds may still be being written.
+                                try scanner.scan(folderURL, settledBefore: Date.now.addingTimeInterval(-10))
+                            }
                         }
-                    case .alreadyExists:
+                    case .alreadyExists(let path):
                         if !isPrepared() { prepare(0) }
+                        if isFlat {
+                            reported += relativePaths([path])
+                        }
                         if !skips.absorb() {
                             emit(.skipped)
                         }
@@ -177,7 +226,12 @@ struct ICloudExportEngine: Sendable {
             throw error
         }
         await endPausing()
-        try scanner.scan(folderURL, settledBefore: nil)
+        if isFlat {
+            scanner.noteReported(reported)
+            try scanner.hash(reported)
+        } else {
+            try scanner.scan(folderURL, settledBefore: nil)
+        }
     }
 
     // MARK: - Selected items
@@ -208,7 +262,7 @@ struct ICloudExportEngine: Sendable {
         var known: Set<String> = []
         var alreadyCounted = 0
         if layout != .album {
-            known = Set(ExportManifest.iCloudItems(in: destination).keys)
+            known = Self.knownItems(in: destination, layout: layout)
             alreadyCounted = switch selection {
             case .only(let selected): selected.count { known.contains($0) }
             case .allExcept(let excluded): known.count { !excluded.contains($0) }
@@ -229,7 +283,7 @@ struct ICloudExportEngine: Sendable {
                 mode: mode,
                 ids: ids.sorted(),
                 dest: folderURL.path(percentEncoded: false),
-                layout: layout == .album ? "album" : "month",
+                layout: layout == .album ? "album" : (layout == .flat ? "none" : "month"),
                 album: run.album,
                 xmp: writesSidecars,
                 hints: layout == .album || mode != "only" ? nil : rankHints
@@ -265,7 +319,11 @@ struct ICloudExportEngine: Sendable {
             }
             pauseTask.cancel()
             await pauseTask.value
-            try scanner.scan(folderURL, settledBefore: nil)
+            if layout == .flat {
+                try scanner.hashRecorded()
+            } else {
+                try scanner.scan(folderURL, settledBefore: nil)
+            }
         }
         if !tally.isPrepared {
             emit(.prepared(total: 0, alreadyExported: 0))
@@ -322,7 +380,11 @@ struct ICloudExportEngine: Sendable {
                 downloadsSinceScan += 1
                 if downloadsSinceScan >= Self.scanInterval {
                     downloadsSinceScan = 0
-                    try scanner.scan(folderURL, settledBefore: Date.now.addingTimeInterval(-10))
+                    if layout == .flat {
+                        try scanner.hashRecorded()
+                    } else {
+                        try scanner.scan(folderURL, settledBefore: Date.now.addingTimeInterval(-10))
+                    }
                 }
             case .skipped(let item):
                 try record(item, files: relativePaths(item.files), manifest: manifest, scanner: scanner)
@@ -430,6 +492,264 @@ struct ICloudExportEngine: Sendable {
     }
 }
 
+// MARK: - The whole library through the bridge
+
+extension ICloudExportEngine {
+    /// Errors that mean the bridge itself couldn't run, so icloudpd takes over. Apple's answers (throttling,
+    /// sign-in, a lost connection) aren't: icloudpd would get the same.
+    static func isStartFailure(_ error: Error) -> Bool {
+        switch error as? ICloudError {
+        case .helperMissing?, .exited?, .interrupted?: true
+        default: false
+        }
+    }
+
+    /// Items recorded by asset ID whose files are where this layout puts them. Items saved in another layout
+    /// don't count: icloudpd only looks at the new layout's paths, so they're downloaded again (plan 7e).
+    static func knownItems(in destination: URL, layout: FolderLayout) -> Set<String> {
+        Set(ExportManifest.iCloudItems(in: destination).filter { ICloudDownloadPaths.isItem(paths: $0.value, in: layout) }.keys)
+    }
+
+    /// The whole library, by month or in one folder, through the bridge. Without a usable resume point: a walk
+    /// from rank 0. With one: new items found at the top first (by ID), then the walk from just past the anchor
+    /// to the end, then the closing walk from rank 0 back down to the anchor, so a run that gets through all of
+    /// it has visited every rank (see `ICloudResumePlanner`). Saves the next resume point every few hundred
+    /// items and however the run ends.
+    func runEverythingWithBridge(
+        _ bridge: ICloudBridge,
+        manifest: ExportManifest,
+        scanner: ICloudChecksumScanner,
+        emit: @escaping @Sendable (ExportEvent) -> Void
+    ) async throws {
+        let libraryCount = try await bridge.count()
+        let known = Self.knownItems(in: destination, layout: layout)
+        let account = ExportSession.accountHash(appleID: appleID)
+        let now = Date()
+        let stored = ICloudResumePoint.load(in: destination)
+        let previous = stored.flatMap { $0.account == account && $0.layout == layout.rawValue ? $0 : nil }
+        let plan = try await ICloudResumePlanner.plan(
+            .init(point: previous, account: account, layout: layout, now: now, libraryCount: libraryCount,
+                  known: known, missing: missingItems.subtracting(known), settings: resumeSettings),
+            fetch: { offset, limit in try await bridge.page(offset: offset, limit: limit).map(\.id) }
+        )
+
+        var coverage: ICloudCoverage
+        var only: [String: Int] = [:]
+        var startRank = 0
+        /// The closing walk stops here: the anchor the walk continued from.
+        var closingStop: String?
+        switch plan {
+        case .fullWalk(let reason):
+            emit(.continuation(.init(strategy: .fullWalk, startRank: 0, fallbackReason: reason)))
+            if reason != nil {
+                emit(.note("Your library changed since the last export, so Uncloud is checking all of it. Items already on the drive are skipped."))
+            }
+            coverage = ICloudCoverage(libraryCount: libraryCount, base: nil)
+        case .fromRank(let from):
+            emit(.continuation(.init(strategy: .fromRank, startRank: from.startRank, fallbackReason: nil)))
+            let newText = from.newItems == 0 ? "" : ", after \(from.newItems.formatted()) new \(from.newItems == 1 ? "item" : "items")"
+            emit(.note("Continuing from item \(min(from.startRank + 1, libraryCount).formatted()) of \(libraryCount.formatted())\(newText)."))
+            coverage = ICloudCoverage(libraryCount: libraryCount, base: .init(id: from.anchorID, rank: from.anchorRank))
+            only = from.only
+            startRank = from.startRank
+            closingStop = from.anchorID
+        }
+
+        // Progress starts from what the drive check found; it never passes the total.
+        let onDrive = min(max(0, alreadyOnDrive ?? known.count), max(libraryCount, known.count))
+        var total = max(libraryCount, onDrive)
+        var processed = onDrive
+        emit(.prepared(total: total, alreadyExported: onDrive))
+        // Files from icloudpd runs and older versions have no ID record; the check counted them by path.
+        var legacySkips = SkipAbsorber(limit: max(0, onDrive - known.count))
+        func count(_ event: ExportEvent) {
+            processed += 1
+            if processed > total {
+                emit(.totalIncreased(by: processed - total))
+                total = processed
+            }
+            emit(event)
+        }
+
+        let destination = destination
+        let layout = layout
+        var visitedEverything: Date?
+        func savePoint() {
+            guard let point = coverage.point(account: account, layout: layout, previous: previous,
+                                             visitedEverything: visitedEverything, now: Date()) else { return }
+            try? point.save(in: destination)
+        }
+
+        var failures = 0
+        var pendingHashes: [String] = []
+        var sinceHash = 0
+        /// Items this run has finished, so a later walk in the same run passes over them without a file check.
+        var doneThisRun: Set<String> = []
+        func finished(_ item: ICloudBridgeItemResult, downloaded: Bool) throws {
+            let files = relativePaths(item.files)
+            try record(item, files: files, manifest: manifest, scanner: scanner)
+            pendingHashes += files
+            if downloaded {
+                let bytes = ExportEngine.totalSize(of: item.paths.map { URL(filePath: $0) })
+                count(.exported(name: item.filename, fileCount: max(1, item.paths.count), bytes: bytes))
+            } else if !known.contains(item.asset) && !doneThisRun.contains(item.asset) && !legacySkips.absorb() {
+                count(.skipped)
+            }
+            doneThisRun.insert(item.asset)
+            sinceHash += 1
+            if sinceHash >= Self.scanInterval {
+                sinceHash = 0
+                try scanner.hash(pendingHashes)
+                pendingHashes = []
+            }
+        }
+        func failed(_ message: ICloudBridgeMessage, asset: String, filename: String, reason: String) throws {
+            try checkDestination(after: reason)
+            let written = relativePaths(message.paths ?? [])
+            if !written.isEmpty {
+                scanner.exclude(written)
+                try? manifest.recordPartialICloudItem(id: asset, paths: written)
+            }
+            failures += 1
+            count(.failed(name: filename, reason: reason))
+        }
+
+        // Built when a download starts and dropped once its request is sent: the excluded IDs (a few MB for a
+        // large library) aren't held for the length of the download.
+        let options = { (mode: ICloudBridgeDownloadOptions.Mode, ids: [String], hints: [String: Int]?, start: Int, stopAt: String?) in
+            ICloudBridgeDownloadOptions(
+                mode: mode, ids: ids, destination: destination, layout: layout == .flat ? .none : .month,
+                writesSidecars: writesSidecars, rankHints: hints, startRank: start, stopAt: stopAt
+            )
+        }
+
+        do {
+            // New items at the top, by ID with their current ranks.
+            if !only.isEmpty {
+                try await download({ options(.only, only.keys.sorted(), only, 0, nil) }, bridge: bridge) { message, event in
+                    switch event {
+                    case .downloaded(let item), .skipped(let item):
+                        try finished(item, downloaded: { if case .downloaded = event { true } else { false } }())
+                    case .failed(let asset, _, let filename, let reason):
+                        try failed(message, asset: asset, filename: filename, reason: reason)
+                    default:
+                        break
+                    }
+                }
+            }
+
+            // Then the walk, from just past the anchor (or from the top). Items on the drive cost no file check.
+            // When the anchor is the last item, there's nothing past it, so the IDs aren't sent at all.
+            var sinceSave = 0
+            var walkFailed = false
+            if startRank < libraryCount {
+                try await download({ options(.allExcept, known.union(doneThisRun).sorted(), nil, startRank, nil) }, bridge: bridge) { message, event in
+                    switch event {
+                    case .downloaded(let item), .skipped(let item):
+                        try finished(item, downloaded: { if case .downloaded = event { true } else { false } }())
+                        coverage.finished(asset: item.asset, rank: item.rank)
+                        sinceSave += 1
+                        if sinceSave >= Self.scanInterval {
+                            sinceSave = 0
+                            savePoint()
+                        }
+                    case .failed(let asset, _, let filename, let reason):
+                        coverage.failed()
+                        walkFailed = true
+                        try failed(message, asset: asset, filename: filename, reason: reason)
+                    default:
+                        break
+                    }
+                }
+            }
+            // The walk reached the end of the library: the last item is the anchor, even when it was already there.
+            // Not when the library's size changed during the walk: a removal above a page boundary can hide an
+            // item from it, so the end isn't recorded and the anchor stays where the walk last finished an item.
+            let endCount = (try? await bridge.count()) ?? -1
+            if !walkFailed, !coverage.isFrozen, endCount == libraryCount, endCount > 0,
+               let last = try? await bridge.page(offset: endCount - 1, limit: 1).first {
+                coverage.reachedEnd(anchor: .init(id: last.id, rank: endCount - 1), libraryCount: endCount)
+            }
+            savePoint()
+
+            // The closing walk: everything above the anchor again, from rank 0, since anything can have changed
+            // there since the walk last went through it. It runs even when items failed, so the rest of the
+            // library is always gone through; it never moves R (the failed item stays where the next run starts).
+            if let closingStop {
+                try await download({ options(.allExcept, known.union(doneThisRun).sorted(), nil, 0, closingStop) }, bridge: bridge) { message, event in
+                    switch event {
+                    case .downloaded(let item), .skipped(let item):
+                        try finished(item, downloaded: { if case .downloaded = event { true } else { false } }())
+                    case .failed(let asset, _, let filename, let reason):
+                        try failed(message, asset: asset, filename: filename, reason: reason)
+                    default:
+                        break
+                    }
+                }
+            }
+            // Every rank was visited in this run. Not when the library's size changed meanwhile: a walk can't be
+            // sure it saw every item of a library that changed under it (the next run goes through it again).
+            let finalCount = closingStop == nil ? endCount : ((try? await bridge.count()) ?? -1)
+            if finalCount == libraryCount && endCount == libraryCount {
+                visitedEverything = now
+            }
+        } catch {
+            savePoint()
+            _ = try? scanner.hash(pendingHashes)
+            throw error
+        }
+        savePoint()
+        try scanner.hash(pendingHashes)
+        // Leave the run marked incomplete when items failed, so Resume retries them.
+        if failures == 0 {
+            manifest.markRunFinished()
+        }
+    }
+
+    /// Runs one bridge download to its end, held while the export is paused, and hands each message to `handle`
+    /// with its typed event. Throws `CancellationError` when the download was cancelled, and the bridge's
+    /// run-ending error (a throttle, a lost connection) as it is; returns once the bridge has stopped it.
+    private func download(
+        _ options: () -> ICloudBridgeDownloadOptions,
+        bridge: ICloudBridge,
+        handle: (ICloudBridgeMessage, ICloudBridgeDownloadEvent) throws -> Void
+    ) async throws {
+        await gate.waitWhilePaused()
+        try Task.checkCancellation()
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let download = try await bridge.download(options().request)
+        let gate = gate
+        let pauseTask = Task {
+            for await _ in gate.changes() {
+                if gate.isPaused {
+                    bridge.pauseDownload(download.id)
+                } else {
+                    bridge.resumeDownload(download.id)
+                }
+            }
+        }
+        do {
+            for try await message in download.messages {
+                guard let event = ICloudBridgeDownloadEvent(message) else { continue }
+                if case .done(_, _, _, true) = event {
+                    throw CancellationError()
+                }
+                try handle(message, event)
+            }
+            try Task.checkCancellation()
+        } catch {
+            pauseTask.cancel()
+            // Leaving the stream asks the bridge to stop the download after its current chunk; the run ends
+            // only once it has, so a new run can't overlap it. The bridge keeps running for browsing.
+            await bridge.waitUntilEnded(download.id, timeout: .seconds(5))
+            await pauseTask.value
+            throw error
+        }
+        pauseTask.cancel()
+        await pauseTask.value
+    }
+}
+
 /// Swallows icloudpd's "already exists" reports for items the drive check already counted, so they aren't
 /// counted a second time; reports past `limit` are counted as skips.
 struct SkipAbsorber {
@@ -462,6 +782,8 @@ final class ICloudChecksumScanner {
     private var excludedPaths: Set<String> = []
     /// Files already recorded under an asset ID: they get a checksum, but no `icloud:` path record.
     private var idPaths: Set<String> = []
+    /// Flat layout: files icloudpd reported writing or finding. Only these and `idPaths` are ever recorded there.
+    private var reportedPaths: Set<String> = []
 
     init(destination: URL, manifest: ExportManifest, layout: FolderLayout) {
         self.destination = destination
@@ -480,6 +802,49 @@ final class ICloudChecksumScanner {
     func noteRecordedByID(_ relativePaths: [String]) {
         idPaths.formUnion(relativePaths)
         excludedPaths.subtract(relativePaths)
+    }
+
+    /// Files icloudpd reported (relative paths): in the flat layout, the only unrecorded files a scan may record.
+    func noteReported(_ relativePaths: [String]) {
+        reportedPaths.formUnion(relativePaths)
+    }
+
+    /// Hashes and records the given files (relative paths) that have no checksum yet, without listing any
+    /// folder. Files recorded by ID get only a checksum; others an `icloud:` record too. Returns how many.
+    @discardableResult
+    func hash(_ relativePaths: [String]) throws -> Int {
+        var recorded = 0
+        for relativePath in relativePaths {
+            try Task.checkCancellation()
+            guard !knownPaths.contains(relativePath),
+                  !excludedPaths.contains(relativePath),
+                  ExportManifest.isSafeRelativePath(relativePath),
+                  relativePath.rangeOfCharacter(from: .controlCharacters) == nil
+            else { continue }
+            let url = destination.appending(path: relativePath, directoryHint: .notDirectory)
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let digest: String
+            do {
+                digest = try FileHasher.sha256(of: url)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                continue
+            }
+            try manifest.recordChecksums([relativePath: digest])
+            if !idPaths.contains(relativePath) {
+                try manifest.recordExport(of: Self.recordPrefix + relativePath, files: [relativePath])
+            }
+            knownPaths.insert(relativePath)
+            recorded += 1
+        }
+        return recorded
+    }
+
+    /// Hashes the files recorded by ID so far that have no checksum yet.
+    @discardableResult
+    func hashRecorded() throws -> Int {
+        try hash(idPaths.subtracting(knownPaths).sorted())
     }
 
     /// Hashes and records every new regular file under `folder`. Skips hidden files and folders
@@ -532,8 +897,13 @@ final class ICloudChecksumScanner {
 
     /// In the month layout icloudpd writes only to `YYYY/MM/name`; the user's own files elsewhere
     /// in the destination must not be recorded as downloads. Album runs scan only their own folder.
+    /// In the flat layout only files the engine reported are downloads (plan 7c).
     private func isDownloadPath(_ relativePath: String) -> Bool {
-        layout != .month || ICloudDownloadPaths.isMonthPath(relativePath)
+        switch layout {
+        case .month: ICloudDownloadPaths.isMonthPath(relativePath)
+        case .flat: idPaths.contains(relativePath) || reportedPaths.contains(relativePath)
+        default: true
+        }
     }
 
     private func relativePath(of url: URL) -> String? {

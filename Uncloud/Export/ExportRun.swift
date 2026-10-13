@@ -46,13 +46,15 @@ struct ExportBatch: Sendable {
     var finishedSinceSkip = 0
     /// Oldest first.
     var entries: [ActivityEntry] = []
+    /// The run's latest `.continuation`, for the export session.
+    var continuation: ExportSession.Continuation?
     /// Set on the last batch: how the export ended.
     var ending: Result<Void, Error>?
 
     static let maxEntries = 500
 
     var isEmpty: Bool {
-        prepared == nil && totalIncrease == 0 && processed == 0 && entries.isEmpty && ending == nil
+        prepared == nil && totalIncrease == 0 && processed == 0 && entries.isEmpty && ending == nil && continuation == nil
     }
 
     mutating func add(_ event: ExportEvent) {
@@ -88,6 +90,8 @@ struct ExportBatch: Sendable {
             log(.warning, "Couldn’t export \(name): \(reason)")
         case let .note(message):
             log(.info, message)
+        case let .continuation(continuation):
+            self.continuation = continuation
         }
     }
 

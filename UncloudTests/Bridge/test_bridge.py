@@ -632,8 +632,9 @@ class SessionsProtocolTests(unittest.TestCase):
             events = self.download(bridge, mode="allExcept", ids=["N0141"], startRank=140)
         finally:
             FakeAlbum.photos_request = original
-        # Queries for ranks 140-239 and 240-249 (and icloudpd's empty one that ends its walk), none before 140.
-        self.assertEqual(offsets, [140, 240, 250])
+        # Queries for ranks 140-239 and 235-249 (each page after the first starts a few items early, to notice
+        # removals), and icloudpd's empty one that ends its walk; none before 140.
+        self.assertEqual(offsets, [140, 140 + pb.PAGE_CHUNK - pb.WALK_OVERLAP, 250])
         done = [e for e in events if e["event"] in ("downloaded", "skipped", "failed")]
         self.assertEqual(done[0]["asset"], "N0140")
         self.assertEqual(len(done), 109)
@@ -645,6 +646,139 @@ class SessionsProtocolTests(unittest.TestCase):
         self.assertEqual(events[-1]["event"], "done")
         self.assertEqual(events[-1]["downloaded"], 109)
         self.assertEqual(len(tree(self.root)), 109)
+
+    def walk_while_changing(self, count, change):
+        """Downloads everything (allExcept, no IDs) while `change(samples, query_number)` edits the library
+        before each CloudKit query is answered. Returns the assets visited, in order."""
+        samples = self.many(count)
+        bridge, channel, session = make_bridge(samples)
+        original = FakeAlbum.photos_request
+        queries = []
+
+        def photos_request(album):
+            queries.append(album.offset)
+            change(samples, len(queries))
+            return original(album)
+
+        FakeAlbum.photos_request = photos_request
+        try:
+            events = self.download(bridge, mode="allExcept", ids=[])
+        finally:
+            FakeAlbum.photos_request = original
+        self.assertEqual(events[-1]["event"], "done")
+        return [e["asset"] for e in events if e["event"] in ("downloaded", "skipped", "failed")], samples
+
+    def test_a_removal_above_the_walk_does_not_skip_the_item_at_the_page_boundary(self):
+        # QC defect 3: after the first page (ranks 0-99) is visited, rank 10 is deleted, so the item that was at
+        # rank 100 moves up to 99. A plain offset walk asks for rank 100 next and never sees it.
+        def change(samples, query):
+            if query == 2:
+                del samples[10]
+
+        visited, samples = self.walk_while_changing(250, change)
+        self.assertIn("N0100", visited)
+        self.assertEqual(len(visited), len(set(visited)))
+        self.assertEqual(set(visited) - {"N0010"}, {master["recordName"] for master, _ in samples})
+
+    def test_more_removals_than_the_overlap_and_an_addition_are_handled_too(self):
+        def change(samples, query):
+            if query == 2:
+                del samples[5:5 + 3 * pb.WALK_OVERLAP]
+            if query == 4:
+                samples.insert(0, records("NEW", "IMG_NEW.JPG", "public.jpeg", ms(2021, 1, 1)))
+
+        visited, samples = self.walk_while_changing(300, change)
+        removed = {f"N{i:04d}" for i in range(5, 5 + 3 * pb.WALK_OVERLAP)}
+        expected = {master["recordName"] for master, _ in samples} - {"NEW"}
+        # Every item still there is visited once; the ones removed after being visited were visited before.
+        self.assertEqual(set(visited) - removed, expected)
+        self.assertEqual(len(visited), len(set(visited)))
+
+    def test_stop_at_ends_an_all_except_walk_before_that_asset(self):
+        bridge, channel, session = make_bridge(self.many(30))
+        events = self.download(bridge, mode="allExcept", ids=["N0001"], stopAt="N0004")
+        done = [e["asset"] for e in events if e["event"] in ("downloaded", "skipped", "failed")]
+        self.assertEqual(done, ["N0000", "N0002", "N0003"])
+        self.assertEqual(events[-1]["event"], "done")
+        self.assertEqual((events[-2]["done"], events[-2]["total"]), (3, 3))
+        bridge, channel, session = make_bridge(self.many(6))
+        bridge.handle({"id": 5, "cmd": "download", "dest": self.root, "mode": "only", "ids": ["N0000"],
+                       "stopAt": "N0001"}, downloading=False)
+        self.assertEqual(channel.messages[-1]["event"], "error")
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+
+    def test_a_file_that_appears_while_downloading_is_never_overwritten(self):
+        # QC defect 5: icloudpd chose the name when nothing was there; a file appears before the finished
+        # download is moved into place. It must be left alone, and the item fails (the next run names it again).
+        samples = self.many(6)
+        bridge, channel, session = make_bridge(samples)
+        target = os.path.join(self.root, "2020", "01", "IMG_0000.JPG")
+        original_get = FakeSession.get
+
+        def get(fake, url, headers=None, stream=False):
+            response = original_get(fake, url, headers, stream)
+            if "N0000" in url:
+                inner = response.iter_content
+
+                def iter_content(chunk_size=1024):
+                    for chunk in inner(chunk_size):
+                        yield chunk
+                    with open(target, "w") as handle:
+                        handle.write("the user's own file")
+
+                response.iter_content = iter_content
+            return response
+
+        FakeSession.get = get
+        try:
+            events = self.download(bridge, mode="allExcept", ids=[])
+        finally:
+            FakeSession.get = original_get
+        with open(target) as handle:
+            self.assertEqual(handle.read(), "the user's own file")
+        failed = [e for e in events if e["event"] == "failed"]
+        self.assertEqual([e["asset"] for e in failed], ["N0000"])
+        self.assertIn("FileAppeared", failed[0]["reason"])
+        self.assertEqual([e["asset"] for e in events if e["event"] == "downloaded"], [f"N000{i}" for i in range(1, 6)])
+        self.assertFalse([name for name in os.listdir(os.path.dirname(target)) if name.endswith(".part")])
+
+    def test_move_into_place_never_replaces_a_file(self):
+        temp = os.path.join(self.root, "x.part")
+        path = os.path.join(self.root, "x.JPG")
+        for content, name in (("download", temp), ("mine", path)):
+            with open(name, "w") as handle:
+                handle.write(content)
+        self.assertFalse(pb.move_into_place(temp, path))
+        with open(path) as handle:
+            self.assertEqual(handle.read(), "mine")
+        os.remove(path)
+        self.assertTrue(pb.move_into_place(temp, path))
+        self.assertFalse(os.path.exists(temp))
+        with open(path) as handle:
+            self.assertEqual(handle.read(), "download")
+
+    def test_move_without_hard_links_still_never_replaces_a_file(self):
+        # A file system without renamex_np or hard links (FAT32, some shares) takes the copy path.
+        import errno as errno_module
+        from unittest import mock
+
+        temp = os.path.join(self.root, "y.part")
+        path = os.path.join(self.root, "y.JPG")
+        with open(temp, "w") as handle:
+            handle.write("download")
+        with mock.patch.object(pb, "_renamex_excl", return_value=None), \
+                mock.patch.object(pb.os, "link", side_effect=OSError(errno_module.EPERM, "no links")):
+            with open(path, "w") as handle:
+                handle.write("mine")
+            self.assertFalse(pb.move_into_place(temp, path))
+            with open(path) as handle:
+                self.assertEqual(handle.read(), "mine")
+            self.assertTrue(os.path.exists(temp))
+            os.remove(path)
+            self.assertTrue(pb.move_into_place(temp, path))
+        self.assertFalse(os.path.exists(temp))
+        with open(path) as handle:
+            self.assertEqual(handle.read(), "download")
 
     def test_start_rank_in_only_mode_skips_lower_ranks_and_their_hints(self):
         samples = self.many(30)

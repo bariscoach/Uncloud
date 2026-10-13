@@ -8,7 +8,8 @@ Fake options:
   --rate R            downloads per second; 0 means as fast as possible (default 50)
   --auth-delay S      seconds before "ready" (default 0)
   --launch-log PATH   append "<pid> bridge" to PATH at start, then "<pid> page offset=N" for each page request,
-                      "<pid> download-start <id> startRank=R mode=M layout=L" for each download, and
+                      "<pid> download-start <id> startRank=R mode=M layout=L [stopAt=ID] ids=N" for each
+                      download (N: how many IDs the request carried), and
                       "<pid> download-ended <id>" when a download ends in the bridge
   --stats-delay S     seconds per stats page of 100 items (default 0)
   --chunks N          chunks per downloaded file (default 1)
@@ -32,6 +33,9 @@ Fake options:
   --live-every K      item numbers divisible by K (K > 0) are Live Photos: IMG_NNNNNN.JPG plus IMG_NNNNNN.MOV
   --movie-fails-at N  item number N's Live Photo movie fails to download: its photo is written, and the item is
                       reported "failed" with "paths" listing the photo, as the bridge reports a half-done item
+  --same-name-every K item numbers with N % K == 1 (K > 1) get item N-1's file name. Every photo is then exactly
+                      fake_bytes(N) bytes, and a name taken by a file of another size gets the size added, as
+                      icloudpd's name-size-dedup-with-suffix does: IMG_000000-1001.JPG (fake_icloudpd agrees)
 
 Speaks the bridge's JSON-lines protocol (page, count, albums, download, stats, cancel, pause, resume,
 ping) closely enough for the app: "ready" after signing in, downloads write DEST/YYYY/MM files through
@@ -45,7 +49,8 @@ on disk now, plus its XMP sidecar when the request asks for sidecars, written as
 
 Ranks: rank 0 is the newest item, as in icloudpd's walk, so an item added since the last walk is inserted at
 rank 0 and shifts every older item's rank by one. A page reply lists items from the "offset" rank on, with
-"rank" set on each. A download request walks ranks from "startRank" (default 0) to the end, and
+"rank" set on each. A download request walks ranks from "startRank" (default 0) to the end (or, with "stopAt", to just
+before that asset), and
 "layout": "none" puts files directly in DEST instead of DEST/YYYY/MM. Item i (by ID number) is
 fake_bytes(i) bytes in page and stats replies, and its file is IMG_NNNNNN.JPG.
 
@@ -69,7 +74,7 @@ def parse(argv):
     fake = {"total": 1000, "rate": 50.0, "auth_delay": 0.0, "launch_log": None, "stats_delay": 0.0,
             "chunks": 1, "chunk_delay": 0.0, "stuck": False, "remove_dest_at": None,
             "state": None, "insert_at": None, "insert_count": 1, "delete_at": None, "throttle_after": None,
-            "live_every": 0, "movie_fails_at": None}
+            "live_every": 0, "movie_fails_at": None, "same_name_every": 0}
     own = argv[:argv.index("--")] if "--" in argv else []
     index = 0
     while index < len(own):
@@ -106,6 +111,8 @@ def parse(argv):
             fake["live_every"] = int(own[index + 1]); index += 2
         elif flag == "--movie-fails-at":
             fake["movie_fails_at"] = int(own[index + 1]); index += 2
+        elif flag == "--same-name-every":
+            fake["same_name_every"] = int(own[index + 1]); index += 2
         else:
             index += 1
     return fake
@@ -203,12 +210,29 @@ def filename(index):
     return f"IMG_{index:06d}.JPG"
 
 
-def item_path(dest, index, flat=False):
+def display_name(fake, index):
+    """The item's file name in iCloud: with --same-name-every K, items N % K == 1 share item N-1's name."""
+    every = fake.get("same_name_every") or 0
+    if every > 1 and index % every == 1:
+        return filename(index - 1)
+    return filename(index)
+
+
+def item_path(dest, index, flat=False, fake=None):
+    name = display_name(fake, index) if fake else filename(index)
     if flat:
-        return os.path.join(dest, filename(index))
-    year = 2001 + index // 1200
-    month = 1 + (index // 100) % 12
-    return os.path.join(dest, f"{year:04d}", f"{month:02d}", filename(index))
+        path = os.path.join(dest, name)
+    else:
+        year = 2001 + index // 1200
+        month = 1 + (index // 100) % 12
+        path = os.path.join(dest, f"{year:04d}", f"{month:02d}", name)
+    if fake and (fake.get("same_name_every") or 0) > 1:
+        # icloudpd's name-size-dedup-with-suffix: a name taken by a file of another size gets the size added.
+        size = fake_bytes(index)
+        if os.path.exists(path) and os.path.getsize(path) != size:
+            stem, ext = os.path.splitext(path)
+            path = f"{stem}-{size}{ext}"
+    return path
 
 
 def fake_bytes(index):
@@ -266,7 +290,7 @@ class Bridge:
             items = []
             for rank in range(offset, min(total, offset + limit)):
                 asset_id, number = self.order[rank]
-                items.append({"id": asset_id, "rank": rank, "filename": filename(number), "created": None,
+                items.append({"id": asset_id, "rank": rank, "filename": display_name(self.fake, number), "created": None,
                               "type": "image", "size": fake_bytes(number), "bytes": fake_bytes(number),
                               "thumbURL": None})
             self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
@@ -332,6 +356,12 @@ class Bridge:
                     os.remove(part)
                     return False
                 self.serve_waiting()
+            if (self.fake["same_name_every"] or 0) > 1 and not path.endswith(".MOV"):
+                padding = fake_bytes(index) - handle.tell()
+                if padding > 0:
+                    handle.write(b"\0" * padding)
+                else:
+                    handle.truncate(fake_bytes(index))
         os.replace(part, path)
         return True
 
@@ -352,10 +382,17 @@ class Bridge:
         start_rank = max(0, int(request.get("startRank") or 0))
         layout = request.get("layout") or "month"
         flat = layout == "none"
+        stop_at = request.get("stopAt")
         self.log(f"download-start {request_id} startRank={start_rank} "
-                 f"mode={'only' if only else 'allExcept'} layout={layout}")
+                 f"mode={'only' if only else 'allExcept'} layout={layout}"
+                 + (f" stopAt={stop_at}" if stop_at else "") + f" ids={len(ids)}")
+        walked = self.order
+        if stop_at is not None:
+            ranks = [rank for rank, (asset_id, _) in enumerate(self.order) if asset_id == stop_at and rank >= start_rank]
+            if ranks:
+                walked = self.order[:ranks[0]]
         chosen = [(rank, asset_id, number)
-                  for rank, (asset_id, number) in enumerate(self.order)
+                  for rank, (asset_id, number) in enumerate(walked)
                   if rank >= start_rank and ((asset_id in ids) == only)]
         counts = {"downloaded": 0, "skipped": 0, "failed": 0}
         channel.send({"id": request_id, "event": "progress", "done": 0, "total": len(chosen)})
@@ -369,8 +406,8 @@ class Bridge:
                     break
             if channel.is_cancelled(request_id):
                 break
-            path = item_path(request["dest"], number, flat)
-            base = {"id": request_id, "asset": asset, "rank": rank, "filename": filename(number)}
+            path = item_path(request["dest"], number, flat, self.fake)
+            base = {"id": request_id, "asset": asset, "rank": rank, "filename": display_name(self.fake, number)}
             if position == self.fake["remove_dest_at"]:
                 shutil.rmtree(request["dest"], ignore_errors=True)
                 counts["failed"] += 1

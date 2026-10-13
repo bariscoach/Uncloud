@@ -53,7 +53,10 @@ struct ExportCancellationTests {
         let fakeBridge: URL
         let appleID = "fake-\(UUID().uuidString.prefix(8))@example.invalid"
 
-        init(icloudpd: [String] = [], bridge: [String] = []) throws {
+        /// `bridgeForEverything` routes whole-library month and flat exports through the bridge (the app's default);
+        /// by default only fixtures that configure the fake bridge do, so icloudpd fixtures keep running icloudpd.
+        init(icloudpd: [String] = [], bridge: [String] = [], bridgeForEverything: Bool? = nil) throws {
+            UserDefaults.standard.set(bridgeForEverything ?? !bridge.isEmpty, forKey: ICloudExportEngine.fullExportsUseBridgeKey)
             guard let python = ICloudAccount.helperURL ?? ICloudAccount.helperOverride?.executableURL else {
                 throw CancellationError()
             }
@@ -132,6 +135,7 @@ struct ExportCancellationTests {
         func tearDown() {
             ICloudBridge.shared(appleID: appleID).terminate()
             ICloudAccount.helperOverride = nil
+            UserDefaults.standard.removeObject(forKey: ICloudExportEngine.fullExportsUseBridgeKey)
             try? FileManager.default.removeItem(at: root)
         }
     }
@@ -412,7 +416,7 @@ struct ExportCancellationTests {
     }
 
     @Test func shutdownStopsRunningAndPausedHelpersAndBridgesAndTheRunResumes() async throws {
-        let fixture = try Fixture(icloudpd: ["--total", "400", "--rate", "100"], bridge: ["--total", "100"])
+        let fixture = try Fixture(icloudpd: ["--total", "400", "--rate", "100"], bridge: ["--total", "100"], bridgeForEverything: false)
         defer { fixture.tearDown() }
         let otherDestination = fixture.root.appending(path: "paused", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: otherDestination, withIntermediateDirectories: true)

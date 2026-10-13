@@ -11,6 +11,8 @@ enum ExportEvent: Sendable {
     case skipped
     case failed(name: String, reason: String)
     case note(String)
+    /// How the run continues from earlier exports, for the export session (iCloud).
+    case continuation(ExportSession.Continuation)
 }
 
 enum ExportError: LocalizedError {

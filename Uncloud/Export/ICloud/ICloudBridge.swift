@@ -17,6 +17,8 @@ struct ICloudBridgeRequest: Encodable, Sendable {
     var hints: [String: Int]?
     /// Download only: the first rank visited; items ranked below it are skipped without being paged.
     var startRank: Int?
+    /// allExcept downloads only: the walk ends when it reaches this asset (not visited), or at the library's end.
+    var stopAt: String?
     /// Cancel, pause and resume: the request they apply to.
     var target: Int?
 }
@@ -119,6 +121,9 @@ struct ICloudBridgeDownloadOptions: Sendable, Equatable {
     /// The first rank visited: the walk pages from here, and items ranked below it (and their hints)
     /// are never visited. 0 walks everything.
     var startRank = 0
+    /// `.allExcept`: the walk ends when it reaches this asset, without visiting it (or at the end of the
+    /// library, when it isn't there). nil walks to the end.
+    var stopAt: String?
 
     var request: ICloudBridgeRequest {
         ICloudBridgeRequest(
@@ -130,7 +135,8 @@ struct ICloudBridgeDownloadOptions: Sendable, Equatable {
             album: album,
             xmp: writesSidecars,
             hints: rankHints,
-            startRank: startRank > 0 ? startRank : nil
+            startRank: startRank > 0 ? startRank : nil,
+            stopAt: stopAt
         )
     }
 }

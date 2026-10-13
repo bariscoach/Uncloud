@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// The paths icloudpd writes, shared by the checksum scanner and the drive check, so both agree on which
 /// files in a destination are downloads and which are the user's own.
@@ -18,18 +19,53 @@ enum ICloudDownloadPaths {
         return parts.count == 2 && !parts[0].isEmpty && !parts[1].isEmpty
     }
 
-    /// Whether an unrecorded file at `relativePath` is one icloudpd wrote for an export in `layout`: month
-    /// folders in the month and album layouts, album folders in the album layout. Never in the flat layout,
-    /// where the user's own files sit next to the downloads and only reported paths are recorded (plan 7c).
+    /// The layout an iCloud download's file belongs to: `YYYY/MM/name` by month, `name` all in one folder,
+    /// `Album/name` by album. Nil for anything else.
+    static func layout(of relativePath: String) -> FolderLayout? {
+        if isMonthPath(relativePath) { return .month }
+        if !relativePath.isEmpty, !relativePath.contains("/") { return .flat }
+        if isAlbumPath(relativePath) { return .album }
+        return nil
+    }
+
+    /// Whether an item recorded with these files was saved in `layout`, so a run in that layout finds it there.
+    /// icloudpd only looks at the current layout's paths: items saved in another layout are downloaded again.
+    /// The album layout keeps every item (an album run can find month files, and albums overlap).
+    static func isItem(paths: [String], in layout: FolderLayout) -> Bool {
+        switch layout {
+        case .month, .place, .placeThenMonth:
+            !paths.isEmpty && paths.allSatisfy(isMonthPath)
+        case .flat:
+            !paths.isEmpty && paths.allSatisfy { !$0.isEmpty && !$0.contains("/") }
+        case .album:
+            true
+        }
+    }
+
+    /// Whether an unrecorded file at `relativePath` is one icloudpd wrote for an export in `layout`: a photo,
+    /// video or sidecar (`hasDownloadExtension`) in a month folder (month and album layouts) or an album folder
+    /// (album layout). Never in the flat layout, where the user's own files sit next to the downloads and only
+    /// reported paths are recorded (plan 7c). Documents such as `2024/07/notes.txt` or `Trips/plan.pdf` never are.
     static func isDownloadPath(_ relativePath: String, layout: FolderLayout) -> Bool {
+        guard hasDownloadExtension(relativePath) else { return false }
         switch layout {
         case .flat:
-            false
+            return false
         case .album:
-            isMonthPath(relativePath) || isAlbumPath(relativePath)
+            return isMonthPath(relativePath) || isAlbumPath(relativePath)
         case .month, .place, .placeThenMonth:
-            isMonthPath(relativePath)
+            return isMonthPath(relativePath)
         }
+    }
+
+    /// Whether the file's name ends like something icloudpd downloads: an image or video (by its uniform type,
+    /// RAW formats included) or an XMP sidecar. Documents, text and files without an extension don't.
+    static func hasDownloadExtension(_ relativePath: String) -> Bool {
+        let ext = (relativePath as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty else { return false }
+        if ext == "xmp" { return true }
+        guard let type = UTType(filenameExtension: ext) else { return false }
+        return type.conforms(to: .image) || type.conforms(to: .audiovisualContent)
     }
 }
 
@@ -51,7 +87,9 @@ enum ICloudItemCount {
     ///   - records: Manifest records, key to relative paths (`ExportManifest.records(in:)`).
     ///   - selection: Only items it contains count. Path-only records have no ID: they count for `allExcept`
     ///     selections (approximately), and not at all for `only`.
-    static func count(records: [String: [String]], selection: LibrarySelection = .everything) -> Count {
+    ///   - layout: When set, only items saved in that layout count (`ICloudDownloadPaths.isItem`): a run in
+    ///     another layout downloads them again.
+    static func count(records: [String: [String]], selection: LibrarySelection = .everything, layout: FolderLayout? = nil) -> Count {
         var exact = 0
         var idPaths: Set<String> = []
         var supersededPartials: Set<String> = []
@@ -59,13 +97,15 @@ enum ICloudItemCount {
             let asset = String(key.dropFirst(ExportManifest.iCloudIDPrefix.count))
             idPaths.formUnion(paths)
             supersededPartials.insert(asset)
-            if selection.contains(asset) {
+            if selection.contains(asset), layout.map({ ICloudDownloadPaths.isItem(paths: paths, in: $0) }) ?? true {
                 exact += 1
             }
         }
         var legacyPaths: [String] = []
         for (key, paths) in records where key.hasPrefix(ExportManifest.iCloudPathPrefix) {
-            legacyPaths.append(contentsOf: paths.filter { !idPaths.contains($0) })
+            legacyPaths.append(contentsOf: paths.filter { path in
+                !idPaths.contains(path) && (layout.map { ICloudDownloadPaths.isItem(paths: [path], in: $0) } ?? true)
+            })
         }
         let grouped: Int
         if case .only = selection {
@@ -74,6 +114,31 @@ enum ICloudItemCount {
             grouped = groupedItemCount(paths: legacyPaths)
         }
         return Count(exact: exact, grouped: grouped)
+    }
+
+    /// Items saved in each layout (by month, all in one folder, by album), from the files their records list.
+    /// Used to warn before a layout change that would download everything again.
+    static func itemsByLayout(records: [String: [String]]) -> [FolderLayout: Int] {
+        var counts: [FolderLayout: Int] = [:]
+        var idPaths: Set<String> = []
+        for (key, paths) in records where key.hasPrefix(ExportManifest.iCloudIDPrefix) {
+            idPaths.formUnion(paths)
+            guard let first = paths.first(where: { ($0 as NSString).pathExtension.lowercased() != "xmp" }) ?? paths.first,
+                  let layout = ICloudDownloadPaths.layout(of: first) else { continue }
+            counts[layout, default: 0] += 1
+        }
+        var legacy: [FolderLayout: [String]] = [:]
+        for (key, paths) in records where key.hasPrefix(ExportManifest.iCloudPathPrefix) {
+            for path in paths where !idPaths.contains(path) {
+                if let layout = ICloudDownloadPaths.layout(of: path) {
+                    legacy[layout, default: []].append(path)
+                }
+            }
+        }
+        for (layout, paths) in legacy {
+            counts[layout, default: 0] += groupedItemCount(paths: paths)
+        }
+        return counts
     }
 
     /// The number of items a set of files makes: one per file, except XMP sidecars and Live Photo movies
@@ -138,6 +203,20 @@ struct DriveCheckReport: Equatable, Sendable {
     /// Files listed in this check.
     var filesListed: Int
     var seconds: Double
+    /// iCloud asset IDs whose records this check forgot (missing or damaged files), so an export fetches them
+    /// again even below its resume point.
+    var forgottenItemIDs: [String] = []
+    /// Files that are empty or changed size but that Uncloud can't prove it wrote (path-only records without
+    /// a checksum, documents, untracked files). Reported only: never moved, never forgotten.
+    var changedFiles: [String] = []
+    /// Damaged files that couldn't be moved aside, with the reason. They stay where they are, keep their
+    /// records, and keep their last good size in `files.tsv`, so the next check flags them again.
+    var setAsideFailures: [SetAsideFailure] = []
+
+    struct SetAsideFailure: Equatable, Sendable {
+        var path: String
+        var reason: String
+    }
 
     /// The summary stored in the export session.
     var summary: ExportSession.DriveCheckSummary {
@@ -194,8 +273,10 @@ enum DriveCheck {
     struct Plan: Equatable, Sendable {
         /// Record keys to forget because a file is missing, with the missing files.
         var missing: [String: [String]] = [:]
-        /// Record keys with a damaged file, with those files.
+        /// Record keys with a damaged file Uncloud provably wrote, with those files. These are set aside.
         var damaged: [String: [String]] = [:]
+        /// Files that are empty or changed size but that Uncloud can't prove it wrote: reported only.
+        var changed: [String] = []
         /// Unrecorded files at icloudpd paths, to record by path.
         var register: [String] = []
         var otherFiles = 0
@@ -223,12 +304,18 @@ enum DriveCheck {
     }
 
     /// The reconcile rules, without touching the drive.
+    ///
+    /// Only files Uncloud provably wrote are ever set aside: those of `icloud-id:` records and Photos library
+    /// records, and `icloud:` path-only files that carry a checksum and look like a download. Any other file
+    /// that is empty or changed size (path-only without a checksum, a document, an untracked file) is listed in
+    /// `changed` and left alone.
     static func plan(
         records: [String: [String]],
         inventory: [String: FilesSnapshot.FileEntry],
         previous: FilesSnapshot?,
         source: LibrarySource,
-        layout: FolderLayout
+        layout: FolderLayout,
+        checksummedPaths: Set<String> = []
     ) -> Plan {
         var plan = Plan()
         var recordedPaths: Set<String> = []
@@ -249,6 +336,7 @@ enum DriveCheck {
                 continue
             }
             recordedPaths.formUnion(paths)
+            let isPathOnly = key.hasPrefix(ExportManifest.iCloudPathPrefix)
             var missing: [String] = []
             var damaged: [String] = []
             for path in paths {
@@ -257,7 +345,11 @@ enum DriveCheck {
                     continue
                 }
                 if isDamaged(path: path, entry: entry, previous: previous?.files[path]) {
-                    damaged.append(path)
+                    if !isPathOnly || (checksummedPaths.contains(path) && ICloudDownloadPaths.hasDownloadExtension(path)) {
+                        damaged.append(path)
+                    } else {
+                        plan.changed.append(path)
+                    }
                 }
             }
             if !missing.isEmpty {
@@ -268,15 +360,20 @@ enum DriveCheck {
             }
         }
 
-        for path in inventory.keys where !recordedPaths.contains(path) {
+        for (path, entry) in inventory where !recordedPaths.contains(path) {
             if source == .iCloud, ICloudDownloadPaths.isDownloadPath(path, layout: layout),
                ExportManifest.isSafeRelativePath(path) {
                 plan.register.append(path)
             } else {
                 plan.otherFiles += 1
             }
+            // An untracked file that changed size is reported, never moved.
+            if let before = previous?.files[path], before.size != entry.size {
+                plan.changed.append(path)
+            }
         }
         plan.register.sort()
+        plan.changed = Array(Set(plan.changed)).sorted()
         return plan
     }
 
@@ -295,7 +392,8 @@ enum DriveCheck {
         source: LibrarySource,
         selection: LibrarySelection,
         selectedCount: Int,
-        libraryIDs: Set<String>?
+        libraryIDs: Set<String>?,
+        layout: FolderLayout? = nil
     ) -> (count: Int, isApproximate: Bool) {
         var count: Int
         var isApproximate = false
@@ -304,7 +402,7 @@ enum DriveCheck {
             let ids = records.keys.filter { !$0.hasPrefix(ExportManifest.iCloudPathPrefix) && !$0.hasPrefix("icloud-") }
             count = ids.count { selection.contains($0) && (libraryIDs?.contains($0) ?? true) }
         case .iCloud:
-            let items = ICloudItemCount.count(records: records, selection: selection)
+            let items = ICloudItemCount.count(records: records, selection: selection, layout: layout)
             count = items.total
             isApproximate = items.isApproximate
         }
@@ -324,8 +422,9 @@ enum DriveCheck {
     ) throws -> DriveCheckReport {
         let destination = input.destination
         var records = ExportManifest.records(in: destination)
+        let checksummed = Set(ExportManifest.checksums(in: destination).keys)
         let plan = plan(records: records, inventory: inventory.files, previous: previous,
-                        source: input.source, layout: input.layout)
+                        source: input.source, layout: input.layout, checksummedPaths: checksummed)
         guard input.changesDrive else {
             return report(input, inventory: inventory, plan: plan, records: records,
                           setAside: [], register: [], started: started)
@@ -333,11 +432,24 @@ enum DriveCheck {
 
         // Damaged files are moved out of the way first; an item is forgotten only once its file has moved,
         // so a file that couldn't be moved is never downloaded a second time next to itself.
+        // Each file is moved on its own, so one that can't be moved neither stops the others nor goes unreported.
         var setAside: [String] = []
+        var failures: [DriveCheckReport.SetAsideFailure] = []
         var forgotten = Set(plan.missing.keys)
         if !plan.damaged.isEmpty {
-            let paths = Array(Set(plan.damaged.values.flatMap { $0 })).sorted()
-            let moved = (try? ExportManifest.setAside(paths: paths, session: input.setAsideFolder, in: destination)) ?? [:]
+            var moved: [String: URL] = [:]
+            for path in Array(Set(plan.damaged.values.flatMap { $0 })).sorted() {
+                do {
+                    let result = try ExportManifest.setAside(paths: [path], session: input.setAsideFolder, in: destination)
+                    if let target = result[path] {
+                        moved[path] = target
+                    } else {
+                        failures.append(.init(path: path, reason: "It was gone by the time it was to be moved."))
+                    }
+                } catch {
+                    failures.append(.init(path: path, reason: Self.reason(for: error)))
+                }
+            }
             setAside = moved.keys.sorted()
             for (key, files) in plan.damaged where files.allSatisfy({ moved[$0] != nil }) {
                 forgotten.insert(key)
@@ -375,10 +487,22 @@ enum DriveCheck {
         for path in setAside {
             snapshot.files[path] = nil
         }
+        // A damaged file that couldn't be moved keeps its last good size, and its folder is listed again next
+        // time (a quick check reuses unchanged folders), so the next check still flags it.
+        for failure in failures {
+            snapshot.files[failure.path] = previous?.files[failure.path]
+            // Kept (a quick check only walks into folders the snapshot lists) but with a time no folder has.
+            snapshot.directories[Self.parentFolder(of: failure.path)] = -1
+        }
         try? ExportManifest.writeFilesSnapshot(snapshot, in: destination)
 
-        return report(input, inventory: inventory, plan: plan, records: records,
-                      setAside: setAside, register: register, started: started)
+        var report = report(input, inventory: inventory, plan: plan, records: records,
+                            setAside: setAside, register: register, started: started)
+        report.setAsideFailures = failures
+        report.forgottenItemIDs = forgotten.compactMap { key in
+            key.hasPrefix(ExportManifest.iCloudIDPrefix) ? String(key.dropFirst(ExportManifest.iCloudIDPrefix.count)) : nil
+        }.sorted()
+        return report
     }
 
     private static func report(
@@ -391,7 +515,8 @@ enum DriveCheck {
         started: ContinuousClock.Instant
     ) -> DriveCheckReport {
         let counted = onDrive(records: records, source: input.source, selection: input.selection,
-                              selectedCount: input.selectedCount, libraryIDs: input.libraryIDs)
+                              selectedCount: input.selectedCount, libraryIDs: input.libraryIDs,
+                              layout: input.source == .iCloud && input.layout != .album ? input.layout : nil)
         let elapsed = started.duration(to: .now)
         return DriveCheckReport(
             mode: inventory.mode,
@@ -409,7 +534,24 @@ enum DriveCheck {
             partialFiles: inventory.partialFileCount + plan.partialItemFiles,
             partialItems: plan.partialItems,
             filesListed: inventory.files.count,
-            seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+            seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18,
+            changedFiles: plan.changed
         )
+    }
+
+    private static func parentFolder(of path: String) -> String {
+        guard let slash = path.lastIndex(of: "/") else { return "" }
+        return String(path[..<slash])
+    }
+
+    /// A short reason a file couldn't be set aside, for the report and Activity.
+    private static func reason(for error: Error) -> String {
+        if let error = error as? ManifestError {
+            switch error {
+            case .unsafePath: return "Its path leads outside the folder, so it was left where it is."
+            case .unrecordableField: return "Its name can’t be recorded."
+            }
+        }
+        return error.localizedDescription
     }
 }

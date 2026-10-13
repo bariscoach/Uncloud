@@ -21,8 +21,7 @@ struct ActivitySection: View {
             .frame(minHeight: 120, maxHeight: 240)
             .padding(.top, 8)
         } label: {
-            Text("Activity")
-                .font(.headline)
+            SectionTitle(title: "Activity", symbol: "list.bullet", tint: .gray)
         }
     }
 }

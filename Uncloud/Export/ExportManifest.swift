@@ -15,6 +15,8 @@ final class ExportManifest {
     private static let layoutName = "layout"
     private static let filesSnapshotName = "files.tsv"
     private static let setAsideFolderName = "set-aside"
+    /// The iCloud resume point (`ICloudResumePoint.fileName`).
+    private static let resumePointName = "resume.json"
     /// Journal key prefix for iCloud items recorded by asset ID: `icloud-id:<assetID><TAB>path…`.
     static let iCloudIDPrefix = "icloud-id:"
     /// Journal key prefix for iCloud items that are only partly on the drive, such as a Live Photo whose
@@ -132,11 +134,21 @@ final class ExportManifest {
         if let unsafe = paths.first(where: { !isSafeRelativePath($0) }) {
             throw ManifestError.unsafePath(unsafe)
         }
+        // The path text is safe; the folders on it must be real folders inside the destination too. A symbolic
+        // link anywhere on the way (a folder or the file itself) could make the move reach outside it.
+        try requireInsideDestination(".photo-export/\(setAsideFolderName)/\(session)", in: destination)
+        for path in paths {
+            try requireInsideDestination(path, in: destination)
+        }
         let sessionFolder = folder(in: destination)
             .appending(path: setAsideFolderName, directoryHint: .isDirectory)
             .appending(path: session, directoryHint: .isDirectory)
         var moved: [String: URL] = [:]
         for path in paths {
+            // Checked again right before the move, in case a folder was swapped for a link meanwhile, and the
+            // place it goes to as well.
+            try requireInsideDestination(path, in: destination)
+            try requireInsideDestination(".photo-export/\(setAsideFolderName)/\(session)/\(path)", in: destination)
             let source = destination.appending(path: path)
             guard FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) else { continue }
 
@@ -146,6 +158,34 @@ final class ExportManifest {
             moved[path] = target
         }
         return moved
+    }
+
+    /// Throws `unsafePath` unless every existing component of `relativePath` under `destination` is a plain file or
+    /// folder (not a symbolic link), and the resolved location stays inside the resolved destination.
+    private static func requireInsideDestination(_ relativePath: String, in destination: URL) throws {
+        let fileManager = FileManager.default
+        let root = destination.standardizedFileURL.resolvingSymlinksInPath()
+        var current = destination.standardizedFileURL
+        for component in relativePath.split(separator: "/") {
+            current = current.appending(path: String(component))
+            let path = current.path(percentEncoded: false)
+            // lstat: attributesOfItem doesn't follow a final symbolic link.
+            guard let attributes = try? fileManager.attributesOfItem(atPath: path) else { break }
+            if attributes[.type] as? FileAttributeType == .typeSymbolicLink {
+                throw ManifestError.unsafePath(relativePath)
+            }
+        }
+        // Where the deepest existing folder on the path really is: inside the destination, wherever that is
+        // (the destination itself may be reached through a link, such as /Volumes or /var).
+        var existing = destination.appending(path: relativePath).deletingLastPathComponent().standardizedFileURL
+        while !fileManager.fileExists(atPath: existing.path(percentEncoded: false)), existing.pathComponents.count > 1 {
+            existing = existing.deletingLastPathComponent()
+        }
+        let resolved = existing.resolvingSymlinksInPath().path(percentEncoded: false)
+        let rootPath = root.path(percentEncoded: false)
+        guard resolved == rootPath || resolved.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/") else {
+            throw ManifestError.unsafePath(relativePath)
+        }
     }
 
     /// Appends records (`key<TAB>path…`) to `exported.tsv` without opening a run, for the drive check.
@@ -202,12 +242,19 @@ final class ExportManifest {
 
     /// Removes items from `exported.tsv` and their paths from `checksums.tsv`, so the next run exports them again.
     /// Files already on disk are left alone. Don't call while an export is running.
+    ///
+    /// Forgetting any iCloud record (`icloud-id:` or `icloud:`) invalidates the resume point first: the point
+    /// promises that every item above its anchor is on the drive, which is no longer true, so the next export
+    /// walks the whole library and fetches the forgotten items again.
     static func forget(_ localIdentifiers: Set<String>, in destination: URL) throws {
         guard !localIdentifiers.isEmpty else { return }
         let directory = folder(in: destination)
 
         let forgotten = records(in: destination).filter { localIdentifiers.contains($0.key) }
         let forgottenPaths = Set(forgotten.values.flatMap { $0 })
+        if forgotten.keys.contains(where: { $0.hasPrefix(iCloudIDPrefix) || $0.hasPrefix(iCloudPathPrefix) }) {
+            try invalidateResumePoint(in: destination)
+        }
 
         let journalURL = directory.appending(path: journalName)
         let keptJournal = readLines(at: journalURL).lines.filter { line in
@@ -223,6 +270,20 @@ final class ExportManifest {
                 return !forgottenPaths.contains(path)
             }
             try replaceFile(at: checksumsURL, with: keptChecksums.map { $0 + "\n" }.joined())
+        }
+    }
+
+    /// Deletes `.photo-export/resume.json`, so the next whole-library iCloud export walks the whole library
+    /// instead of continuing from its anchor. A missing point reads as "no point". Removing a file is atomic;
+    /// a point that's already gone is fine.
+    static func invalidateResumePoint(in destination: URL) throws {
+        let url = folder(in: destination).appending(path: resumePointName)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch CocoaError.fileNoSuchFile {
+            return
+        } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+            return
         }
     }
 
@@ -324,14 +385,28 @@ final class ExportManifest {
         return handle
     }
 
-    /// Replaces a file's contents through a temporary file in the same folder.
+    /// Replaces a file's contents through a temporary file in the same folder. The temporary file is forced to
+    /// the disk before the rename, and the folder after it, so a crash or an unplugged drive leaves the old
+    /// contents or the new ones, never an empty or partial file.
     private static func replaceFile(at url: URL, with text: String) throws {
-        let temporary = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).tmp")
+        let directory = url.deletingLastPathComponent()
+        let temporary = directory.appending(path: ".\(url.lastPathComponent).tmp")
         try Data(text.utf8).write(to: temporary)
+        do {
+            let handle = try FileHandle(forWritingTo: temporary)
+            defer { try? handle.close() }
+            try handle.synchronize()
+        }
         if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
         } else {
             try FileManager.default.moveItem(at: temporary, to: url)
+        }
+        // The rename itself, best effort: not every file system supports syncing a folder.
+        let descriptor = open(directory.path(percentEncoded: false), O_RDONLY)
+        if descriptor >= 0 {
+            _ = fsync(descriptor)
+            close(descriptor)
         }
     }
 }

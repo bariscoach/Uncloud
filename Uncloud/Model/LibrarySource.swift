@@ -14,4 +14,12 @@ enum LibrarySource: String, CaseIterable, Identifiable, Sendable {
         case .photosLibrary: "Photos Library on This Mac"
         }
     }
+
+    /// How copying items reads in plain language: iCloud items are "downloaded", Photos library items "exported".
+    var copiedVerb: String {
+        switch self {
+        case .iCloud: "downloaded"
+        case .photosLibrary: "exported"
+        }
+    }
 }

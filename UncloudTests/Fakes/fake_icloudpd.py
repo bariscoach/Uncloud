@@ -20,6 +20,10 @@ Fake options:
   --throttle-state PATH counts the throttled runs across launches
   --live-every K        item numbers divisible by K (K > 0) are Live Photos: IMG_NNNNNN.JPG plus IMG_NNNNNN.MOV,
                         each reported on its own line, as icloudpd does
+  --same-name-every K   item numbers with N % K == 1 (K > 1) get item N-1's file name, every photo is exactly
+                        1000 + N bytes, and a name taken by a file of another size gets the size added
+                        (icloudpd's name-size-dedup-with-suffix), as in fake_bridge.py
+With icloudpd's --folder-structure none, files go directly in DEST instead of DEST/YYYY/MM.
 With icloudpd's --xmp-sidecar, each photo also gets a NAME.xmp sidecar next to it (not reported).
 
 Behaves like icloudpd where the app depends on it: log lines on stdout as
@@ -45,7 +49,7 @@ def parse(argv):
     fake = {"total": 100, "rate": 50.0, "prepare_delay": 0.0, "child": False, "child_ignores_term": False,
             "launch_log": None, "term_delay": None, "throttle_after": None, "throttle_level": "INFO",
             "throttle_message": "Apple iCloud is temporary refusing to serve icloudpd",
-            "throttle_runs": None, "throttle_state": None, "live_every": 0}
+            "throttle_runs": None, "throttle_state": None, "live_every": 0, "same_name_every": 0}
     if "--" in argv:
         split = argv.index("--")
         own, rest = argv[:split], argv[split + 1:]
@@ -76,6 +80,8 @@ def parse(argv):
             fake["throttle_state"] = own[index + 1]; index += 2
         elif flag == "--live-every":
             fake["live_every"] = int(own[index + 1]); index += 2
+        elif flag == "--same-name-every":
+            fake["same_name_every"] = int(own[index + 1]); index += 2
         elif flag == "--child":
             fake["child"] = True; index += 1
         elif flag == "--child-ignores-term":
@@ -83,9 +89,11 @@ def parse(argv):
         else:
             index += 1
     real = {"dest": None, "auth_only": "--auth-only" in rest, "list_albums": "--list-albums" in rest,
-            "xmp": "--xmp-sidecar" in rest}
+            "xmp": "--xmp-sidecar" in rest, "flat": False}
     if "-d" in rest:
         real["dest"] = rest[rest.index("-d") + 1]
+    if "--folder-structure" in rest:
+        real["flat"] = rest[rest.index("--folder-structure") + 1] == "none"
     return fake, real
 
 
@@ -100,10 +108,21 @@ def start_child(ignores_term: bool, tag: str):
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def item_path(dest: str, index: int) -> str:
-    year = 2001 + index // 1200
-    month = 1 + (index // 100) % 12
-    return os.path.join(dest, f"{year:04d}", f"{month:02d}", f"IMG_{index:06d}.JPG")
+def item_path(dest: str, index: int, flat: bool = False, same_name_every: int = 0) -> str:
+    number = index - 1 if same_name_every > 1 and index % same_name_every == 1 else index
+    name = f"IMG_{number:06d}.JPG"
+    if flat:
+        path = os.path.join(dest, name)
+    else:
+        year = 2001 + index // 1200
+        month = 1 + (index // 100) % 12
+        path = os.path.join(dest, f"{year:04d}", f"{month:02d}", name)
+    if same_name_every > 1:
+        size = 1000 + index
+        if os.path.exists(path) and os.path.getsize(path) != size:
+            stem, ext = os.path.splitext(path)
+            path = f"{stem}-{size}{ext}"
+    return path
 
 
 def slow_exit(delay: float, launch_log):
@@ -166,7 +185,7 @@ def main(argv) -> int:
     downloaded = 0
     started = time.monotonic()
     for index in range(total):
-        path = item_path(dest, index)
+        path = item_path(dest, index, real["flat"], fake["same_name_every"])
         live = fake["live_every"] > 0 and index % fake["live_every"] == 0
         for file_path in [path] + ([os.path.splitext(path)[0] + ".MOV"] if live else []):
             if os.path.exists(file_path):
@@ -183,7 +202,10 @@ def main(argv) -> int:
                 downloaded += 1
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path + ".part", "wb") as handle:
-                handle.write(f"photo {index}\n".encode())
+                content = f"photo {index}\n".encode()
+                if fake["same_name_every"] > 1 and file_path == path:
+                    content = content.ljust(1000 + index, b"\0")
+                handle.write(content)
             os.replace(file_path + ".part", file_path)
             log("INFO", f"Downloaded {file_path}")
             if real["xmp"] and file_path == path:

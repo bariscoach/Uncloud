@@ -240,6 +240,21 @@ struct SetAsideTests {
             #expect(try String(contentsOf: destination.appending(path: "2024/07/IMG_0001.HEIC"), encoding: .utf8) == "mine")
         }
     }
+
+    /// QC5: a folder on the path that is a symbolic link must not let a set-aside reach outside the destination.
+    @Test func setAsideNeverMovesAFileFromOutsideTheDestinationThroughASymlink() throws {
+        try withTemporaryDirectory { root in
+            let destination = root.appending(path: "dest", directoryHint: .isDirectory)
+            let outside = root.appending(path: "outside", directoryHint: .isDirectory)
+            try writeFile("not the destination's", to: "07/IMG_0001.HEIC", in: outside)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(at: destination.appending(path: "2024"), withDestinationURL: outside)
+
+            _ = try? ExportManifest.setAside(paths: ["2024/07/IMG_0001.HEIC"], session: "S1", in: destination)
+
+            #expect(FileManager.default.fileExists(atPath: outside.appending(path: "07/IMG_0001.HEIC").path(percentEncoded: false)))
+        }
+    }
 }
 
 @Suite("ExportManifest backward compatibility")

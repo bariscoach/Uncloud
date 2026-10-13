@@ -25,6 +25,11 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
       "All in One Folder" layout); album: DEST/NAME for the items of album NAME.
       startRank (default 0): items at ranks below R are never visited, so a walk pages from rank R
       (in only mode, hints below R are ignored too). In allExcept mode, IDs in "ids" cost no file check.
+      stopAt (allExcept only): the walk ends when it reaches that asset, without visiting it, or at the
+      end of the library when it isn't there. A walk pages with a small overlap, so an item removed
+      above it while it runs doesn't make it miss the item that moves up past a page boundary.
+      A finished file is moved to its name without ever replacing a file that appeared there
+      meanwhile; that item fails instead (FileAppeared) and the next run names it again.
       -> {"event":"progress","done":D,"total":T} whenever either changes, then per item one of
          {"event":"downloaded","asset","rank","filename","path","paths","files"},
          {"event":"skipped","asset","rank","filename","path","paths","files"},
@@ -75,6 +80,7 @@ multiprocessing.RawValue = _Value
 
 import copy  # noqa: E402
 import datetime  # noqa: E402
+import errno  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
 import os  # noqa: E402
@@ -88,6 +94,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional  # noqa: E402
 
 # icloudpd's own page size; also the largest window fetched by one request.
 PAGE_CHUNK = 100
+# Items each walk page shares with the one before, to notice removals made while walking.
+WALK_OVERLAP = 5
 MAX_PAGE_LIMIT = 500
 # Above this share of the library, hint lookups cost more than one pass over it.
 HINT_FRACTION = 0.3
@@ -124,6 +132,12 @@ class DownloadCancelled(Exception):
 
 class DownloadInterrupted(Exception):
     """A download held by a pause couldn't be picked up where it stopped."""
+
+
+class FileAppeared(Exception):
+    """A file appeared at the download's path after icloudpd chose the name: it's never overwritten.
+    Not an OSError, so icloudpd doesn't report it as a full disk; the item fails and the next run
+    names it again, beside the file that's there now."""
 
 
 # Exceptions that end an icloudpd run (`run_with_configs` returns 1 on them), so they end a download
@@ -484,8 +498,70 @@ def write_response(
     except DownloadCancelled:
         _remove(temp_download_path)
         raise
-    os.rename(temp_download_path, download_path)
+    if not move_into_place(temp_download_path, download_path):
+        _remove(temp_download_path)
+        raise FileAppeared(f"{download_path} appeared while it was downloading; it was left as it is.")
     download.update_mtime(created_date, download_path)
+    return True
+
+
+_RENAME_EXCL = 0x00000004
+
+
+def _renamex_excl(source: str, target: str) -> Optional[bool]:
+    """macOS renamex_np(RENAME_EXCL): True when moved, False when the target exists, None when the
+    call or the file system doesn't support it."""
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        renamex = libc.renamex_np
+    except (OSError, AttributeError, ImportError):
+        return None
+    renamex.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+    renamex.restype = ctypes.c_int
+    if renamex(os.fsencode(source), os.fsencode(target), _RENAME_EXCL) == 0:
+        return True
+    if ctypes.get_errno() == errno.EEXIST:
+        return False
+    return None
+
+
+def move_into_place(temp_path: str, path: str) -> bool:
+    """Moves a finished download to its name without ever replacing a file there: False (and the
+    download left at `temp_path`) when something already has the name. Each way used refuses an
+    existing name atomically: renamex_np(RENAME_EXCL), a hard link, or an exclusive create."""
+    moved = _renamex_excl(temp_path, path)
+    if moved is not None:
+        return moved
+    try:
+        os.link(temp_path, path)
+    except FileExistsError:
+        return False
+    except OSError:
+        # No hard links on this file system (FAT32, some network shares): copy into a file created only
+        # if nothing has the name, so a file that appears meanwhile is never replaced.
+        return _copy_exclusive(temp_path, path)
+    _remove(temp_path)
+    return True
+
+
+def _copy_exclusive(temp_path: str, path: str) -> bool:
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    except FileExistsError:
+        return False
+    try:
+        with os.fdopen(descriptor, "wb") as target, open(temp_path, "rb") as source:
+            while True:
+                chunk = source.read(DOWNLOAD_CHUNK)
+                if not chunk:
+                    break
+                target.write(chunk)
+    except BaseException:
+        _remove(path)
+        raise
+    _remove(temp_path)
     return True
 
 
@@ -511,16 +587,44 @@ def fetch_assets(album: Any, offset: int, limit: int) -> List[Any]:
 
 
 def walk(album: Any, start: int = 0) -> Iterable[tuple]:
-    """(rank, asset) for every item of an album from rank `start` on, with icloudpd's own paging
-    (PAGE_CHUNK items per query). Pages a copy, so the album itself (albums are cached) keeps its
-    offset and can be walked again."""
-    view = copy.copy(album)
-    view.offset = max(0, start)
-    view.page_size = PAGE_CHUNK
-    rank = view.offset
-    for asset in view.photos:
-        yield rank, asset
-        rank += 1
+    """(rank, asset) for every item of an album from rank `start` on, PAGE_CHUNK items per query.
+
+    CloudKit pages by offset, so an item removed above the walk's position while it runs would move
+    the item just below a page boundary up into the page already fetched, and a plain offset walk
+    would never see it. Each page after the first therefore starts WALK_OVERLAP items early and
+    lines up on the last items already visited: if they moved up by more than that, it looks further
+    back. Items moved down by an addition show up twice and are passed over the second time. Ranks
+    are the items' ranks when their page was fetched. Pages a copy, so the album itself (albums are
+    cached) keeps its offset and can be walked again."""
+    start = max(0, start)
+    offset = start
+    seen: set = set()
+    recent: List[str] = []
+    while True:
+        back = WALK_OVERLAP if recent else 0
+        while True:
+            low = max(start, offset - back)
+            limit = PAGE_CHUNK if back <= WALK_OVERLAP else (offset - low) + PAGE_CHUNK
+            page = fetch_assets(album, low, limit)
+            position = {asset.id: index for index, asset in enumerate(page)}
+            hit = next((position[i] for i in reversed(recent) if i in position), None)
+            if not recent or hit is not None or low == start:
+                break
+            # More than `back` items above were removed (or the last ones visited were): look further back.
+            back *= 4
+        first = 0 if hit is None else hit + 1
+        visited: List[str] = []
+        for index in range(first, len(page)):
+            asset = page[index]
+            if asset.id in seen:
+                continue
+            seen.add(asset.id)
+            visited.append(asset.id)
+            yield low + index, asset
+        if len(page) < limit:
+            return
+        recent = visited or recent
+        offset = low + len(page)
 
 
 def thumb_url(asset: Any) -> Optional[str]:
@@ -759,8 +863,12 @@ class Bridge:
         start_rank = request.get("startRank") or 0
         if not isinstance(start_rank, int) or isinstance(start_rank, bool) or start_rank < 0:
             raise RequestError("badRequest", "startRank must be a rank, 0 or more.")
-        ids = set(str(i) for i in (request.get("ids") or []))
+        # Only the set is kept: the request's list can be a few MB.
+        ids = set(str(i) for i in (request.pop("ids", None) or []))
         hints = request.get("hints") or {}
+        stop_at = request.get("stopAt")
+        if stop_at is not None and (mode != "allExcept" or not isinstance(stop_at, str)):
+            raise RequestError("badRequest", "stopAt is an asset ID, for allExcept downloads.")
 
         if layout == "album":
             name = request.get("album")
@@ -776,7 +884,7 @@ class Bridge:
         plan = self.plan_factory(args, self.download_logger)
         run = _DownloadRun(self, request_id, plan)
         try:
-            self._download(run, album, mode, layout, ids, hints, start_rank)
+            self._download(run, album, mode, layout, ids, hints, start_rank, stop_at)
         except DownloadStopped as stopped:
             run.stop(stopped)
             return
@@ -791,12 +899,15 @@ class Bridge:
 
     def _download(
         self, run: "_DownloadRun", album: Any, mode: str, layout: str, ids: set, hints: Dict[str, Any],
-        start_rank: int,
+        start_rank: int, stop_at: Optional[str] = None,
     ) -> None:
         if mode == "allExcept":
             run.set_total(max(0, len(album) - start_rank))
             for rank, asset in walk(album, start_rank):
                 if run.should_stop():
+                    break
+                if stop_at is not None and asset.id == stop_at:
+                    run.set_total(run.done)
                     break
                 if asset.id in ids:
                     run.set_total(run.total - 1)

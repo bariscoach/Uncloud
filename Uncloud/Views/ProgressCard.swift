@@ -6,19 +6,23 @@ struct ProgressCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(Double(Int(model.fractionComplete * 100)) / 100, format: .percent)
-                .font(.title.weight(.semibold))
-                .monospacedDigit()
-                .contentTransition(.numericText())
+            // Idle, nothing is running yet, so no percentage or bar: the drive row above has the figures.
+            if model.phase != .idle {
+                Text(Double(Int(model.fractionComplete * 100)) / 100, format: .percent)
+                    .font(.title.weight(.semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
 
-            if model.phase == .preparing {
-                ProgressView()
-                    .progressViewStyle(.linear)
-                    .tint(tint)
-            } else {
-                ProgressView(value: model.fractionComplete)
-                    .tint(tint)
-                    .accessibilityLabel("Export progress")
+                if model.phase == .preparing {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(tint)
+                        .accessibilityLabel("Preparing export")
+                } else {
+                    ProgressView(value: model.fractionComplete)
+                        .tint(tint)
+                        .accessibilityLabel("Export progress")
+                }
             }
 
             HStack {
@@ -108,15 +112,13 @@ struct ProgressCard: View {
     @ViewBuilder
     private var status: some View {
         switch model.phase {
+        // A drive check's progress is shown by the Drive row above the card, not repeated here.
         case .idle:
-            if model.isCheckingDrive {
-                Label("Checking your drive…" + (model.driveCheckProgressText.map { " \($0)" } ?? ""), systemImage: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-            } else if model.hasIncompleteRun {
+            if model.hasIncompleteRun {
                 Label("A previous export didn’t finish. Resume to continue where it left off.", systemImage: "info.circle")
                     .foregroundStyle(.secondary)
             } else if model.totalCount > 0, model.processedCount == model.totalCount {
-                Label("Everything is already exported to this folder.", systemImage: "checkmark.circle.fill")
+                Label("Everything is already \(model.source.copiedVerb) to this folder.", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.secondary)
             } else if model.processedCount > 0, let summary = model.onDriveSummaryText {
                 Label(summary.prefix(1).uppercased() + summary.dropFirst() + ".", systemImage: "info.circle")
@@ -126,13 +128,8 @@ struct ProgressCard: View {
                     .foregroundStyle(.secondary)
             }
         case .preparing:
-            if model.isCheckingDrive {
-                Label("Checking your drive…" + (model.driveCheckProgressText.map { " \($0)" } ?? ""), systemImage: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-            } else {
-                Label("Preparing…", systemImage: "hourglass")
-                    .foregroundStyle(.secondary)
-            }
+            Label("Preparing…", systemImage: "hourglass")
+                .foregroundStyle(.secondary)
         case .running:
             Label("Exporting…", systemImage: "arrow.down.circle")
                 .foregroundStyle(.secondary)
@@ -143,7 +140,7 @@ struct ProgressCard: View {
             Label("Cancelling…", systemImage: "xmark")
                 .foregroundStyle(.secondary)
         case .completed where model.failedCount > 0:
-            Label("Finished, but ^[\(model.failedCount) item](inflect: true) couldn’t be exported. See Activity for details.", systemImage: "exclamationmark.triangle")
+            Label("Finished, but ^[\(model.failedCount) item](inflect: true) couldn’t be \(model.source.copiedVerb). See Activity for details.", systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
         case .completed:
             Label("Export complete", systemImage: "checkmark.circle.fill")

@@ -58,8 +58,15 @@ final class ExportModel {
     var isConfirmingICloudSignOut = false
     /// Help > Getting Started.
     var introSheet: IntroSheet?
-    var layout: FolderLayout {
-        didSet { UserDefaults.standard.set(layout.rawValue, forKey: Self.layoutKey) }
+    /// The folder layout. Every change goes through `requestLayoutChange(to:)`, which asks first when the change
+    /// would download an iCloud library again.
+    private(set) var layout: FolderLayout {
+        didSet {
+            UserDefaults.standard.set(layout.rawValue, forKey: Self.layoutKey)
+            if layout != oldValue {
+                layoutDidChange()
+            }
+        }
     }
     var writesSidecars: Bool {
         didSet { UserDefaults.standard.set(writesSidecars, forKey: Self.writesSidecarsKey) }
@@ -148,6 +155,10 @@ final class ExportModel {
     private(set) var driveCheckState: DriveCheckState = .notChecked
     /// The last finished check's report for this destination, kept while a new check runs.
     private(set) var lastDriveCheck: DriveCheckReport?
+    /// The report of a check the person started with Check Drive, until its results sheet is dismissed.
+    private(set) var lastManualDriveCheck: DriveCheckReport?
+    /// When the last check of this destination finished, this launch. Nil until one has.
+    private(set) var lastDriveCheckedAt: Date?
     /// This destination's export sessions, oldest first, as read from `.photo-export/sessions/` and kept
     /// up to date by the running export. Empty while the drive isn't connected.
     private(set) var sessions: [ExportSession] = []
@@ -246,7 +257,11 @@ final class ExportModel {
         estimatedTimeRemaining = nil
         isOnDriveCountApproximate = false
         lastDriveCheck = nil
+        lastManualDriveCheck = nil
+        lastDriveCheckedAt = nil
         driveCheckState = .notChecked
+        iCloudItemsByLayout = [:]
+        iCloudItemsByLayoutFolder = nil
         updateBrowser()
         refreshProgress()
         checkDriveWhenIdle()
@@ -417,6 +432,7 @@ final class ExportModel {
     func beginChoosingDestination() {
         startsAfterChoosingDestination = false
         pendingExportSelection = nil
+        layoutAfterChoosingFolder = nil
         isChoosingDestination = true
     }
 
@@ -424,6 +440,7 @@ final class ExportModel {
     /// saved selection for that run only.
     func chooseFolderThenExport(selection: LibrarySelection? = nil) {
         guard !isExporting else { return }
+        layoutAfterChoosingFolder = nil
         pendingExportSelection = selection
         startsAfterChoosingDestination = true
         isChoosingDestination = true
@@ -680,8 +697,16 @@ final class ExportModel {
             ).start()
         case .iCloud:
             var hints: [String: Int] = [:]
-            if case .only(let ids) = selection, let browser {
-                hints = await browser.rankHints(for: ids)
+            // Files the check found missing are fetched again by ID, near where the browser last saw them.
+            let missing = selection.isEverything ? Set(report?.forgottenItemIDs ?? []) : []
+            var hintIDs: Set<String>?
+            if case .only(let ids) = selection {
+                hintIDs = ids
+            } else if !missing.isEmpty {
+                hintIDs = missing
+            }
+            if let hintIDs, let browser {
+                hints = await browser.rankHints(for: hintIDs)
                 // Cancelled while the browser looked up rank hints: don't start the engine at all.
                 guard number == runNumber, phase == .preparing else {
                     if number == runNumber {
@@ -698,7 +723,9 @@ final class ExportModel {
                 gate: gate,
                 selection: selection,
                 rankHints: hints,
-                alreadyOnDrive: report?.onDrive
+                alreadyOnDrive: report?.onDrive,
+                missingItems: missing,
+                resumeSettings: iCloudResumeSettings
             ).start()
         }
         runTask = run.task
@@ -746,6 +773,9 @@ final class ExportModel {
                     }
                 }
                 recorder.markPrepared()
+            }
+            if let continuation = batch.continuation {
+                recorder.update { $0.continuation = continuation }
             }
             recorder.record(exported: batch.exported, skipped: batch.skipped, failures: batch.failures,
                             failedCount: batch.failed, bytes: batch.bytes)
@@ -802,7 +832,7 @@ final class ExportModel {
         }
         switch result {
         case .completed where failedCount > 0:
-            record(.warning, "Export finished, but \(failedCount.formatted()) items couldn’t be exported. Choose Resume to try them again.")
+            record(.warning, "Export finished, but \(failedCount.formatted()) items couldn’t be \(source.copiedVerb). Choose Resume to try them again.")
         case .completed:
             record(.success, "Export complete.")
         case .cancelled:
@@ -1077,11 +1107,23 @@ final class ExportModel {
     /// Checks the drive now: `full` stats every file (Backup Tools > Check Drive); otherwise only folders
     /// that changed since the last check. Does nothing while an export or another check runs.
     func checkDrive(full: Bool = true) {
-        checkDrive(full: full, changesDrive: true)
+        guard let task = startDriveCheck(full: full, changesDrive: true) else { return }
+        Task {
+            // Only a finished check gets a results sheet; a cancelled one leaves nothing to show.
+            if let report = await task.value {
+                lastManualDriveCheck = report
+            }
+        }
     }
 
-    private func checkDrive(full: Bool, changesDrive: Bool) {
-        guard canCheckDrive else { return }
+    /// Clears `lastManualDriveCheck` once its results sheet is dismissed.
+    func dismissManualDriveCheck() {
+        lastManualDriveCheck = nil
+    }
+
+    @discardableResult
+    private func startDriveCheck(full: Bool, changesDrive: Bool) -> Task<DriveCheckReport?, Never>? {
+        guard canCheckDrive else { return nil }
         let mode: DriveInventory.Mode = full || layout == .flat ? .full : .quick
         let task = Task<DriveCheckReport?, Never> { [weak self] in
             guard let self else { return nil }
@@ -1094,6 +1136,7 @@ final class ExportModel {
                 driveCheckTask = nil
             }
         }
+        return task
     }
 
     /// Stops a check that's in progress. Nothing on the drive has changed while it is still listing.
@@ -1105,7 +1148,7 @@ final class ExportModel {
     private func checkDriveWhenIdle() {
         guard canCheckDrive else { return }
         // Only reports: the drive isn't changed until the person exports or chooses Check Drive.
-        checkDrive(full: false, changesDrive: false)
+        startDriveCheck(full: false, changesDrive: false)
     }
 
     /// Cancels an idle check and waits until it has stopped, so nothing else touches the manifest meanwhile.
@@ -1167,6 +1210,7 @@ final class ExportModel {
             guard driveCheckToken == token else { return report }
             driveCheckState = .checked(report)
             lastDriveCheck = report
+            lastDriveCheckedAt = currentDate()
             if destination?.url == url, self.source == source {
                 if report.selectedCount > 0 {
                     totalCount = report.selectedCount
@@ -1174,15 +1218,25 @@ final class ExportModel {
                 processedCount = report.onDrive
                 isOnDriveCountApproximate = report.isApproximate
             }
-            if report.foundProblems {
-                let count = report.missingFiles.count + report.damagedFiles.count
+            if report.foundProblems, report.missingFiles.count + report.damagedFiles.count > report.setAsideFailures.count {
+                // A damaged file that couldn't be moved aside isn't downloaded again; it's reported below.
+                let count = report.missingFiles.count + report.damagedFiles.count - report.setAsideFailures.count
                 let files = count == 1 ? "file is" : "files are"
                 record(.warning, changesDrive
-                    ? "\(count.formatted()) \(files) missing or damaged and will be exported again."
+                    ? "\(count.formatted()) \(files) missing or damaged and will be \(source.copiedVerb) again."
                     : "\(count.formatted()) \(files) missing or damaged. They’ll be fixed when you export or choose Check Drive.")
             }
             if !report.setAsideFiles.isEmpty {
                 record(.info, "Moved \(report.setAsideFiles.count.formatted()) damaged \(report.setAsideFiles.count == 1 ? "file" : "files") to .photo-export/set-aside on the drive.")
+            }
+            if let first = report.setAsideFailures.first {
+                let count = report.setAsideFailures.count
+                record(.error, "Couldn’t move \(count.formatted()) damaged \(count == 1 ? "file" : "files") aside, such as “\(first.path)”: \(first.reason) "
+                    + "\(count == 1 ? "It stays" : "They stay") where \(count == 1 ? "it is" : "they are") and will be checked again next time.")
+            }
+            if !report.changedFiles.isEmpty {
+                let count = report.changedFiles.count
+                record(.info, "\(count.formatted()) \(count == 1 ? "file" : "files") that Uncloud can’t tell it saved changed size since the last check, such as “\(report.changedFiles[0])”. \(count == 1 ? "It was" : "They were") left as \(count == 1 ? "it is" : "they are").")
             }
             return report
         } catch {
@@ -1230,22 +1284,42 @@ final class ExportModel {
     /// Updates the idle "X of Y items" figures from the library and the destination's manifest.
     func refreshProgress() {
         guard !isExporting else { return }
+        refreshFlatFolderCheck()
         guard isSourceReady, let url = destination?.url else {
             totalCount = 0
             processedCount = 0
             hasIncompleteRun = false
             previousLayout = nil
+            // Signed out of iCloud: the layout question still needs the folder's items by layout.
+            if source == .iCloud, let url = destination?.url {
+                Task { await loadICloudItemsByLayout(for: url) }
+            }
             return
         }
         let source = source
         let selection = selection
+        let layout = layout
         Task {
-            let progress = await Task.detached {
-                source == .iCloud
-                    ? Self.iCloudProgress(toward: url, selection: selection)
-                    : (progress: PhotoLibrary.progress(toward: url, selection: selection), isApproximate: false)
+            let (progress, byLayout) = await Task.detached { () -> ((progress: LibraryProgress, isApproximate: Bool), [FolderLayout: Int]?) in
+                guard source == .iCloud else {
+                    return ((PhotoLibrary.progress(toward: url, selection: selection), false), [:])
+                }
+                let records = ExportManifest.records(in: url)
+                // Read from the folder itself: an unplugged drive has no records to read, which isn't "no items".
+                let isReadable = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+                return (Self.iCloudProgress(toward: url, selection: selection, layout: layout, records: records),
+                        isReadable ? ICloudItemCount.itemsByLayout(records: records) : nil)
             }.value
-            guard !isExporting, destination?.url == url, self.source == source, self.selection == selection else { return }
+            if source == .iCloud, let byLayout, destination?.url == url, destinationIssue == nil, self.source == source {
+                if iCloudItemsByLayout != byLayout {
+                    iCloudItemsByLayout = byLayout
+                }
+                if iCloudItemsByLayoutFolder != url {
+                    iCloudItemsByLayoutFolder = url
+                }
+            }
+            guard !isExporting, destination?.url == url, self.source == source, self.selection == selection,
+                  self.layout == layout else { return }
             totalCount = progress.progress.total
             processedCount = progress.progress.exported
             isOnDriveCountApproximate = progress.isApproximate
@@ -1257,9 +1331,16 @@ final class ExportModel {
     /// The selected part of the iCloud library's last known size, and how many selected items the destination's
     /// manifest records. Items, not files: items recorded by asset ID count exactly, and path-only records are
     /// grouped (a Live Photo's movie and XMP sidecars don't count), which makes the figure approximate.
-    nonisolated static func iCloudProgress(toward destination: URL, selection: LibrarySelection) -> (progress: LibraryProgress, isApproximate: Bool) {
+    /// With `layout`, only items saved in that layout count (other layouts' items are downloaded again).
+    nonisolated static func iCloudProgress(
+        toward destination: URL,
+        selection: LibrarySelection,
+        layout: FolderLayout? = nil,
+        records: [String: [String]]? = nil
+    ) -> (progress: LibraryProgress, isApproximate: Bool) {
         let total = selection.selectedCount(total: ICloudLibrary.cachedLibraryCount ?? 0)
-        let items = ICloudItemCount.count(records: ExportManifest.records(in: destination), selection: selection)
+        let items = ICloudItemCount.count(records: records ?? ExportManifest.records(in: destination), selection: selection,
+                                          layout: layout == .album ? nil : layout)
         let progress = LibraryProgress(
             total: total,
             exported: total > 0 ? min(total, items.total) : items.total,
@@ -1343,20 +1424,59 @@ final class ExportModel {
         pendingExportSelection = nil
         switch result {
         case let .success(url):
+            let newLayout = layoutAfterChoosingFolder
+            layoutAfterChoosingFolder = nil
+            // The folder can't change under a running export.
+            guard !isExporting else {
+                record(.warning, "The folder can’t change while an export is running.")
+                return
+            }
+            // "Choose New Folder…" answered with the same folder: ask again rather than download everything
+            // again here without saying so.
+            if let newLayout, let current = destination?.url,
+               current.standardizedFileURL.resolvingSymlinksInPath() == url.standardizedFileURL.resolvingSymlinksInPath() {
+                requestLayoutChange(to: newLayout)
+                return
+            }
             // A different folder: the export that was waiting to resume belongs to the old one.
             cancelAutoResume()
             setDestination(url, persist: true)
+            if let newLayout {
+                switchLayoutAfterChoosing(newLayout, folder: url)
+            }
             if startsExport {
                 startRun(selection: exportSelection)
             }
         case let .failure(error):
+            layoutAfterChoosingFolder = nil
             record(.error, error.localizedDescription)
+        }
+    }
+
+    /// The layout chosen before "Choose New Folder…", applied once the new folder has been read: through
+    /// `requestLayoutChange(to:)`, so a folder that already has exports in another layout asks first too.
+    private func switchLayoutAfterChoosing(_ newLayout: FolderLayout, folder url: URL) {
+        guard destination?.url == url, destinationIssue == nil else { return }
+        Task {
+            await loadICloudItemsByLayout(for: url)
+            guard destination?.url == url, destinationIssue == nil, !isExporting else { return }
+            requestLayoutChange(to: newLayout)
         }
     }
 
     func revealDestination() {
         guard let url = destination?.url else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    /// Reveals `.photo-export/set-aside/<folder>` on the drive in Finder, or the drive when that folder is gone.
+    /// The destination's security scope is active while it is chosen, as for `revealDestination`.
+    func showSetAsideFolder(_ folder: String) {
+        guard let url = destination?.url else { return }
+        let setAside = url
+            .appending(path: ".photo-export/set-aside/\(folder)", directoryHint: .isDirectory)
+        let exists = FileManager.default.fileExists(atPath: setAside.path(percentEncoded: false))
+        NSWorkspace.shared.activateFileViewerSelecting([exists ? setAside : url])
     }
 
     private func setDestination(_ url: URL, persist: Bool) {
@@ -1370,8 +1490,11 @@ final class ExportModel {
         // same reachable folder (before each automatic resume, for instance) does neither again.
         let isNewOrReconnected = persist || self.destination?.url != url || destinationIssue != nil
         if self.destination?.url != url {
-            // Another folder: its history is read afresh.
+            // Another folder: its history and its items' layouts are read afresh.
             sessions = []
+            iCloudItemsByLayout = [:]
+            iCloudItemsByLayoutFolder = nil
+            flatFolderOtherFiles = nil
         }
         self.destination = destination
         destinationIssue = destination.isWritable() ? nil : Self.notWritableMessage(for: destination)
@@ -1383,6 +1506,8 @@ final class ExportModel {
         }
         if lastDriveCheck != nil || driveCheckState != .notChecked, driveCheckTask == nil {
             lastDriveCheck = nil
+            lastManualDriveCheck = nil
+            lastDriveCheckedAt = nil
             driveCheckState = .notChecked
         }
         refreshProgress()
@@ -1418,6 +1543,9 @@ final class ExportModel {
         destinationFreeBytes = nil
         destinationIssue = "“\(destination.displayName)” isn’t available. Connect the drive or choose a different folder."
         sessions = []
+        iCloudItemsByLayout = [:]
+        iCloudItemsByLayoutFolder = nil
+        flatFolderOtherFiles = nil
     }
 
     private static func notWritableMessage(for destination: Destination) -> String {
@@ -1482,7 +1610,7 @@ final class ExportModel {
         let body: String
         switch result {
         case .completed where failedCount > 0:
-            body = "Backup finished, but \(failedCount.formatted()) items couldn’t be copied."
+            body = "Backup finished, but \(failedCount.formatted()) items couldn’t be \(source.copiedVerb)."
         case .completed where exportedThisRun == 0:
             body = "Your backup on “\(name)” is up to date."
         case .completed:
@@ -1642,6 +1770,206 @@ final class ExportModel {
         // "Apple", "iCloud" and "Uncloud" keep their capital.
         if text.hasPrefix("Apple") || text.hasPrefix("iCloud") { return text }
         return first.lowercased() + text.dropFirst()
+    }
+
+    // MARK: - Folder layout changes (plan 7e, D3, D5)
+
+    /// The question before a layout change that downloads an iCloud library again, for a confirmation dialog.
+    struct LayoutChangeConfirmation: Identifiable, Equatable {
+        enum Choice {
+            /// Recommended: keep this folder as it is and pick another one for the new layout.
+            case chooseNewFolder
+            /// Switch here: everything downloads again next to the existing copies.
+            case downloadAgainHere
+            case cancel
+        }
+
+        let id = UUID()
+        /// The layout most of the existing items were saved in.
+        let from: FolderLayout
+        let to: FolderLayout
+        /// Items saved in other layouts than `to`.
+        let itemsSaved: Int
+        let title: String
+        let message: String
+        static let chooseNewFolderTitle = "Choose New Folder…"
+        static let downloadAgainTitle = "Download Again Here"
+        static let cancelTitle = "Cancel"
+    }
+
+    /// Set while a layout change waits for `resolveLayoutChange(_:)`. Views show it as a confirmation dialog.
+    var pendingLayoutChange: LayoutChangeConfirmation?
+    /// iCloud items in the destination by the layout they were saved in, from its manifest (refreshed with progress).
+    private(set) var iCloudItemsByLayout: [FolderLayout: Int] = [:]
+    /// The folder `iCloudItemsByLayout` was read from. Nil until the current folder's manifest has been read:
+    /// right after launch or a folder choice, and while the drive is unplugged.
+    private(set) var iCloudItemsByLayoutFolder: URL?
+    /// The flat layout's folder and how many entries in it no record lists (a quick, read-only listing).
+    private(set) var flatFolderOtherFiles: (folder: URL, count: Int)?
+    /// The layout to switch to once a new folder is chosen ("Choose New Folder…").
+    @ObservationIgnored private var layoutAfterChoosingFolder: FolderLayout?
+    /// The resume logic's limits, for the iCloud engine. Tests shrink them.
+    @ObservationIgnored var iCloudResumeSettings = ICloudResumeSettings()
+
+    /// Changes the layout, or asks first (`pendingLayoutChange`) when the destination already has iCloud items in
+    /// other layouts: icloudpd only looks at the new layout's paths, so the whole library downloads again.
+    func requestLayoutChange(to newLayout: FolderLayout) {
+        guard newLayout != layout, !isExporting, newLayout.isAvailable(for: source) else { return }
+        if let confirmation = layoutChangeConfirmation(to: newLayout) {
+            pendingLayoutChange = confirmation
+        } else {
+            layout = newLayout
+        }
+    }
+
+    /// Answers `pendingLayoutChange`.
+    func resolveLayoutChange(_ choice: LayoutChangeConfirmation.Choice) {
+        guard let pending = pendingLayoutChange else { return }
+        pendingLayoutChange = nil
+        switch choice {
+        case .chooseNewFolder:
+            beginChoosingDestination()
+            layoutAfterChoosingFolder = pending.to
+        case .downloadAgainHere:
+            guard !isExporting else { return }
+            layout = pending.to
+            record(.info, "Folder layout changed to \(pending.to.title.lowercased()). The next export downloads everything again into this folder.")
+        case .cancel:
+            break
+        }
+    }
+
+    /// Whether `iCloudItemsByLayout` describes the current, reachable folder.
+    var knowsICloudItemsByLayout: Bool {
+        guard let url = destination?.url, destinationIssue == nil else { return false }
+        return iCloudItemsByLayoutFolder == url
+    }
+
+    /// Reads the folder's iCloud items by layout off the main actor. False when the folder can't be read
+    /// (unplugged) or is no longer the destination by then.
+    @discardableResult
+    private func loadICloudItemsByLayout(for url: URL) async -> Bool {
+        let byLayout = await Task.detached(priority: .userInitiated) { () -> [FolderLayout: Int]? in
+            guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return nil }
+            return ICloudItemCount.itemsByLayout(records: ExportManifest.records(in: url))
+        }.value
+        guard let byLayout, destination?.url == url, destinationIssue == nil else { return false }
+        if iCloudItemsByLayout != byLayout {
+            iCloudItemsByLayout = byLayout
+        }
+        if iCloudItemsByLayoutFolder != url {
+            iCloudItemsByLayoutFolder = url
+        }
+        return true
+    }
+
+    /// The question a change to `newLayout` needs, or nil when it needs none: not iCloud, no folder, or no more
+    /// items saved in other layouts than in the new one. While the folder's items aren't known yet (just
+    /// launched or chosen, or the drive is unplugged) it asks anyway: the folder may have items.
+    func layoutChangeConfirmation(to newLayout: FolderLayout) -> LayoutChangeConfirmation? {
+        guard source == .iCloud, let destination, newLayout != layout else { return nil }
+        let size = storageEstimate.map { " (\($0.formatted))" } ?? ""
+        let what = newLayout == .album ? "every album" : "your whole library"
+        guard knowsICloudItemsByLayout else {
+            let why = destinationIssue != nil
+                ? "Uncloud can’t read “\(destination.displayName)” right now, so it can’t tell whether it already has items saved another way."
+                : "Uncloud is still reading “\(destination.displayName)”, so it can’t tell yet whether it already has items saved another way."
+            return LayoutChangeConfirmation(
+                from: layout,
+                to: newLayout,
+                itemsSaved: 0,
+                title: "Download Everything Again?",
+                message: why + " If it does, switching to \(newLayout.title) downloads \(what) again\(size) into this folder, next to the copies already there. "
+                    + "To keep one copy, choose a new folder for the new layout."
+            )
+        }
+        let elsewhere = iCloudItemsByLayout.filter { $0.key != newLayout }
+        let saved = elsewhere.values.reduce(0, +)
+        guard saved > 0, saved > iCloudItemsByLayout[newLayout, default: 0],
+              let from = elsewhere.max(by: { $0.value < $1.value })?.key else { return nil }
+        return LayoutChangeConfirmation(
+            from: from,
+            to: newLayout,
+            itemsSaved: saved,
+            title: "Download Everything Again?",
+            message: "“\(destination.displayName)” already has \(saved.formatted()) \(saved == 1 ? "item" : "items") saved \(Self.savedPhrase(from)). "
+                + "Switching to \(newLayout.title) downloads \(what) again\(size) into this folder, next to the copies already there. "
+                + "To keep one copy, choose a new folder for the new layout."
+        )
+    }
+
+    /// Under the layout picker when the folder already has items saved another way; nil otherwise.
+    var layoutSwitchNotice: String? {
+        guard destination != nil else { return nil }
+        switch source {
+        case .photosLibrary:
+            guard let previous = previousLayout, previous != layout, processedCount > 0 else { return nil }
+            return "This folder already has items exported \(previous.title.lowercased()). They’ll stay where they are, and new items will use the layout you choose here."
+        case .iCloud:
+            let elsewhere = iCloudItemsByLayout.filter { $0.key != layout }
+            let saved = elsewhere.values.reduce(0, +)
+            guard saved > iCloudItemsByLayout[layout, default: 0],
+                  let from = elsewhere.max(by: { $0.value < $1.value })?.key else { return nil }
+            return "This folder already has \(saved.formatted()) \(saved == 1 ? "item" : "items") saved \(Self.savedPhrase(from)). "
+                + "Exporting \(layout.title.lowercased()) downloads everything again into this folder. To keep one copy, choose a new folder."
+        }
+    }
+
+    /// All in One Folder only: the chosen folder already holds files Uncloud didn't save. From a quick listing
+    /// as soon as the layout and folder are chosen (before any export or drive check), or the last drive check.
+    var flatFolderWarning: String? {
+        guard layout == .flat, let destination, destinationIssue == nil else { return nil }
+        let listed = flatFolderOtherFiles.flatMap { $0.folder == destination.url ? $0.count : nil } ?? 0
+        guard listed > 0 || (lastDriveCheck?.otherFiles ?? 0) > 0 else { return nil }
+        var text = "This folder already has other files. Uncloud will leave them alone, but a dedicated folder is easier to keep tidy."
+        if source == .iCloud {
+            text += " A file of yours with the same name and size as a photo counts as already \(source.copiedVerb)."
+        }
+        return text
+    }
+
+    /// Lists the flat layout's folder (top level only, read-only) for `flatFolderWarning`.
+    private func refreshFlatFolderCheck() {
+        guard layout == .flat, let url = destination?.url, destinationIssue == nil else { return }
+        Task {
+            let count = await Task.detached(priority: .utility) { Self.unrecordedEntryCount(in: url) }.value
+            guard let count, destination?.url == url else { return }
+            if flatFolderOtherFiles?.folder != url || flatFolderOtherFiles?.count != count {
+                flatFolderOtherFiles = (url, count)
+            }
+        }
+    }
+
+    /// Entries at the top of `url` (files and folders, hidden ones aside) that no manifest record lists. Nil
+    /// when the folder can't be listed.
+    nonisolated static func unrecordedEntryCount(in url: URL) -> Int? {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false)) else { return nil }
+        let recorded = Set(ExportManifest.records(in: url).values.flatMap { $0 })
+        return names.count { !$0.hasPrefix(".") && !recorded.contains($0) }
+    }
+
+    private static func savedPhrase(_ layout: FolderLayout) -> String {
+        switch layout {
+        case .flat: "all in one folder"
+        default: layout.title.lowercased()
+        }
+    }
+
+    /// A pending automatic resume would continue in the old layout, so it's cancelled; the figures and the drive
+    /// check follow the new layout.
+    private func layoutDidChange() {
+        if autoResume != nil {
+            cancelAutoResume()
+            record(.info, "Automatic resume cancelled because the folder layout changed.")
+        }
+        guard !isExporting else { return }
+        refreshProgress()
+        Task {
+            guard !isExporting else { return }
+            await stopDriveCheck()
+            guard !isExporting else { return }
+            checkDriveWhenIdle()
+        }
     }
 
     // MARK: - Activity

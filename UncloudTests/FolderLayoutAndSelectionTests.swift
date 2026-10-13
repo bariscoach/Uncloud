@@ -4,8 +4,8 @@ import Testing
 
 @Suite("FolderLayout")
 struct FolderLayoutTests {
-    @Test func iCloudOffersOnlyMonthAndAlbum() {
-        #expect(FolderLayout.allCases.filter { $0.isAvailable(for: .iCloud) } == [.month, .album])
+    @Test func iCloudOffersMonthAlbumAndOneFolder() {
+        #expect(FolderLayout.allCases.filter { $0.isAvailable(for: .iCloud) } == [.month, .album, .flat])
     }
 
     @Test func photosLibraryOffersEveryLayout() {
@@ -35,9 +35,9 @@ struct FolderLayoutFlatTests {
         #expect(FolderLayout.flat.isAvailable(for: .photosLibrary))
     }
 
-    @Test func flatIsOffForICloudUntilTheICloudEngineRecordsItSafely() {
-        // Plan D3: until then the iCloud engine would route flat to the month arguments.
-        #expect(!FolderLayout.flat.isAvailable(for: .iCloud))
+    @Test func flatIsAvailableForICloud() {
+        // Plan D3: the iCloud engine records only the files it reports in one folder.
+        #expect(FolderLayout.flat.isAvailable(for: .iCloud))
     }
 
     @Test func flatUsesNoFolderStructureInIcloudpd() {

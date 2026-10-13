@@ -27,7 +27,7 @@ struct ExportHistoryChain: Identifiable, Equatable, Sendable {
     /// When the latest attempt ended; nil while it runs.
     var endedAt: Date? { latest.endedAt }
 
-    /// Items downloaded or copied, over every attempt.
+    /// Items downloaded from iCloud or exported from the Photos library, over every attempt.
     var exported: Int { attempts.reduce(0) { $0 + $1.counts.exported } }
     var failed: Int { latest.counts.failed }
     var bytesWritten: Int { attempts.reduce(0) { $0 + $1.counts.bytesWritten } }
@@ -56,8 +56,9 @@ struct ExportHistoryChain: Identifiable, Equatable, Sendable {
     }
 
     /// "1,204 downloaded · 9,207 already there · 3 failed · 4.1 GB", leaving out what's zero or unknown.
+    /// Photos library exports read "exported"; iCloud downloads read "downloaded".
     var countsText: String {
-        var parts = ["\(exported.formatted()) \(latest.source == .photosLibrary ? "copied" : "downloaded")"]
+        var parts = ["\(exported.formatted()) \(latest.source == .photosLibrary ? "exported" : "downloaded")"]
         if let alreadyThere, alreadyThere > 0 {
             parts.append("\(alreadyThere.formatted()) already there")
         }

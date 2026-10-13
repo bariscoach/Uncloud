@@ -101,7 +101,7 @@ struct DriveCheckTests {
                 ("icloud-id:A", ["2024/07/IMG_A.JPG"]),
                 ("icloud:2024/07/IMG_CUT.JPG", ["2024/07/IMG_CUT.JPG"]),
                 ("icloud-id:GONE", ["2024/07/IMG_GONE.JPG"]),
-            ], in: destination)
+            ], checksums: ["2024/07/IMG_CUT.JPG": String(repeating: "a", count: 64)], in: destination)
             var snapshot = FilesSnapshot()
             snapshot.files["2024/07/IMG_CUT.JPG"] = .init(size: 4_000, modified: 0)
             try ExportManifest.writeFilesSnapshot(snapshot, in: destination)
@@ -288,6 +288,36 @@ struct DriveCheckTests {
             await #expect(throws: CancellationError.self) { try await task.value }
             #expect(ExportManifest.records(in: destination).isEmpty)
             #expect(ExportManifest.filesSnapshot(in: destination) == nil)
+        }
+    }
+    /// QC5: when a damaged file can't be set aside, it must still read as damaged next time: the new snapshot
+    /// keeps its last good size instead of adopting the truncated one.
+    @Test func aDamagedFileThatCouldNotBeSetAsideStaysDamagedNextTime() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("cut", to: "2024/07/IMG_CUT.JPG", in: destination)
+            try Self.writeManifest([("icloud-id:C", ["2024/07/IMG_CUT.JPG"])], in: destination)
+            var snapshot = FilesSnapshot()
+            snapshot.files["2024/07/IMG_CUT.JPG"] = .init(size: 4_000, modified: 0)
+            try ExportManifest.writeFilesSnapshot(snapshot, in: destination)
+            // A plain file where the set-aside folder should go makes every move fail.
+            try writeFile("blocker", to: ".photo-export/set-aside", in: destination)
+
+            let first = try await DriveCheck.run(Self.input(destination), mode: .full)
+            #expect(first.damagedFiles == ["2024/07/IMG_CUT.JPG"])
+            #expect(first.setAsideFiles.isEmpty)
+            // Reported, not swallowed.
+            #expect(first.setAsideFailures.map(\.path) == ["2024/07/IMG_CUT.JPG"])
+            // The last good size is kept, so the damage isn't hidden.
+            #expect(ExportManifest.filesSnapshot(in: destination)?.files["2024/07/IMG_CUT.JPG"]?.size == 4_000)
+            // Never deleted, and its record is kept so it isn't downloaded a second time next to itself.
+            #expect(Self.exists("2024/07/IMG_CUT.JPG", in: destination))
+            #expect(ExportManifest.records(in: destination)["icloud-id:C"] != nil)
+
+            let second = try await DriveCheck.run(Self.input(destination), mode: .full)
+            #expect(second.damagedFiles == ["2024/07/IMG_CUT.JPG"])
+            // A quick check lists the folder again too, rather than reusing the snapshot's entry.
+            let quick = try await DriveCheck.run(Self.input(destination), mode: .quick)
+            #expect(quick.damagedFiles == ["2024/07/IMG_CUT.JPG"])
         }
     }
 }

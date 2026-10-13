@@ -46,7 +46,7 @@ struct BackupPane: View {
             }
 
             Section {
-                Picker("Folder layout", selection: $model.layout) {
+                Picker("Folder layout", selection: Binding(get: { model.layout }, set: { model.requestLayoutChange(to: $0) })) {
                     ForEach(FolderLayout.allCases.filter { $0.isAvailable(for: model.source) }) { layout in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(layout.title)
@@ -60,6 +60,18 @@ struct BackupPane: View {
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
                 .disabled(model.isExporting)
+                .confirmationDialog(
+                    model.pendingLayoutChange?.title ?? "",
+                    isPresented: Binding(get: { model.pendingLayoutChange != nil }, set: { if !$0 { model.resolveLayoutChange(.cancel) } }),
+                    presenting: model.pendingLayoutChange
+                ) { _ in
+                    Button(ExportModel.LayoutChangeConfirmation.chooseNewFolderTitle) { model.resolveLayoutChange(.chooseNewFolder) }
+                        .keyboardShortcut(.defaultAction)
+                    Button(ExportModel.LayoutChangeConfirmation.downloadAgainTitle) { model.resolveLayoutChange(.downloadAgainHere) }
+                    Button(ExportModel.LayoutChangeConfirmation.cancelTitle, role: .cancel) { model.resolveLayoutChange(.cancel) }
+                } message: { confirmation in
+                    Text(confirmation.message)
+                }
 
                 if model.layout.usesPlaces {
                     Label("Place names come from each photo’s location, which is sent to Apple to look up the city and country. Photos without a location go in “Unknown Location”.", systemImage: "info.circle")
@@ -74,8 +86,18 @@ struct BackupPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                if let previous = model.previousLayout, previous != model.layout, model.processedCount > 0 {
-                    Label("This folder already has items exported \(previous.title.lowercased()). They’ll stay where they are, and new items will use the layout you choose here.", systemImage: "exclamationmark.triangle")
+                if let caption = model.layout.caption(for: model.source) {
+                    Label(caption, systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let warning = model.flatFolderWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                if let notice = model.layoutSwitchNotice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
@@ -92,6 +114,17 @@ struct BackupPane: View {
             Section {
                 if model.authorization == .limited {
                     LimitedAccessNotice()
+                }
+                if model.destination != nil {
+                    DriveSummaryRow(
+                        summary: model.onDriveSummaryText,
+                        lastChecked: model.lastDriveCheckedAt,
+                        isChecking: model.isCheckingDrive,
+                        progressText: model.driveCheckProgressText,
+                        canCheck: model.canCheckDrive,
+                        onCheck: { model.checkDrive(full: true) },
+                        onCancel: { model.cancelDriveCheck() }
+                    )
                 }
                 ProgressCard()
                 // While an export waits to resume, the card's Resume Now and Don't Resume take its place.
@@ -118,6 +151,12 @@ struct BackupPane: View {
                 } header: {
                     SectionTitle(title: "Backup Tools", symbol: "checkmark.shield", tint: .green)
                 }
+
+                ExportHistoryView(
+                    chains: model.exportHistory,
+                    unavailableText: model.exportHistoryUnavailableText,
+                    showInFinder: { model.showSessionsInFinder() }
+                )
             }
 
             Section {
@@ -125,6 +164,11 @@ struct BackupPane: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(item: manualCheckBinding) { report in
+            CheckDriveResultsSheet(report: report, source: model.source) {
+                model.showSetAsideFolder(report.setAsideFolder)
+            }
+        }
         .task(id: model.destination?.url) {
             // Free space changes as files are written, here or by other apps.
             while !Task.isCancelled {
@@ -164,6 +208,14 @@ struct BackupPane: View {
         }
     }
 
+    /// Presents `lastManualDriveCheck` as a sheet. Dismissing it clears the report, so it shows once.
+    private var manualCheckBinding: Binding<DriveCheckReport?> {
+        Binding(
+            get: { model.lastManualDriveCheck },
+            set: { if $0 == nil { model.dismissManualDriveCheck() } }
+        )
+    }
+
     /// The item count of the whole library, once known. Used for the primary button's title.
     private var total: Int? {
         model.browser?.count
@@ -174,6 +226,8 @@ struct BackupPane: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let destination = model.destination {
                     Text(destination.displayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                     Text(destination.path)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -203,8 +257,8 @@ struct BackupPane: View {
     }
 }
 
-/// A section title with a coloured icon tile, as in System Settings.
-private struct SectionTitle: View {
+/// A section title with a coloured icon tile, as in System Settings. Every section of the Backup pane uses one.
+struct SectionTitle: View {
     let title: String
     let symbol: String
     let tint: Color

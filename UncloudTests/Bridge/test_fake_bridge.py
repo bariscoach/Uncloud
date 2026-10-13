@@ -147,9 +147,20 @@ class FakeBridgeTests(unittest.TestCase):
         session.close()
         lines = self.launch_lines()
         self.assertIn("page offset=0", [line.split(" ", 1)[1] for line in lines if " page " in line])
-        self.assertTrue(any(line.endswith("startRank=4 mode=allExcept layout=month")
+        self.assertTrue(any("startRank=4 mode=allExcept layout=month ids=0" in line
                             and "download-start d" in line for line in lines), lines)
         self.assertTrue(any("download-ended d" in line for line in lines), lines)
+
+    def test_stop_at_ends_the_walk_just_before_that_asset(self):
+        session = self.start("--total", "6")
+        replies = session.download(self.dest, ids=["asset-1"], stopAt="asset-3")
+        downloaded = [r["asset"] for r in replies if r.get("event") == "downloaded"]
+        self.assertEqual(downloaded, ["asset-0", "asset-2"])
+        # An asset that isn't there walks to the end.
+        replies = session.download(self.dest, ids=["asset-0", "asset-1", "asset-2"], stopAt="gone")
+        self.assertEqual([r["asset"] for r in replies if r.get("event") == "downloaded"], ["asset-3", "asset-4", "asset-5"])
+        session.close()
+        self.assertTrue(any("stopAt=asset-3 ids=1" in line for line in self.launch_lines()))
 
     def test_downloads_report_the_rank_of_each_item(self):
         self.start("--total", "3", "--state", self.state, "--insert-at", "0").close()
@@ -164,6 +175,17 @@ class FakeBridgeTests(unittest.TestCase):
         self.assertEqual(replies[-1]["downloaded"], 1)
         self.assertTrue(os.path.isfile(os.path.join(self.dest, "IMG_000000.JPG")))
         self.assertFalse(os.path.exists(os.path.join(self.dest, "2001")))
+
+    def test_same_name_items_get_the_size_suffix_in_one_folder_and_skip_the_second_time(self):
+        session = self.start("--total", "4", "--same-name-every", "2")
+        replies = session.download(self.dest, layout="none", ids=[], mode="allExcept")
+        self.assertEqual(replies[-1]["downloaded"], 4)
+        names = sorted(os.listdir(self.dest))
+        self.assertEqual(names, ["IMG_000000-1001.JPG", "IMG_000000.JPG", "IMG_000002-1003.JPG", "IMG_000002.JPG"])
+        self.assertEqual(os.path.getsize(os.path.join(self.dest, "IMG_000000-1001.JPG")), 1001)
+        again = session.download(self.dest, layout="none", ids=[], mode="allExcept")
+        self.assertEqual(again[-1]["skipped"], 4)
+        self.assertEqual(again[-1]["downloaded"], 0)
 
     def test_month_layout_paths_and_existing_files_report_as_skipped(self):
         session = self.start("--total", "2")

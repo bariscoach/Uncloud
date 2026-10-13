@@ -60,13 +60,12 @@ enum FolderLayout: String, CaseIterable, Identifiable, Sendable {
         self == .album
     }
 
-    /// iCloud downloads support folders by month or by album. `flat` stays off for iCloud until the
-    /// iCloud engine records flat downloads safely (plan D3): icloudpd's file records would otherwise
-    /// include the user's own files in the folder.
+    /// iCloud downloads support folders by month, by album, or all in one folder. In one folder only the files
+    /// the engine reports are recorded, never the user's own files next to them (plan 7c).
     func isAvailable(for source: LibrarySource) -> Bool {
         switch source {
         case .photosLibrary: true
-        case .iCloud: self == .month || self == .album
+        case .iCloud: self == .month || self == .album || self == .flat
         }
     }
 }
