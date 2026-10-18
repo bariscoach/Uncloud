@@ -27,6 +27,7 @@
 		1B5E15FA632E465E7F2DD3EE /* ExportModel+NewPhotos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C0523C128F5624C627DF53 /* ExportModel+NewPhotos.swift */; };
 		1B6C5C5966E8A04515959EB8 /* StorageEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF26CD531FE2C834F788727 /* StorageEstimate.swift */; };
 		1DF044AD2DA5AC0F64631163 /* LibrarySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = E514002B9E7B92DE11926635 /* LibrarySource.swift */; };
+		20026DBE9B2769FC4741849B /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9BED7C9E9FB03C254AAB359 /* DesignTokens.swift */; };
 		20CB5FE1B8B8556A8A78132A /* ICloudSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F242D7D8C735C12BFF2E8E /* ICloudSignIn.swift */; };
 		21FA84C3879FA85F375224A8 /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B323FF83970C4D84959183E1 /* SessionStoreTests.swift */; };
 		22D893F297464E4DC1F5F415 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3ED0A36CD11690520DC5A1 /* SessionStore.swift */; };
@@ -72,6 +73,7 @@
 		4F85151DC3FBDA5CFE678D4C /* PauseGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253C79904112A7FD2C8AC7F8 /* PauseGate.swift */; };
 		515CB107125B694F68470F64 /* ExportHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D466AF04D8C38F7C85D51D7E /* ExportHistoryView.swift */; };
 		52EEF7ED6ACC9AAB90BC11DD /* ICloudHelperProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593CD78B3D2E6A5842C9F9FB /* ICloudHelperProcess.swift */; };
+		53C426C551D96CC91A67619A /* BackupHeroContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C32F93F2EE954C596D862EC /* BackupHeroContentTests.swift */; };
 		55B009DDBEC871C2EBE04A9B /* CheckDriveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05598DB04CA43E141660696 /* CheckDriveViews.swift */; };
 		560D38E8893DB908D2D3D1CF /* ExportModel+NewPhotos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C0523C128F5624C627DF53 /* ExportModel+NewPhotos.swift */; };
 		57674C28D9A1BB8610D4ED06 /* CleanupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55F82A8F8028F7E5514EE861 /* CleanupView.swift */; };
@@ -94,6 +96,7 @@
 		6E0E9F89A336214A74DB9F45 /* ICloudLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */; };
 		7035C2E294DF95F154744DF5 /* PhotosAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */; };
 		705432DA201570077E0A6B34 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4CD281E886432AA76DBC56C /* LibraryView.swift */; };
+		71440F269AEC0B66E9B32CDB /* BackupHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF9595130C6A1EFBC16BEC1 /* BackupHero.swift */; };
 		73B422CDC9BE862E9907C302 /* SessionClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6CF0C13EC2FDC49683C04D /* SessionClock.swift */; };
 		74340E38C4F0A1ED83CA3B12 /* ICloudResumeExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A6DA13206AE9999094883BE /* ICloudResumeExportTests.swift */; };
 		7450C2D1883B31B1B384ED1D /* ICloudDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32A78308E7BE6A54DBA4130 /* ICloudDiagnosticsTests.swift */; };
@@ -102,6 +105,7 @@
 		7973CBA0784D707669426AD1 /* ExportRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC92839A6433C9E3A2A7894 /* ExportRun.swift */; };
 		79CB0D565184D54B44344773 /* AlbumIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0C8614EAB4109DA0E3B572 /* AlbumIndex.swift */; };
 		7A65B2382227C6732B519F62 /* AutoResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4BAFE2C3FF2F8ED0AF217D0 /* AutoResume.swift */; };
+		7A79EDF52C9EAA832F88835A /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9BED7C9E9FB03C254AAB359 /* DesignTokens.swift */; };
 		7BE616212E35A4854A55336E /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38FE6A956ABFA986425CA1F2 /* Destination.swift */; };
 		7C11038F4C56BFF9B6D1D7AA /* fake_bridge.py in Resources */ = {isa = PBXBuildFile; fileRef = 72CFB4A34A07951EA9D32692 /* fake_bridge.py */; };
 		7E6FAF6ADB32C2C64BB22C4D /* ICloudPageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A14EF6C191BC2FD24D44985 /* ICloudPageCache.swift */; };
@@ -119,6 +123,7 @@
 		8B01596B38D68AD944D70A5E /* NewPhotosViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8233EC7D249CF21CFED1A011 /* NewPhotosViews.swift */; };
 		8B5F51F2EF7A9403D40E2EFD /* AutoBackupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF828E81D48A8A62ECBF167 /* AutoBackupSettings.swift */; };
 		8B7243FF362FBC89C2370524 /* DuplicateSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 795A77840B2266D8DAD50BE5 /* DuplicateSnapshotTests.swift */; };
+		8C249CB624DC68ABB8F33D20 /* UIRefreshSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7C7DA906ABE74D20333B53 /* UIRefreshSnapshotTests.swift */; };
 		8C6FADBE434DEFEA65380440 /* PlaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA548814AF18B9549584E9 /* PlaceResolver.swift */; };
 		8C80DEABF6F12CD1B81E0084 /* fake_icloudpd.py in Resources */ = {isa = PBXBuildFile; fileRef = 1DB14758951E131F0E10F3FE /* fake_icloudpd.py */; };
 		8DD0D6BFC82A960E3775127B /* HowItWorksSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D04F6760B4A90BD72367DC6 /* HowItWorksSteps.swift */; };
@@ -206,6 +211,7 @@
 		EE8EF09CCC66B71A29CAC678 /* NewPhotosStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6844B832F7BF19F1C62BF7A1 /* NewPhotosStore.swift */; };
 		EEFF91FA21D8D149237E9BE8 /* GettingStartedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5772F36E0D0AB6932F4C1F /* GettingStartedView.swift */; };
 		EF4C95D422F4CC8A5F307246 /* ExportManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760AE024957625564089BF6E /* ExportManifest.swift */; };
+		F10E158388B6943DF420DE12 /* BackupHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF9595130C6A1EFBC16BEC1 /* BackupHero.swift */; };
 		F29BBB9C75EBF7ACBB378339 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F063C61478BBF7C92184C95 /* AppLogo.swift */; };
 		F44792CC0FF39FB5D3B38896 /* ICloudProcesses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */; };
 		F4B9451AEEB09B15A555DE39 /* ICloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6F349CDF700C94CEDBA6D2B /* ICloudAccount.swift */; };
@@ -272,6 +278,7 @@
 		5893FF275C08AA53373F056D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		593CD78B3D2E6A5842C9F9FB /* ICloudHelperProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudHelperProcess.swift; sourceTree = "<group>"; };
 		5A62D4FFC9408C3EEF874AA8 /* ICloudOutputParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudOutputParser.swift; sourceTree = "<group>"; };
+		5C32F93F2EE954C596D862EC /* BackupHeroContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupHeroContentTests.swift; sourceTree = "<group>"; };
 		5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudProcesses.swift; sourceTree = "<group>"; };
 		5D4F40C3DE1B2723B86A14DF /* FindDuplicatesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindDuplicatesSheet.swift; sourceTree = "<group>"; };
 		5DC92839A6433C9E3A2A7894 /* ExportRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRun.swift; sourceTree = "<group>"; };
@@ -331,11 +338,14 @@
 		B73D5680F07F5660D4D4DEB3 /* FolderLayoutAndSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderLayoutAndSelectionTests.swift; sourceTree = "<group>"; };
 		B8C0955425358F66AA7DA9F8 /* ICloudCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudCleanup.swift; sourceTree = "<group>"; };
 		B9D4FFC1BF5BB484D16F27D0 /* ExportModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportModel.swift; sourceTree = "<group>"; };
+		BAF9595130C6A1EFBC16BEC1 /* BackupHero.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupHero.swift; sourceTree = "<group>"; };
 		BD6CF0C13EC2FDC49683C04D /* SessionClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionClock.swift; sourceTree = "<group>"; };
 		BE36718CD24BFD5C076C6767 /* PhotoLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
+		BF7C7DA906ABE74D20333B53 /* UIRefreshSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIRefreshSnapshotTests.swift; sourceTree = "<group>"; };
 		C05598DB04CA43E141660696 /* CheckDriveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckDriveViews.swift; sourceTree = "<group>"; };
 		C11F0FB474F82CFC886EFC56 /* BackupVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupVerification.swift; sourceTree = "<group>"; };
 		C398B9716C96C50219A753A8 /* ICloudResumePlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudResumePlannerTests.swift; sourceTree = "<group>"; };
+		C9BED7C9E9FB03C254AAB359 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		CB2365FA09B0B08E64F8F111 /* CleanupSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupSnapshotTests.swift; sourceTree = "<group>"; };
 		CBEBA56640980AAD84951366 /* BackupTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupTools.swift; sourceTree = "<group>"; };
 		CFE32B19B22486DC9F03F639 /* DriveCheckFileSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveCheckFileSafetyTests.swift; sourceTree = "<group>"; };
@@ -370,11 +380,13 @@
 			children = (
 				D4684CBB84E2FD289A7FFC70 /* ActivitySection.swift */,
 				8F063C61478BBF7C92184C95 /* AppLogo.swift */,
+				BAF9595130C6A1EFBC16BEC1 /* BackupHero.swift */,
 				9CFD381FEAA670D99CC49142 /* BackupPane.swift */,
 				063AE52551C1E2661DBADD1A /* BackupToolSheets.swift */,
 				821EA74597FF85E3A54C40A4 /* BenefitsCarousel.swift */,
 				C05598DB04CA43E141660696 /* CheckDriveViews.swift */,
 				55F82A8F8028F7E5514EE861 /* CleanupView.swift */,
+				C9BED7C9E9FB03C254AAB359 /* DesignTokens.swift */,
 				D466AF04D8C38F7C85D51D7E /* ExportHistoryView.swift */,
 				F747A5D2BA7C20F0893C90A8 /* ExportSessionDetailView.swift */,
 				5D4F40C3DE1B2723B86A14DF /* FindDuplicatesSheet.swift */,
@@ -402,6 +414,7 @@
 			children = (
 				3C4DB6381DECCE24C1B6A9C7 /* AutoResumeTests.swift */,
 				E82534C8C8A68911C7DAD87D /* BackupFilesTests.swift */,
+				5C32F93F2EE954C596D862EC /* BackupHeroContentTests.swift */,
 				CB2365FA09B0B08E64F8F111 /* CleanupSnapshotTests.swift */,
 				FCC5B3572E36011A4AEEAA9F /* DesignSnapshotTests.swift */,
 				CFE32B19B22486DC9F03F639 /* DriveCheckFileSafetyTests.swift */,
@@ -432,6 +445,7 @@
 				B323FF83970C4D84959183E1 /* SessionStoreTests.swift */,
 				9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */,
 				306E893DE47FB41133F84A46 /* TestSupport.swift */,
+				BF7C7DA906ABE74D20333B53 /* UIRefreshSnapshotTests.swift */,
 				22113C53D164A922FB8234B0 /* XMPSidecarTests.swift */,
 				85C7026FAE32CF8B038E1907 /* Bridge */,
 				6AD086C4EF40EEC81B019C22 /* Fakes */,
@@ -811,6 +825,7 @@
 				C4D4D4FC42ACF95C6C8335F4 /* AutoBackupSettings.swift in Sources */,
 				A343D5362F7F009F13E89AE7 /* AutoResume.swift in Sources */,
 				CA4ED0855FBABD0A6DD82097 /* BackupFiles.swift in Sources */,
+				F10E158388B6943DF420DE12 /* BackupHero.swift in Sources */,
 				64D222A53B86FD41165CA73F /* BackupPane.swift in Sources */,
 				ACC2A55AE1A04CA208176481 /* BackupToolSheets.swift in Sources */,
 				5FBF69A7FAF543AF1FED52FB /* BackupTools.swift in Sources */,
@@ -819,6 +834,7 @@
 				84C9BA605D6ACE67FA253A16 /* BenefitsCarousel.swift in Sources */,
 				A9B717D7ACBCC4E441A6CFB7 /* CheckDriveViews.swift in Sources */,
 				57674C28D9A1BB8610D4ED06 /* CleanupView.swift in Sources */,
+				7A79EDF52C9EAA832F88835A /* DesignTokens.swift in Sources */,
 				7BE616212E35A4854A55336E /* Destination.swift in Sources */,
 				CAF4EA9893E4B0B3E31F2921 /* DriveCheck.swift in Sources */,
 				05465D2C6F0C15C98ABE2807 /* DriveInventory.swift in Sources */,
@@ -904,6 +920,7 @@
 				8B5F51F2EF7A9403D40E2EFD /* AutoBackupSettings.swift in Sources */,
 				7A65B2382227C6732B519F62 /* AutoResume.swift in Sources */,
 				3323465C1CF7971A63D3259A /* BackupFiles.swift in Sources */,
+				71440F269AEC0B66E9B32CDB /* BackupHero.swift in Sources */,
 				698BC72208B11E1498239BE3 /* BackupPane.swift in Sources */,
 				B474050D36E43FDADEFAED7F /* BackupToolSheets.swift in Sources */,
 				87AD0E7AEF8D8B897BDC0EFC /* BackupTools.swift in Sources */,
@@ -912,6 +929,7 @@
 				83F4DA4EF7120D6A93F9F878 /* BenefitsCarousel.swift in Sources */,
 				55B009DDBEC871C2EBE04A9B /* CheckDriveViews.swift in Sources */,
 				2977217FC266195A0A605C8B /* CleanupView.swift in Sources */,
+				20026DBE9B2769FC4741849B /* DesignTokens.swift in Sources */,
 				CC5276AFF21004BB8193A45B /* Destination.swift in Sources */,
 				34D4244047BC3DD9871B9375 /* DriveCheck.swift in Sources */,
 				D156A62F751EE7DA9C088D2C /* DriveInventory.swift in Sources */,
@@ -988,6 +1006,7 @@
 			files = (
 				02D12E17B3429A87E5472ED8 /* AutoResumeTests.swift in Sources */,
 				EB0536A1852C408E570389B4 /* BackupFilesTests.swift in Sources */,
+				53C426C551D96CC91A67619A /* BackupHeroContentTests.swift in Sources */,
 				D665AFD91B7DBA989AEBA75F /* CleanupSnapshotTests.swift in Sources */,
 				FABA67249E8014694D8B4823 /* DesignSnapshotTests.swift in Sources */,
 				99F9F0613314DC61C21BE2BA /* DriveCheckFileSafetyTests.swift in Sources */,
@@ -1018,6 +1037,7 @@
 				FD856B22CB208A73C4ABB6C6 /* SessionsAndDriveCheckTests.swift in Sources */,
 				8278C0D260858BEA05B1BD88 /* StorageEstimateTests.swift in Sources */,
 				A0446530BAD6A985F678DFA5 /* TestSupport.swift in Sources */,
+				8C249CB624DC68ABB8F33D20 /* UIRefreshSnapshotTests.swift in Sources */,
 				622B6CE6B8F8CEF35742BEEB /* XMPSidecarTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

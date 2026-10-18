@@ -23,8 +23,8 @@ struct FindDuplicatesSheet: View {
             }
             .controlSize(.large)
         }
-        .padding(20)
-        .frame(width: 560)
+        .padding(Tokens.Sheet.padding)
+        .frame(width: Tokens.Sheet.wide)
         .interactiveDismissDisabled(cleanup.isBusy)
         .confirmationDialog(
             "Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to the Trash?",
@@ -139,10 +139,13 @@ struct FindDuplicatesSheet: View {
             }
             .keyboardShortcut(.cancelAction)
             // No default shortcut: Return shouldn't start a removal. It still asks first.
-            Button("Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to Trash…") {
+            // Not the prominent button: removing copies is the one thing this sheet doesn't want the user to hit by default.
+            Button {
                 isConfirmingRemoval = true
+            } label: {
+                Label("Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to Trash…", systemImage: "trash")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
             .disabled(!cleanup.canRemove)
 
         case .removing:

@@ -16,26 +16,35 @@ struct LibraryView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The count sits under the title rather than among the buttons, so it doesn't read as a control.
+        .navigationSubtitle(countText)
         .toolbar {
             if model.isSourceReady, let browser = model.browser {
                 LibraryToolbar(browser: browser)
             }
         }
     }
+
+    /// The selection count and estimated size, shown as the window's subtitle. Empty until the library's count is known.
+    private var countText: String {
+        guard model.isSourceReady, let total = model.browser?.count else { return "" }
+        let selected = model.selection.selectedCount(total: total)
+        let count = model.selection.isEverything
+            ? "All \(total.formatted()) items selected"
+            : "\(selected.formatted()) of \(total.formatted()) selected"
+        // The estimated size, such as "· about 412 GB", once anything is selected.
+        guard selected > 0, let size = model.storageEstimateText else { return count }
+        return "\(count) · \(size)"
+    }
 }
 
-/// The toolbar of the Library pane: the selection count, Select menu, export progress and the primary button.
+/// The toolbar of the Library pane: the Select menu, export progress, and the primary button in its own group.
 private struct LibraryToolbar: ToolbarContent {
     @Environment(ExportModel.self) private var model
     let browser: LibraryBrowser
 
     var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Text(countText)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
-
+        ToolbarItem(placement: .primaryAction) {
             Menu("Select") {
                 Button("Select All") {
                     model.selection.selectAll()
@@ -47,8 +56,10 @@ private struct LibraryToolbar: ToolbarContent {
                 .disabled(model.selection.isNothing)
             }
             .help("Select or deselect every item")
+        }
 
-            if model.isExporting {
+        if model.isExporting {
+            ToolbarItem(placement: .primaryAction) {
                 // Clicking the progress ring opens the Backup pane, where the export is shown in full.
                 Button {
                     model.pane = .backup
@@ -58,7 +69,9 @@ private struct LibraryToolbar: ToolbarContent {
                 }
                 .help("Show export progress")
                 .accessibilityLabel("Export progress, \(Int(model.fractionComplete * 100)) percent")
-            } else if model.autoResume != nil {
+            }
+        } else if model.autoResume != nil {
+            ToolbarItem(placement: .primaryAction) {
                 // The export stopped for a while, such as Apple limiting downloads; Backup has the details.
                 Button {
                     model.pane = .backup
@@ -70,7 +83,14 @@ private struct LibraryToolbar: ToolbarContent {
                 .help("The export resumes automatically. Show Backup for details.")
                 .accessibilityLabel("Export waiting to resume. Show Backup.")
             }
+        }
 
+        // Separates the primary action into its own glass group on macOS 26. Older systems don't need the gap.
+        if #available(macOS 26, *) {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+        }
+
+        ToolbarItem(placement: .primaryAction) {
             Button(model.primaryExportTitle(total: total)) {
                 model.performPrimaryAction()
             }
@@ -81,18 +101,6 @@ private struct LibraryToolbar: ToolbarContent {
     }
 
     private var total: Int? { browser.count }
-
-    private var countText: String {
-        guard let total else { return "" }
-        let selected = model.selection.selectedCount(total: total)
-        let count = model.selection.isEverything
-            ? "All \(total.formatted()) items selected"
-            : "\(selected.formatted()) of \(total.formatted()) selected"
-        // The estimated size, such as "· about 412 GB", once anything is selected.
-        guard selected > 0, let size = model.storageEstimateText else { return count }
-        return "\(count) · \(size)"
-    }
-
 }
 
 /// Shows the grid once the count is known, and the loading, sign-in and failure states before that.

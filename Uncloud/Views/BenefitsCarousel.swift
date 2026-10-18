@@ -245,7 +245,7 @@ struct BenefitRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            IconTile(symbol: benefit.symbol, tint: benefit.tint, size: 36)
+            IconTile(symbol: benefit.symbol, tint: benefit.tint, size: Tokens.Tile.feature)
             VStack(alignment: .leading, spacing: 2) {
                 Text(benefit.title)
                     .font(.headline)

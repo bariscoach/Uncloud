@@ -30,6 +30,15 @@ struct BackupPane: View {
         @Bindable var model = model
 
         return Form {
+            // The status and the one thing to do about it come first. Set-once settings sit below, so Export is
+            // in view without scrolling.
+            Section {
+                BackupHero(total: total)
+                if model.authorization == .limited {
+                    LimitedAccessNotice()
+                }
+            }
+
             Section {
                 destinationRow
                 if let issue = model.destinationIssue {
@@ -41,8 +50,19 @@ struct BackupPane: View {
                     Label(warning, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                 }
+                if model.destination != nil {
+                    DriveSummaryRow(
+                        summary: model.onDriveSummaryText,
+                        lastChecked: model.lastDriveCheckedAt,
+                        isChecking: model.isCheckingDrive,
+                        progressText: model.driveCheckProgressText,
+                        canCheck: model.canCheckDrive,
+                        onCheck: { model.checkDrive(full: true) },
+                        onCancel: { model.cancelDriveCheck() }
+                    )
+                }
             } header: {
-                SectionTitle(title: "Save To", symbol: "externaldrive", tint: .teal)
+                SectionTitle(title: "Save To", symbol: "externaldrive", tint: Tokens.Tint.drive)
             }
 
             Section {
@@ -108,50 +128,14 @@ struct BackupPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
-                SectionTitle(title: "Folders and Files", symbol: "folder", tint: .mint)
-            }
-
-            Section {
-                if model.authorization == .limited {
-                    LimitedAccessNotice()
-                }
-                if model.destination != nil {
-                    DriveSummaryRow(
-                        summary: model.onDriveSummaryText,
-                        lastChecked: model.lastDriveCheckedAt,
-                        isChecking: model.isCheckingDrive,
-                        progressText: model.driveCheckProgressText,
-                        canCheck: model.canCheckDrive,
-                        onCheck: { model.checkDrive(full: true) },
-                        onCancel: { model.cancelDriveCheck() }
-                    )
-                }
-                ProgressCard()
-                // While an export waits to resume, the card's Resume Now and Don't Resume take its place. An interrupted
-                // run offers Resume Export in the card, so this button stays off to avoid showing it twice.
-                if !model.isExporting, model.autoResume == nil, !model.offersResumeExport {
-                    Button(model.primaryExportTitle(total: total)) {
-                        model.performPrimaryAction()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(!model.primaryExportEnabled(total: total))
-                    .help(model.primaryExportHelp ?? "")
-                }
-                if let date = model.lastBackupDate {
-                    LabeledContent("Last Export") {
-                        Text(date.formatted(.relative(presentation: .named)))
-                    }
-                }
-            } header: {
-                SectionTitle(title: "Export", symbol: "square.and.arrow.down", tint: .accentColor)
+                SectionTitle(title: "Folders and Files", symbol: "folder", tint: Tokens.Tint.folders)
             }
 
             if model.destination != nil {
                 Section {
                     BackupToolButtons()
                 } header: {
-                    SectionTitle(title: "Backup Tools", symbol: "checkmark.shield", tint: .green)
+                    SectionTitle(title: "Backup Tools", symbol: "checkmark.shield", tint: Tokens.Tint.tools)
                 }
 
                 ExportHistoryView(
@@ -166,6 +150,7 @@ struct BackupPane: View {
             }
         }
         .formStyle(.grouped)
+        .navigationSubtitle(model.destination?.displayName ?? "")
         .sheet(item: manualCheckBinding) { report in
             CheckDriveResultsSheet(report: report, source: model.source) {
                 model.showSetAsideFolder(report.setAsideFolder)
@@ -241,6 +226,8 @@ struct BackupPane: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            // The name and path keep their width ahead of the buttons, so the name stays on one line.
+            .layoutPriority(1)
             Spacer()
             if model.destination != nil {
                 Button {
@@ -250,11 +237,14 @@ struct BackupPane: View {
                 }
                 .help("Show in Finder")
                 .accessibilityLabel("Show in Finder")
+                .fixedSize()
             }
             Button(model.destination == nil ? "Choose Folder…" : "Change Folder…") {
                 model.beginChoosingDestination()
             }
             .disabled(model.isExporting)
+            // The buttons keep their width, so a long folder name or path truncates instead of squeezing them.
+            .fixedSize()
         }
     }
 }

@@ -3,15 +3,22 @@ import SwiftUI
 /// Export progress for the Backup pane: percentage, bar, counts, time left, status, and the run controls.
 struct ProgressCard: View {
     @Environment(ExportModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.uncloudAccent) private var accent
+    /// False when the hero above already says what's idle, so the idle counts and status line are left out.
+    var showsIdleSummary = true
 
     var body: some View {
+        // Idle, the counts and status line are the drive row's and the hero's job, not this card's.
+        let hidesIdleSummary = model.phase == .idle && !showsIdleSummary
+
         VStack(alignment: .leading, spacing: 12) {
             // Idle, nothing is running yet, so no percentage or bar: the drive row above has the figures.
             if model.phase != .idle {
                 Text(Double(Int(model.fractionComplete * 100)) / 100, format: .percent)
                     .font(.title.weight(.semibold))
                     .monospacedDigit()
-                    .contentTransition(.numericText())
+                    .contentTransition(reduceMotion ? .identity : .numericText())
 
                 if model.phase == .preparing {
                     ProgressView()
@@ -25,19 +32,21 @@ struct ProgressCard: View {
                 }
             }
 
-            HStack {
-                Text("\(model.processedCount.formatted()) of ^[\(model.totalCount) item](inflect: true)")
-                    .monospacedDigit()
-                Spacer()
-                if let timeRemaining {
-                    Text(timeRemaining)
+            if !hidesIdleSummary {
+                HStack {
+                    Text("\(model.processedCount.formatted()) of ^[\(model.totalCount) item](inflect: true)")
+                        .monospacedDigit()
+                    Spacer()
+                    if let timeRemaining {
+                        Text(timeRemaining)
+                    }
                 }
-            }
-            .foregroundStyle(.secondary)
+                .foregroundStyle(.secondary)
 
-            status
-                .font(.callout)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                status
+                    .font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             if model.autoResume != nil {
                 HStack {
@@ -111,7 +120,7 @@ struct ProgressCard: View {
         case .completed, .failed:
             .orange
         default:
-            .accentColor
+            accent ?? .accentColor
         }
     }
 

@@ -146,6 +146,8 @@ private struct LibraryTile: View {
     let showsBackedUpBadge: Bool
     let browser: LibraryBrowser
     @State private var image: NSImage?
+    /// The accent variant in effect, so the selection ring and badge follow it. Nil keeps the system accent.
+    @Environment(\.uncloudAccent) private var accent
 
     var body: some View {
         Rectangle()
@@ -189,7 +191,7 @@ private struct LibraryTile: View {
             .overlay {
                 if isSelected {
                     Rectangle()
-                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .strokeBorder(accent ?? Color.accentColor, lineWidth: 3)
                 }
             }
             .opacity(isDimmed ? 0.4 : 1)
@@ -212,7 +214,7 @@ private struct LibraryTile: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.title3)
                 .symbolRenderingMode(.palette)
-                .foregroundStyle(.white, Color.accentColor)
+                .foregroundStyle(.white, accent ?? Color.accentColor)
                 .accessibilityHidden(true)
         } else {
             Image(systemName: "circle")

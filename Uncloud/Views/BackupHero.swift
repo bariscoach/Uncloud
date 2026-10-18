@@ -1,0 +1,209 @@
+import SwiftUI
+
+/// What the top of the Backup pane says, worked out from the model's state. Pure, so it is unit-tested.
+/// The first matching row wins, so an interrupted run shows as interrupted even when new photos are waiting.
+struct BackupHeroContent: Equatable {
+    enum Kind: Equatable {
+        case exporting, waiting, interrupted, needsFolder, finishedWithProblems, stopped, cancelled
+        case complete, newPhotos, upToDate, ready
+    }
+
+    enum Tone: Equatable {
+        case accent, success, warning, danger, neutral
+
+        /// The tile and background colour. `accent` is the variant in effect, or the system accent when none is set.
+        func color(accent: Color) -> Color {
+            switch self {
+            case .accent: accent
+            case .success: Tokens.Status.success
+            case .warning: Tokens.Status.warning
+            case .danger: Tokens.Status.danger
+            // `.secondary` isn't a fill, so the neutral tile is grey.
+            case .neutral: Color.gray
+            }
+        }
+    }
+
+    let kind: Kind
+    let symbol: String
+    let title: String
+    let subtitle: String?
+    let tone: Tone
+
+    /// Works out the hero from plain values, so every row of the table can be tested without a model.
+    static func make(
+        phase: ExportModel.Phase,
+        hasDestination: Bool,
+        hasAutoResume: Bool,
+        offersResumeExport: Bool,
+        failedCount: Int,
+        newPhotos: NewPhotosStatus?,
+        lastExport: Date?,
+        readySummary: String?,
+        now: Date
+    ) -> BackupHeroContent {
+        switch phase {
+        case .preparing:
+            return BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: "Preparing Export…", subtitle: nil, tone: .accent)
+        case .running:
+            return BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: "Exporting…", subtitle: nil, tone: .accent)
+        case .paused:
+            return BackupHeroContent(kind: .exporting, symbol: "pause.circle", title: "Export Paused", subtitle: nil, tone: .neutral)
+        case .cancelling:
+            return BackupHeroContent(kind: .exporting, symbol: "xmark.circle", title: "Cancelling…", subtitle: nil, tone: .neutral)
+        case .idle, .completed, .cancelled, .failed:
+            break
+        }
+
+        if hasAutoResume {
+            return BackupHeroContent(kind: .waiting, symbol: "clock", title: "Waiting to Resume", subtitle: nil, tone: .warning)
+        }
+        if offersResumeExport {
+            return BackupHeroContent(kind: .interrupted, symbol: "arrow.clockwise.circle", title: "Your Last Export Didn’t Finish", subtitle: nil, tone: .warning)
+        }
+        if !hasDestination {
+            return BackupHeroContent(
+                kind: .needsFolder, symbol: "externaldrive.badge.plus", title: "Choose Where to Save",
+                subtitle: "Pick a folder on your external drive to start.", tone: .accent
+            )
+        }
+        if phase == .completed, failedCount > 0 {
+            return BackupHeroContent(kind: .finishedWithProblems, symbol: "exclamationmark.triangle", title: "Finished with Problems", subtitle: nil, tone: .warning)
+        }
+        if case .failed = phase {
+            return BackupHeroContent(kind: .stopped, symbol: "xmark.octagon", title: "Export Stopped", subtitle: nil, tone: .danger)
+        }
+        if phase == .cancelled {
+            return BackupHeroContent(kind: .cancelled, symbol: "xmark.circle", title: "Export Cancelled", subtitle: nil, tone: .neutral)
+        }
+        if let newPhotos {
+            let day = NewPhotosText.dayPhrase(newPhotos.since, now: now)
+            if newPhotos.count > 0 || newPhotos.isAtLeast {
+                let when = day.isRelative ? day.text : "on \(day.text)"
+                return BackupHeroContent(
+                    kind: .newPhotos, symbol: "photo.badge.plus", title: NewPhotosText.countPhrase(newPhotos),
+                    subtitle: "Since your last export \(when).", tone: .accent
+                )
+            }
+            return BackupHeroContent(kind: .upToDate, symbol: "checkmark.circle", title: "Up to Date", subtitle: "Last export \(day.text).", tone: .success)
+        }
+        if phase == .completed {
+            let subtitle = lastExport.map { "Last export \(NewPhotosText.dayPhrase($0, now: now).text)." }
+            return BackupHeroContent(kind: .complete, symbol: "checkmark.circle", title: "Export Complete", subtitle: subtitle, tone: .success)
+        }
+        return BackupHeroContent(
+            kind: .ready, symbol: "arrow.down.circle", title: "Ready to Export",
+            subtitle: readySummary.map { $0.prefix(1).uppercased() + $0.dropFirst() }, tone: .accent
+        )
+    }
+}
+
+/// The tile, title and subtitle of the hero, for one content value. Separate from the controls, so every state can be
+/// rendered on its own.
+struct BackupHeroHeader: View {
+    let content: BackupHeroContent
+    @Environment(\.uncloudAccent) private var accent
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Tokens.Space.m) {
+            IconTile(symbol: content.symbol, tint: content.tone.color(accent: accent ?? .accentColor), size: Tokens.Tile.hero)
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                Text(content.title)
+                    .font(.title2.weight(.semibold))
+                    .monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+                if let subtitle = content.subtitle {
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        // VoiceOver reads the title and subtitle as one heading.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The top of the Backup pane: what's going on, in one line, with the one thing to do about it.
+/// Its progress card and primary button are the same controls the pane used to show further down.
+struct BackupHero: View {
+    @Environment(ExportModel.self) private var model
+    @Environment(\.uncloudAccent) private var accent
+    let total: Int?
+
+    var body: some View {
+        let content = BackupHeroContent.make(
+            phase: model.phase,
+            hasDestination: model.destination != nil,
+            hasAutoResume: model.autoResume != nil,
+            offersResumeExport: model.offersResumeExport,
+            failedCount: model.failedCount,
+            newPhotos: model.newPhotosStatus,
+            lastExport: model.lastBackupDate,
+            readySummary: model.onDriveSummaryText,
+            now: .now
+        )
+        let tint = content.tone.color(accent: accent ?? .accentColor)
+
+        VStack(alignment: .leading, spacing: Tokens.Space.l) {
+            // Exactly the condition the pane used for its primary button: no button while a run is going, waiting, or
+            // offering Resume Export, which the card shows instead.
+            if !model.isExporting, model.autoResume == nil, !model.offersResumeExport {
+                // Wide: the button sits at the trailing edge, centred on the title block. Narrow: it goes under the
+                // subtitle. ViewThatFits picks the first layout that fits the row's width.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: Tokens.Space.m) {
+                        BackupHeroHeader(content: content)
+                        primaryButton(isUpToDate: content.kind == .upToDate)
+                    }
+                    VStack(alignment: .leading, spacing: Tokens.Space.m) {
+                        BackupHeroHeader(content: content)
+                        primaryButton(isUpToDate: content.kind == .upToDate)
+                    }
+                }
+            } else {
+                BackupHeroHeader(content: content)
+            }
+
+            // Idle, the card has nothing to show, so it's left out rather than leaving an empty band in the hero. An
+            // interrupted run keeps it, for the counts and Resume Export.
+            if model.phase != .idle || content.kind == .interrupted || model.autoResume != nil {
+                ProgressCard(showsIdleSummary: content.kind == .interrupted)
+            }
+        }
+        .padding(.vertical, Tokens.Space.s)
+        .listRowBackground(heroBackground(tint))
+    }
+
+    /// The primary action. When everything is exported it stays available but stops shouting, which is the only style rule here.
+    @ViewBuilder
+    private func primaryButton(isUpToDate: Bool) -> some View {
+        if isUpToDate {
+            exportButton.buttonStyle(.bordered)
+        } else {
+            exportButton.buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var exportButton: some View {
+        Button(model.primaryExportTitle(total: total)) {
+            model.performPrimaryAction()
+        }
+        .controlSize(.large)
+        .disabled(!model.primaryExportEnabled(total: total))
+        .help(model.primaryExportHelp ?? "")
+    }
+
+    /// A faint wash in the tone's colour behind the hero. On macOS 26 it follows the concentric corner of the row.
+    @ViewBuilder
+    private func heroBackground(_ tint: Color) -> some View {
+        let fill = tint.opacity(0.10)
+        if #available(macOS 26, *) {
+            ConcentricRectangle(corners: .concentric(minimum: .fixed(Tokens.Radius.l)), isUniform: true).fill(fill)
+        } else {
+            RoundedRectangle(cornerRadius: Tokens.Radius.l, style: .continuous).fill(fill)
+        }
+    }
+}

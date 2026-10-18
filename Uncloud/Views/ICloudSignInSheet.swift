@@ -11,8 +11,8 @@ struct ICloudSignInSheet: View {
 
     var body: some View {
         content
-            .padding(20)
-            .frame(width: 420)
+            .padding(Tokens.Sheet.padding)
+            .frame(width: Tokens.Sheet.narrow)
             .onAppear(perform: dismissIfSignedIn)
             .onChange(of: model.signIn.state) { _, _ in dismissIfSignedIn() }
             .onDisappear { model.signIn.cancel() }

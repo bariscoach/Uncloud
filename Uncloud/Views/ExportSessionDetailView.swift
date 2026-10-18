@@ -33,7 +33,7 @@ struct ExportSessionDetailView: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
             }
-            .padding(16)
+            .padding(Tokens.Sheet.padding)
         }
         .frame(minWidth: 520, idealWidth: 560, minHeight: 480, idealHeight: 620)
     }

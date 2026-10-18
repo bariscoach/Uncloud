@@ -16,24 +16,27 @@ struct LibraryWindow: View {
                 Label {
                     Text("Library")
                 } icon: {
-                    IconTile(symbol: "photo.stack", tint: .purple)
+                    IconTile(symbol: "photo.stack", tint: Tokens.Tint.library, size: Tokens.Tile.sidebar)
                 }
                 .tag(ExportModel.Pane.library)
 
                 Label {
                     Text("Backup")
                 } icon: {
-                    IconTile(symbol: "externaldrive", tint: .teal)
+                    IconTile(symbol: "externaldrive", tint: Tokens.Tint.drive, size: Tokens.Tile.sidebar)
                 }
                 .badge(progressBadge ?? model.newPhotosBadgeText)
                 // Increased prominence makes the percentage a coloured capsule while an export runs.
                 .badgeProminence(model.isExporting ? .increased : .standard)
+                // Badges may not be spoken, so the value carries the same news for VoiceOver.
+                .accessibilityValue(backupAccessibilityValue)
                 .tag(ExportModel.Pane.backup)
 
                 Label {
                     Text("Clean Up iCloud")
                 } icon: {
-                    IconTile(symbol: "trash", tint: .red)
+                    // The pane is about iCloud. The red trash belongs to the Delete action, not to the place.
+                    IconTile(symbol: "icloud", tint: Tokens.Tint.iCloud, size: Tokens.Tile.sidebar)
                 }
                 .tag(ExportModel.Pane.cleanup)
             }
@@ -45,6 +48,7 @@ struct LibraryWindow: View {
             switch model.pane {
             case .library:
                 LibraryView()
+                    .navigationTitle("Library")
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if showsExportStarted {
                             ExportStartedBanner(
@@ -57,8 +61,10 @@ struct LibraryWindow: View {
                     .animation(reduceMotion ? nil : .smooth, value: showsExportStarted)
             case .backup:
                 BackupPane()
+                    .navigationTitle("Backup")
             case .cleanup:
                 CleanupView()
+                    .navigationTitle("Clean Up iCloud")
             }
         }
         .frame(minWidth: 760, minHeight: 500)
@@ -137,6 +143,15 @@ struct LibraryWindow: View {
         return Text("\(Int(model.fractionComplete * 100))%")
     }
 
+    /// What the Backup row's badge says, as text: the export percentage while it runs, else the new-photos count.
+    private var backupAccessibilityValue: String {
+        if model.isExporting {
+            return "\(Int(model.fractionComplete * 100)) percent exported"
+        }
+        guard let status = model.newPhotosStatus, status.count > 0 || status.isAtLeast else { return "" }
+        return NewPhotosText.countPhrase(status)
+    }
+
     /// The source and account: switch source, and sign in or out of iCloud. This is the only place for them.
     private var accountFooter: some View {
         Menu {
@@ -165,7 +180,8 @@ struct LibraryWindow: View {
             HStack(spacing: 8) {
                 IconTile(
                     symbol: model.source == .iCloud ? "icloud" : "photo.on.rectangle",
-                    tint: model.source == .iCloud ? .blue : .pink
+                    tint: model.source == .iCloud ? Tokens.Tint.iCloud : Tokens.Tint.library,
+                    size: Tokens.Tile.sidebar
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(accountTitle)
@@ -218,10 +234,31 @@ struct LibraryWindow: View {
 private struct ExportStartedBanner: View {
     let onShowBackup: () -> Void
     let onClose: () -> Void
+    @Environment(\.uncloudAccent) private var accent
 
     var body: some View {
+        let content = banner
+            .padding(.horizontal, Tokens.Space.l)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+        // On macOS 26 the banner is a glass control floating over the grid, inset from the edges. Older systems keep
+        // the material strip with a divider along its bottom edge.
+        if #available(macOS 26, *) {
+            content
+                .glassEffect(.regular, in: .rect(cornerRadius: Tokens.Radius.l))
+                .padding(Tokens.Space.s)
+        } else {
+            content
+                .background(.regularMaterial)
+                .overlay(alignment: .bottom) {
+                    Divider()
+                }
+        }
+    }
+
+    private var banner: some View {
         HStack(spacing: 12) {
-            IconTile(symbol: "arrow.down.circle", tint: .accentColor)
+            IconTile(symbol: "arrow.down.circle", tint: accent ?? .accentColor, size: Tokens.Tile.section)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Export started")
                     .font(.headline)
@@ -242,13 +279,6 @@ private struct ExportStartedBanner: View {
             .buttonStyle(.borderless)
             .help("Dismiss")
             .accessibilityLabel("Dismiss")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
-        .overlay(alignment: .bottom) {
-            Divider()
         }
     }
 }

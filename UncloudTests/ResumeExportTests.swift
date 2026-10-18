@@ -78,8 +78,9 @@ extension ExportCancellationTests {
         first.model.exportAll()
         #expect(await first.waitFor { first.model.phase == .failed(AutoResumePolicy.gaveUpMessage) })
         #expect(await first.waitFor { !first.model.isEngineRunning })
-        // Still in this launch: the failed run is offered for Resume Export too.
-        #expect(first.model.offersResumeExport)
+        // Still in this launch: the failed run is offered for Resume Export too. The offer comes from an asynchronous
+        // progress refresh, so wait for it, as the cancel test does.
+        #expect(await first.waitFor { first.model.offersResumeExport })
         #expect(first.model.primaryExportTitle(total: nil) == "Resume Export")
         #expect(!first.model.canExportAll)
 

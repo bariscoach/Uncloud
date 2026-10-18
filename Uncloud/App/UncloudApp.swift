@@ -49,10 +49,13 @@ struct UncloudApp: App {
                 .backupToolSheets()
                 .environment(model)
                 .environment(backupTools)
+                .accentVariant(AccentVariant.override)
         }
         .defaultSize(width: 1000, height: 700)
         .windowResizability(.contentMinSize)
         .commands {
+            // View › Show/Hide Sidebar comes from the system, so it's offered from the menu bar as well.
+            SidebarCommands()
             ExportCommands(model: model, tools: backupTools)
         }
 
@@ -60,6 +63,7 @@ struct UncloudApp: App {
             SettingsView()
                 .environment(model)
                 .environment(settings)
+                .accentVariant(AccentVariant.override)
         }
 
         MenuBarExtra("Uncloud", systemImage: "photo.on.rectangle.angled", isInserted: showsMenuBarItem) {

@@ -60,10 +60,19 @@ struct CleanupGridView: View {
     /// The IDs backed up on the current destination, read from its manifest. Information only.
     @State private var backedUp: Set<String> = []
     @State private var knownBytes: [String: Int64] = [:]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The list the picker shows.
     private var browser: LibraryBrowser {
         cleanup.mode == .library ? library : recentlyDeleted
+    }
+
+    /// The window subtitle: the selection count, and in Recently Deleted, how long items stay there.
+    private var subtitle: String {
+        let count = countText
+        guard cleanup.mode == .recentlyDeleted else { return count }
+        let note = "Items are permanently removed by iCloud after 30 days."
+        return count.isEmpty ? note : "\(count) · \(note)"
     }
 
     var body: some View {
@@ -96,23 +105,13 @@ struct CleanupGridView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 0) {
-                modePicker
-                if cleanup.mode == .recentlyDeleted {
-                    Text("Items are permanently removed by iCloud after 30 days.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
-                }
-                if showsStatus {
-                    CleanupStatusCard(cleanup: cleanup)
-                        .transition(.opacity)
-                }
+            if showsStatus {
+                CleanupStatusCard(cleanup: cleanup)
+                    .transition(.opacity)
             }
         }
-        .animation(.smooth, value: showsStatus)
+        .animation(reduceMotion ? nil : .smooth, value: showsStatus)
+        .navigationSubtitle(subtitle)
         .sheet(isPresented: isConfirming) {
             if cleanup.mode == .library {
                 CleanupConfirmationSheet(
@@ -147,6 +146,7 @@ struct CleanupGridView: View {
     }
 
     /// Library or Recently Deleted, with the count of Recently Deleted. Locked while a run works on one of them.
+    /// It sits in the toolbar's centre, where switching views belongs on macOS, rather than in a bar under it.
     private var modePicker: some View {
         Picker("Show", selection: Binding(get: { cleanup.mode }, set: { cleanup.setMode($0) })) {
             Text("Library").tag(ICloudCleanup.Mode.library)
@@ -155,9 +155,6 @@ struct CleanupGridView: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .disabled(cleanup.isRunning)
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
     }
 
     private var recentlyDeletedTitle: String {
@@ -186,12 +183,11 @@ struct CleanupGridView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Text(countText)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
+        ToolbarItem(placement: .principal) {
+            modePicker
+        }
 
+        ToolbarItem(placement: .primaryAction) {
             Menu("Select") {
                 Button("Select All") {
                     cleanup.selection = filter.selection(backedUp: backedUp)
@@ -203,7 +199,9 @@ struct CleanupGridView: View {
                 .disabled(cleanup.selection.isNothing)
             }
             .help("Select or deselect every item")
+        }
 
+        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Picker("Show", selection: $filter) {
                     ForEach(BackupFilter.allCases) { option in
@@ -216,13 +214,23 @@ struct CleanupGridView: View {
             }
             .help("Choose which items Select All selects, and which are dimmed")
             .accessibilityLabel("Filter, \(filter.title)")
+        }
 
+        if #available(macOS 26, *) {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+        }
+
+        ToolbarItem(placement: .primaryAction) {
             if cleanup.mode == .library {
-                Button(deleteTitle) {
+                // Not prominent: the red, typed confirmation is where the deletion is committed. The trash glyph and the
+                // ellipsis say what the button does.
+                Button {
                     cleanup.requestConfirmation()
+                } label: {
+                    Label(deleteTitle, systemImage: "trash")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .labelStyle(.titleAndIcon)
+                .buttonStyle(.bordered)
                 .disabled(!cleanup.canRequestConfirmation)
                 .help(deleteHelp)
             } else {
@@ -536,8 +544,8 @@ struct CleanupConfirmationSheet: View {
                 .disabled(!ICloudCleanup.typedNumberMatches(typed, count: count))
             }
         }
-        .padding(20)
-        .frame(width: 420)
+        .padding(Tokens.Sheet.padding)
+        .frame(width: Tokens.Sheet.narrow)
     }
 }
 
@@ -565,7 +573,7 @@ struct CleanupRecoverySheet: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(width: 420)
+        .padding(Tokens.Sheet.padding)
+        .frame(width: Tokens.Sheet.narrow)
     }
 }

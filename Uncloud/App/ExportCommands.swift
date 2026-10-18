@@ -35,6 +35,11 @@ struct ExportCommands: Commands {
             }
             .keyboardShortcut("2")
 
+            Button("Clean Up iCloud") {
+                model.pane = .cleanup
+            }
+            .keyboardShortcut("3")
+
             Divider()
         }
 

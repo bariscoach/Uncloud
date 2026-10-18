@@ -40,9 +40,9 @@ struct FreeUpSpaceSheet: View {
                 buttons
             }
             .controlSize(.large)
-            .padding(20)
+            .padding(Tokens.Sheet.padding)
         }
-        .frame(width: 520, height: 580)
+        .frame(width: Tokens.Sheet.regular, height: 580)
         .interactiveDismissDisabled(cleanup.isBusy)
         .confirmationDialog(
             "Remove \(countText(eligibleCount, "item")) from your photo library?",

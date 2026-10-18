@@ -234,7 +234,7 @@ struct CheckDriveResultsSheet: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
             }
-            .padding(16)
+            .padding(Tokens.Sheet.padding)
         }
         .frame(minWidth: 480, idealWidth: 520, minHeight: 440, idealHeight: 560)
     }

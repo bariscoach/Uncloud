@@ -5,17 +5,26 @@ import SwiftUI
 struct IconTile: View {
     let symbol: String
     let tint: Color
-    /// The side length of the tile. The symbol scales with it.
-    var size: CGFloat = 28
+    /// The side length of the tile, one of the `Tokens.Tile` sizes. The symbol scales with it.
+    var size: CGFloat = Tokens.Tile.section
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.21, style: .continuous)
+        let radius = size * Tokens.Radius.tileRatio
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
             .fill(tint)
             .frame(width: size, height: size)
             .overlay {
                 Image(systemName: symbol)
                     .font(.system(size: size * 0.54, weight: .semibold))
                     .foregroundStyle(.white)
+            }
+            // With Increase Contrast, a thin edge keeps pale tiles (mint, yellow) from melting into the background.
+            .overlay {
+                if contrast == .increased {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(.primary.opacity(0.35), lineWidth: 1)
+                }
             }
             .accessibilityHidden(true)
     }

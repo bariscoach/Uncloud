@@ -60,7 +60,7 @@ private struct HowItWorksColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                IconTile(symbol: step.symbol, tint: step.tint, size: 28)
+                IconTile(symbol: step.symbol, tint: step.tint, size: Tokens.Tile.feature)
                 Text(step.title)
                     .font(.headline)
             }

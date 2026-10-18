@@ -21,8 +21,8 @@ struct VerifyBackupSheet: View {
             }
             .controlSize(.large)
         }
-        .padding(20)
-        .frame(width: 500)
+        .padding(Tokens.Sheet.padding)
+        .frame(width: Tokens.Sheet.regular)
         .interactiveDismissDisabled(verification.isBusy)
         .confirmationDialog(
             reexportTitle,

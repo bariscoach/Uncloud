@@ -31,7 +31,7 @@ struct ExportHistoryView: View {
                 }
             }
         } header: {
-            SectionTitle(title: "Export History", symbol: "clock.arrow.circlepath", tint: .indigo)
+            SectionTitle(title: "Export History", symbol: "clock.arrow.circlepath", tint: Tokens.Tint.history)
         } footer: {
             if unavailableText == nil {
                 Button("Show History in Finder", action: showInFinder)
