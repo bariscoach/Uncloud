@@ -30,7 +30,7 @@ struct LibraryView: View {
         guard model.isSourceReady, let total = model.browser?.count else { return "" }
         let selected = model.selection.selectedCount(total: total)
         let count = model.selection.isEverything
-            ? "All \(total.formatted()) items selected"
+            ? "All \(Plural.photos(total)) selected"
             : "\(selected.formatted()) of \(total.formatted()) selected"
         // The estimated size, such as "· about 412 GB", once anything is selected.
         guard selected > 0, let size = model.storageEstimateText else { return count }
@@ -38,24 +38,25 @@ struct LibraryView: View {
     }
 }
 
-/// The toolbar of the Library pane: the Select menu, export progress, and the primary button in its own group.
+/// The toolbar of the Library pane: Select All or Deselect All, export progress, and the primary button in its own group.
 private struct LibraryToolbar: ToolbarContent {
     @Environment(ExportModel.self) private var model
     let browser: LibraryBrowser
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Menu("Select") {
-                Button("Select All") {
-                    model.selection.selectAll()
-                }
-                .disabled(browser.count == nil)
+            // One text button: Deselect All when everything is selected, otherwise Select All.
+            if model.selection.isEverything {
                 Button("Deselect All") {
                     model.selection.deselectAll()
                 }
                 .disabled(model.selection.isNothing)
+            } else {
+                Button("Select All") {
+                    model.selection.selectAll()
+                }
+                .disabled(browser.count == nil)
             }
-            .help("Select or deselect every item")
         }
 
         if model.isExporting {
@@ -76,11 +77,11 @@ private struct LibraryToolbar: ToolbarContent {
                 Button {
                     model.pane = .backup
                 } label: {
-                    Label("Waiting to resume", systemImage: "clock")
+                    Label("Waiting to Resume", systemImage: "clock")
                         .labelStyle(.titleAndIcon)
                         .foregroundStyle(.orange)
                 }
-                .help("The export resumes automatically. Show Backup for details.")
+                .help("Resumes on its own. Click to see why.")
                 .accessibilityLabel("Export waiting to resume. Show Backup.")
             }
         }
@@ -117,7 +118,7 @@ private struct LibraryBrowserView: View {
                 } description: {
                     Text("Your iCloud sign-in has expired.")
                 } actions: {
-                    Button("Sign In…") {
+                    Button("Sign In to iCloud…") {
                         model.isShowingICloudSignIn = true
                     }
                     .buttonStyle(.borderedProminent)
@@ -185,13 +186,13 @@ private struct LibraryBrowserView: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Reading your library…")
+                    Text("Loading your library…")
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .combine)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 2)], spacing: 2) {
                     ForEach(0..<30, id: \.self) { _ in
-                        Rectangle()
+                        RoundedRectangle(cornerRadius: Tokens.Radius.s)
                             .fill(.quaternary)
                             .aspectRatio(1, contentMode: .fit)
                     }

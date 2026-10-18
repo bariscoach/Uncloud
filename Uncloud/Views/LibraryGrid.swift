@@ -174,13 +174,14 @@ private struct LibraryTile: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if showsBackedUpBadge, backedUp {
-                    // Information only: the item is already in the backup. Text, since a symbol alone reads as something else.
-                    Text("Backed Up")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.regularMaterial, in: Capsule())
+                    // Information only: the item is already in the backup. A drive symbol, not a checkmark, which the selection uses.
+                    // The cell's label already says "backed up", so VoiceOver doesn't read the badge.
+                    Image(systemName: "externaldrive.fill.badge.checkmark")
+                        .font(.caption2)
                         .padding(4)
+                        .background(.regularMaterial, in: Circle())
+                        .padding(4)
+                        .help("Backed up")
                         .accessibilityHidden(true)
                 }
             }

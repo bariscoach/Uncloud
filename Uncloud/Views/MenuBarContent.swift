@@ -10,6 +10,11 @@ struct MenuBarContent: View {
         Text(statusText)
             .disabled(true)
 
+        if let newPhotosText {
+            Text(newPhotosText)
+                .disabled(true)
+        }
+
         Button("Export Now") {
             model.backUpAutomatically(reason: "from the menu bar")
         }
@@ -25,6 +30,7 @@ struct MenuBarContent: View {
         SettingsLink {
             Text("Settings…")
         }
+        .keyboardShortcut(",")
 
         Button("Quit Uncloud") {
             NSApp.terminate(nil)
@@ -38,12 +44,21 @@ struct MenuBarContent: View {
         }
         if let pending = model.autoResume {
             return pending.isWaitingForDestination
-                ? "Waiting for the backup drive to resume"
-                : "Resuming at \(ExportModel.resumeTimeText(pending.resumeAt))"
+                ? "Waiting for your backup drive"
+                : "Resumes at \(ExportModel.resumeTimeText(pending.resumeAt))"
+        }
+        if model.offersResumeExport {
+            return "Your last export didn’t finish"
         }
         if let date = model.lastBackupDate {
-            return "Last backup: \(date.formatted(.relative(presentation: .named)))"
+            return "Last export \(date.formatted(.relative(presentation: .named)))"
         }
-        return "No backups yet"
+        return "Not exported yet"
+    }
+
+    /// The new-photos line, shown only while there are new photos to export.
+    private var newPhotosText: String? {
+        guard let status = model.newPhotosStatus, status.count > 0 || status.isAtLeast else { return nil }
+        return NewPhotosText.statusLine(status, now: .now)
     }
 }

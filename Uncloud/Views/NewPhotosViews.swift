@@ -24,7 +24,7 @@ extension ExportModel {
     /// Help for the primary button when it exports new photos: it still checks the drive for missing ones.
     var primaryExportHelp: String? {
         primaryExportTitle(total: browser?.count) == NewPhotosTitle.exportNewPhotos
-            ? "Copies new photos, and any missing from the folder. Photos already there are skipped."
+            ? "Exports new photos, and any missing from your backup."
             : nil
     }
 }
@@ -36,13 +36,15 @@ struct NewPhotosReminderSection: View {
     var body: some View {
         Section("New Photos") {
             Toggle("Remind me about new photos", isOn: $reminder.isEnabled)
-            Picker("Remind me", selection: $reminder.frequency) {
+                .help("Uncloud checks every six hours while it runs, which automatic backups or the menu bar keeps it doing.")
+                .accessibilityHint("Uncloud checks every six hours while it runs, which automatic backups or the menu bar keeps it doing.")
+            Picker("How often", selection: $reminder.frequency) {
                 ForEach(NewPhotosReminderFrequency.allCases, id: \.self) { frequency in
                     Text(frequency.title).tag(frequency)
                 }
             }
             .disabled(!reminder.isEnabled)
-            Text("A notification when photos have been added to your library since your last export and your backup drive isn’t connected. Uncloud checks every six hours while it runs, which automatic backup or the menu bar keeps it doing.")
+            Text("Get a notification when there are new photos and your backup drive isn’t connected.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

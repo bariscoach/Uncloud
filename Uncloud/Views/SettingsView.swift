@@ -12,18 +12,18 @@ struct SettingsView: View {
 
         Form {
             Section("Automatic Backup") {
-                Toggle("Back up when the destination drive is connected", isOn: $settings.backUpWhenDriveConnects)
+                Toggle("Export when the backup drive is connected", isOn: $settings.backUpWhenDriveConnects)
                     .disabled(model.destination == nil)
-                Toggle("Back up once a day", isOn: $settings.backUpDaily)
+                Toggle("Export once a day", isOn: $settings.backUpDaily)
                     .disabled(model.destination == nil)
 
-                LabeledContent("Save To") {
+                LabeledContent("Backup folder") {
                     HStack {
-                        Text(model.destination?.displayName ?? "No folder chosen")
+                        Text(model.destination?.displayName ?? "None")
                             .foregroundStyle(model.destination == nil ? .secondary : .primary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Button(model.destination == nil ? "Choose Folder…" : "Change Folder…") {
+                        Button(model.destination == nil ? "Choose…" : "Change…") {
                             // The folder picker belongs to the main window, which may be closed.
                             openWindow(id: "main")
                             NSApp.activate()
@@ -48,7 +48,7 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 }
                 Toggle("Show in menu bar", isOn: $settings.showInMenuBar)
-                Text("The menu bar item appears while automatic backup is on.")
+                Text("Shown while automatic backups are on.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -58,7 +58,7 @@ struct SettingsView: View {
     }
 
     private var statusText: String {
-        let last = model.lastBackupDate?.formatted(.relative(presentation: .named)) ?? "none yet"
-        return "Last backup: \(last). While automatic backup is on, Uncloud keeps running in the menu bar after you close its window."
+        let last = model.lastBackupDate?.formatted(.relative(presentation: .named)) ?? "never"
+        return "Last export: \(last). While automatic backups are on, Uncloud keeps running in the menu bar."
     }
 }
