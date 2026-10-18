@@ -21,7 +21,7 @@ struct BrowseBackupView: View {
             }
         }
         .navigationSubtitle(browse.destinationName)
-        .searchable(text: Bindable(browse).query, placement: .toolbar, prompt: "Filter places")
+        .searchable(text: Bindable(browse).query, placement: .toolbar, prompt: "Search places")
         .toolbar {
             ToolbarItem(placement: .principal) {
                 modePicker(browse)
@@ -63,9 +63,9 @@ struct BrowseBackupView: View {
         ContentUnavailableView {
             Label("No Backup Folder", systemImage: "externaldrive")
         } description: {
-            Text("Choose a backup folder to browse it.")
+            Text("Choose a backup folder to see your photos on a map.")
         } actions: {
-            Button("Choose Folder…") {
+            Button("Choose Backup Folder…") {
                 model.beginChoosingDestination()
             }
             .buttonStyle(.borderedProminent)
@@ -84,9 +84,9 @@ struct BrowseBackupView: View {
         ContentUnavailableView {
             Label("Nothing to Browse Yet", systemImage: "map")
         } description: {
-            Text("Export some photos to this folder, then come back to see where they were taken.")
+            Text("Export some photos, then see where they were taken.")
         } actions: {
-            Button("Go to Backup") {
+            Button("Show Backup") {
                 model.pane = .backup
             }
             .buttonStyle(.borderedProminent)
@@ -167,7 +167,7 @@ struct BrowseBackupView: View {
                 Text(inspectorTitle(browse))
                     .font(.headline)
                     .lineLimit(2)
-                Text("\(browse.gridPaths.count) photos")
+                Text(Plural.photos(browse.gridPaths.count))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -196,9 +196,9 @@ struct BrowseBackupView: View {
                 }
             } else {
                 ContentUnavailableView {
-                    Label("No Photos Have a Location", systemImage: "map")
+                    Label("No Photo Locations", systemImage: "map")
                 } description: {
-                    Text("None of the photos on this drive has a location. Photos taken with location off are listed under No Location in Places.")
+                    Text("None of these photos has a location. Find them under No Location in Places.")
                 }
             }
         }
@@ -235,7 +235,7 @@ struct BrowseBackupView: View {
         let paths = browse.gridPaths
         if paths.isEmpty {
             ContentUnavailableView {
-                Label("Choose a Place", systemImage: "photo.on.rectangle")
+                Label("Select a Place", systemImage: "photo.on.rectangle")
             } description: {
                 Text(browse.mode == .map ? "Click a pin to see its photos." : "Select a place to see its photos.")
             }
@@ -263,43 +263,33 @@ struct BrowseBackupView: View {
     }
 
     private func readingText(_ browse: BrowseBackup) -> String {
-        guard let progress = browse.progress else { return "Checking the backup…" }
+        guard let progress = browse.progress else { return "Opening your backup…" }
         return "Reading locations… \(progress.done.formatted()) of \(progress.total.formatted())"
     }
 }
 
-/// The index build's progress, along the top of the view. It stays up until the index is complete.
+/// The index build's progress, along the top of the view. It stays up until the index is complete. It's a
+/// `StatusBanner`, the same banner Clean Up iCloud uses.
 struct IndexingBanner: View {
     let progress: BrowseBackup.Progress?
     let isPaused: Bool
 
     var body: some View {
-        HStack(spacing: Tokens.Space.m) {
-            if let progress {
-                ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
-                    .frame(maxWidth: 160)
-            } else {
-                ProgressView()
-                    .controlSize(.small)
-            }
-            Text(text)
-                .font(.callout)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+        StatusBanner(
+            symbol: nil,
+            tint: .accentColor,
+            title: text,
+            progress: progress.map { min(1, Double($0.done) / Double(max($0.total, 1))) }
+        ) {
+            EmptyView()
         }
-        .padding(.horizontal, Tokens.Space.l)
-        .padding(.vertical, Tokens.Space.s)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
-        .accessibilityElement(children: .combine)
     }
 
     private var text: String {
         if isPaused {
             return "Paused while an export runs"
         }
-        guard let progress else { return "Checking the backup…" }
+        guard let progress else { return "Opening your backup…" }
         return "Reading locations… \(progress.done.formatted()) of \(progress.total.formatted())"
     }
 }

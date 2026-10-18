@@ -2,7 +2,7 @@ import AppKit
 import QuickLookThumbnailing
 import SwiftUI
 
-/// Lists the items saved more than once in the folder, and moves the extra copies to the Trash after one confirmation.
+/// Lists the photos saved more than once in the folder, and moves the extra copies to the Trash after one confirmation.
 struct FindDuplicatesSheet: View {
     let cleanup: DuplicateCleanup
     @Environment(ExportModel.self) private var model
@@ -10,21 +10,12 @@ struct FindDuplicatesSheet: View {
     @State private var isConfirmingRemoval = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Find Duplicates")
-                .font(.title2.weight(.semibold))
-
+        SheetScaffold("Find Duplicates", width: Tokens.Sheet.wide, content: {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack {
-                Spacer()
-                buttons
-            }
-            .controlSize(.large)
-        }
-        .padding(Tokens.Sheet.padding)
-        .frame(width: Tokens.Sheet.wide)
+        }, buttons: {
+            buttons
+        })
         .interactiveDismissDisabled(cleanup.isBusy)
         .confirmationDialog(
             "Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to the Trash?",
@@ -36,12 +27,12 @@ struct FindDuplicatesSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Uncloud will move \(countText(cleanup.duplicateCount, "copy", "copies")) (\(byteText(cleanup.duplicateBytes))) from “\(destinationName)” to the Trash. One copy of each is kept. Your photo library isn’t changed. Empty the Trash to free the space.")
+            Text("\(countText(cleanup.duplicateCount, "copy", "copies")) (\(byteText(cleanup.duplicateBytes))) in “\(destinationName)” go to the Trash. One copy of each photo is kept. Empty the Trash to free the space.")
         }
     }
 
     private var destinationName: String {
-        model.destination?.displayName ?? "the backup folder"
+        model.destination?.displayName ?? "your backup folder"
     }
 
     private func byteText(_ bytes: Int64) -> String {
@@ -53,14 +44,11 @@ struct FindDuplicatesSheet: View {
         switch cleanup.state {
         case .ready:
             VStack(alignment: .leading, spacing: 8) {
-                Text("Uncloud compares the files in “\(destinationName)” using the checksums saved when they were exported. Items saved more than once are listed, and you choose which copy to keep.")
+                Text("Uncloud looks for photos saved more than once in “\(destinationName)”. You choose which copy to keep.")
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Only the folder changes. Your photo library and iCloud aren’t touched.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                HelpText("Only your backup folder changes. Your library and iCloud aren’t touched.")
                 if model.isExporting {
-                    Label("Wait for the export to finish before looking for duplicates.", systemImage: "info.circle")
-                        .foregroundStyle(.secondary)
+                    HelpText("Available when the export finishes.")
                 }
             }
 
@@ -84,10 +72,7 @@ struct FindDuplicatesSheet: View {
                 Label("No duplicates found", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                 if notChecked > 0 {
-                    Text("\(countText(notChecked, "item")) couldn’t be checked because \(notChecked == 1 ? "it was" : "they were") saved by an older version of Uncloud.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HelpText("\(Plural.photos(notChecked)) exported by an older version of Uncloud couldn’t be checked.")
                 }
             }
 
@@ -153,7 +138,7 @@ struct FindDuplicatesSheet: View {
                 .disabled(true)
 
         case .finished:
-            Button("Open Trash") {
+            Button("Show Trash") {
                 openTrash()
             }
             Button("Done") {
@@ -187,7 +172,7 @@ struct FindDuplicatesSheet: View {
     }
 }
 
-/// The summary and the list of groups in a finished scan.
+/// The summary and the list of groups in a finished scan. Each group is one `Section` of a single list.
 private struct FoundDuplicates: View {
     let cleanup: DuplicateCleanup
     let destinationName: String
@@ -198,61 +183,52 @@ private struct FoundDuplicates: View {
                 .monospacedDigit()
 
             if cleanup.notCheckedCount > 0 {
-                Text("\(countText(cleanup.notCheckedCount, "item")) couldn’t be checked because \(cleanup.notCheckedCount == 1 ? "it was" : "they were") saved by an older version of Uncloud.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                HelpText("\(Plural.photos(cleanup.notCheckedCount)) exported by an older version of Uncloud couldn’t be checked.")
             }
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(cleanup.groups) { group in
-                        DuplicateGroupView(group: group, cleanup: cleanup)
-                    }
+            List {
+                ForEach(cleanup.groups) { group in
+                    DuplicateGroupSection(group: group, cleanup: cleanup)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, 8)
             }
+            .listStyle(.inset)
             .frame(maxHeight: 340)
         }
     }
 }
 
-/// One group of identical items: a checkbox for the whole group, then each copy with its keeper choice.
-private struct DuplicateGroupView: View {
+/// One group of identical photos: a checkbox for the whole group, then each copy with its keeper choice.
+private struct DuplicateGroupSection: View {
     let group: DuplicateFinder.Group
     let cleanup: DuplicateCleanup
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: Binding(
-                    get: { cleanup.isIncluded(group) },
-                    set: { cleanup.setIncluded($0, for: group) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(group.keeper.fileName)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text("\(countText(group.duplicates.count, "extra copy", "extra copies")) · \(ByteCountFormatter.string(fromByteCount: group.duplicateBytes, countStyle: .file))")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-                .toggleStyle(.checkbox)
-
-                ForEach(group.copies) { copy in
-                    CopyRow(
-                        copy: copy,
-                        isKept: copy.id == group.keeperID,
-                        destination: cleanup.scannedDestination,
-                        onKeep: { cleanup.setKeeper(copy.id, in: group) }
-                    )
+        Section {
+            Toggle(isOn: Binding(
+                get: { cleanup.isIncluded(group) },
+                set: { cleanup.setIncluded($0, for: group) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.keeper.fileName)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text("\(countText(group.duplicates.count, "extra copy", "extra copies")) · \(ByteCountFormatter.string(fromByteCount: group.duplicateBytes, countStyle: .file))")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .toggleStyle(.checkbox)
+
+            ForEach(group.copies) { copy in
+                CopyRow(
+                    copy: copy,
+                    isKept: copy.id == group.keeperID,
+                    destination: cleanup.scannedDestination,
+                    onKeep: { cleanup.setKeeper(copy.id, in: group) }
+                )
+            }
         }
     }
 }
@@ -298,7 +274,7 @@ private struct CopyRow: View {
                 Label("Move to Trash", systemImage: "trash")
                     .foregroundStyle(.secondary)
                     .labelStyle(.titleAndIcon)
-                Button("Keep This One", action: onKeep)
+                Button("Keep This", action: onKeep)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             }
@@ -366,8 +342,7 @@ private struct RemovalResults: View {
                 .foregroundStyle(.green)
                 .fixedSize(horizontal: false, vertical: true)
             } else {
-                Label("No copies were moved to the Trash.", systemImage: "info.circle")
-                    .foregroundStyle(.secondary)
+                HelpText("No copies were moved to the Trash.")
             }
 
             let kept = result.skippedCopies + result.failedCopies
@@ -391,6 +366,6 @@ private extension DuplicateFinder.Copy {
     /// The folder the file is in, relative to the destination; empty for files at the top.
     var folderName: String {
         let folder = (mediaPaths[0] as NSString).deletingLastPathComponent
-        return folder.isEmpty ? "In the folder you chose" : folder
+        return folder.isEmpty ? "In your backup folder" : folder
     }
 }

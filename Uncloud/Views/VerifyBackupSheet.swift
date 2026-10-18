@@ -8,38 +8,29 @@ struct VerifyBackupSheet: View {
     @State private var isConfirmingReexport = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Verify Backup")
-                .font(.title2.weight(.semibold))
-
+        SheetScaffold("Verify Backup", content: {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack {
-                Spacer()
-                buttons
-            }
-            .controlSize(.large)
-        }
-        .padding(Tokens.Sheet.padding)
-        .frame(width: Tokens.Sheet.regular)
+        }, buttons: {
+            buttons
+        })
         .interactiveDismissDisabled(verification.isBusy)
         .confirmationDialog(
             reexportTitle,
             isPresented: $isConfirmingReexport,
             titleVisibility: .visible
         ) {
-            Button("Delete Files and Export Again", role: .destructive) {
+            Button("Delete and Export Again", role: .destructive) {
                 verification.reexport()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Uncloud will delete the files these items still have in “\(destinationName)”, then copy them again from your photo library. Your photo library isn’t changed.")
+            Text("Their files in “\(destinationName)” are deleted and exported again from your library. Your library isn’t changed.")
         }
     }
 
     private var destinationName: String {
-        model.destination?.displayName ?? "the backup folder"
+        model.destination?.displayName ?? "your backup folder"
     }
 
     private var reexportCount: Int {
@@ -50,18 +41,17 @@ struct VerifyBackupSheet: View {
     }
 
     private var reexportTitle: String {
-        "Export \(countText(reexportCount, "item")) again?"
+        "Export \(countText(reexportCount, "Photo")) Again?"
     }
 
     @ViewBuilder
     private var content: some View {
         switch verification.state {
         case .ready:
-            Text("Uncloud will read every file in “\(destinationName)” and compare it with the checksum saved when it was exported. This can take a while for a large backup.")
+            Text("Uncloud reads every file in “\(destinationName)” and checks it’s identical to when it was exported. Large backups take a while.")
                 .fixedSize(horizontal: false, vertical: true)
             if model.isExporting {
-                Label("Wait for the export to finish before checking the backup.", systemImage: "info.circle")
-                    .foregroundStyle(.secondary)
+                HelpText("Available when the export finishes.")
             }
 
         case let .checking(done, total):
@@ -90,7 +80,7 @@ struct VerifyBackupSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 ProgressView()
                     .progressViewStyle(.linear)
-                Text("Removing old files…")
+                Text("Removing damaged files…")
                     .foregroundStyle(.secondary)
             }
 
@@ -109,7 +99,7 @@ struct VerifyBackupSheet: View {
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)
-            Button("Check Backup") {
+            Button("Verify") {
                 verification.start()
             }
             .buttonStyle(.borderedProminent)
@@ -128,7 +118,7 @@ struct VerifyBackupSheet: View {
 
         case .finished:
             if reexportCount > 0 {
-                Button("Re-export \(countText(reexportCount, "Item"))…") {
+                Button("Export \(countText(reexportCount, "Photo")) Again…") {
                     isConfirmingReexport = true
                 }
                 .disabled(!verification.canReexport)
@@ -166,13 +156,13 @@ private struct VerifyResults: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if summary.verifiedCount + summary.damagedCount + summary.unverifiableCount == 0 {
-                Label("There’s nothing in this backup yet.", systemImage: "info.circle")
+                HelpText("Nothing to verify yet.")
             }
 
             if summary.verifiedCount > 0 {
                 finding(
-                    "\(countText(summary.verifiedCount, "item")) verified",
-                    detail: "Every file is present and matches the original.",
+                    "\(countText(summary.verifiedCount, "Photo")) verified",
+                    detail: "Every file is intact.",
                     systemImage: "checkmark.circle.fill",
                     color: .green
                 )
@@ -180,7 +170,7 @@ private struct VerifyResults: View {
 
             if summary.damagedCount > 0 {
                 finding(
-                    "\(countText(summary.damagedCount, "item")) damaged or missing",
+                    "\(countText(summary.damagedCount, "Photo")) damaged or missing",
                     detail: "\(countText(summary.affectedFileCount, "file")) are missing or don’t match the original.",
                     systemImage: "xmark.octagon.fill",
                     color: .red
@@ -190,8 +180,8 @@ private struct VerifyResults: View {
 
             if summary.unverifiableCount > 0 {
                 finding(
-                    "\(countText(summary.unverifiableCount, "item")) can’t be checked",
-                    detail: "These were exported by an earlier version of Uncloud that didn’t save checksums. Their files are there and look fine, but they can’t be checked until they’re exported again.",
+                    "\(countText(summary.unverifiableCount, "Photo")) can’t be verified",
+                    detail: "Exported by an older version of Uncloud. They look fine, and can be verified once they’re exported again.",
                     systemImage: "questionmark.circle.fill",
                     color: .orange
                 )
@@ -199,18 +189,16 @@ private struct VerifyResults: View {
 
             if let notBackedUp = summary.notBackedUpCount, notBackedUp > 0 {
                 finding(
-                    "\(countText(notBackedUp, "item")) not backed up yet",
-                    detail: "These are in your photo library but not in this backup. Choose Export or Resume to copy them.",
+                    "\(countText(notBackedUp, "Photo")) not backed up yet",
+                    detail: "They’re in your library but not in this backup. Export to add them.",
                     systemImage: "info.circle.fill",
                     color: .secondary
                 )
             }
 
             if summary.notInLibraryCount > 0 {
-                Text("\(countText(summary.notInLibraryCount, "item")) with problems \(summary.notInLibraryCount == 1 ? "is" : "are") no longer in your photo library, so \(summary.notInLibraryCount == 1 ? "it" : "they") can’t be exported again. \(summary.notInLibraryCount == 1 ? "Its files were" : "Their files were") left as they are.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                let count = summary.notInLibraryCount
+                HelpText("\(count.formatted()) of these \(count == 1 ? "is" : "are") no longer in your library, so \(count == 1 ? "it" : "they") can’t be exported again. \(count == 1 ? "Its files were" : "Their files were") left as they are.")
             }
         }
     }
@@ -220,10 +208,7 @@ private struct VerifyResults: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.headline)
-                Text(detail)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                HelpText(detail)
             }
         } icon: {
             Image(systemName: systemImage)

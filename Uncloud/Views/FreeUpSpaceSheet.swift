@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Removes items from the photo library that are verified in the backup. Nothing happens without two confirmations.
+/// Removes photos from the photo library that are verified in the backup. Nothing happens without two confirmations.
 struct FreeUpSpaceSheet: View {
     @Bindable var cleanup: LibraryCleanup
     @Environment(ExportModel.self) private var model
@@ -8,68 +8,55 @@ struct FreeUpSpaceSheet: View {
     @State private var isConfirmingRemoval = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Form {
+        FormSheetScaffold("Free Up Space", minHeight: 580, content: {
+            Section {
+                explanation
+            }
+
+            Section("Options") {
+                Picker("Only photos older than", selection: $cleanup.ageLimit) {
+                    ForEach(LibraryCleanup.AgeLimit.allCases) { limit in
+                        Text(limit.title).tag(limit)
+                    }
+                }
+                Toggle("Keep favorites", isOn: $cleanup.keepFavorites)
+                Toggle("Keep hidden photos", isOn: $cleanup.keepHidden)
+            }
+            .disabled(cleanup.isBusy)
+
+            if hasStatus {
                 Section {
-                    explanation
-                }
-
-                Section("Options") {
-                    Picker("Only items older than", selection: $cleanup.ageLimit) {
-                        ForEach(LibraryCleanup.AgeLimit.allCases) { limit in
-                            Text(limit.title).tag(limit)
-                        }
-                    }
-                    Toggle("Keep favorites", isOn: $cleanup.keepFavorites)
-                    Toggle("Keep hidden items", isOn: $cleanup.keepHidden)
-                }
-                .disabled(cleanup.isBusy)
-
-                if hasStatus {
-                    Section {
-                        status
-                    }
+                    status
                 }
             }
-            .formStyle(.grouped)
-
-            Divider()
-
-            HStack {
-                Spacer()
-                buttons
-            }
-            .controlSize(.large)
-            .padding(Tokens.Sheet.padding)
-        }
-        .frame(width: Tokens.Sheet.regular, height: 580)
+        }, buttons: {
+            buttons
+        })
         .interactiveDismissDisabled(cleanup.isBusy)
         .confirmationDialog(
-            "Remove \(countText(eligibleCount, "item")) from your photo library?",
+            "Remove \(countText(eligibleCount, "Photo")) from This Mac?",
             isPresented: $isConfirmingRemoval,
             titleVisibility: .visible
         ) {
-            Button("Remove \(countText(eligibleCount, "Item"))", role: .destructive) {
+            Button("Remove \(countText(eligibleCount, "Photo"))", role: .destructive) {
                 cleanup.removeItems()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("They’ll be deleted from this Mac and, if iCloud Photos is on, from iCloud and all your devices, and items in a Shared Library are removed for everyone who shares it. You can get them back from Recently Deleted in Photos for 30 days. The copies in “\(model.destination?.displayName ?? "your backup")” are kept.")
+            Text("They’re deleted from Photos on this Mac and, if iCloud Photos is on, from all your devices. Shared Library photos are removed for everyone. They stay in Recently Deleted in Photos for 30 days. Your backup in “\(model.destination?.displayName ?? "your backup")” is kept.")
         }
     }
 
     private var explanation: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label {
-                Text("Removing items deletes them from the photo library on this Mac. If iCloud Photos is on, they’re also deleted from iCloud and from all your devices. Items in a Shared Library are removed for everyone who shares it.")
+                Text("Removes photos from Photos on this Mac. If iCloud Photos is on, they’re removed from all your devices, and Shared Library photos for everyone.")
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             }
-            Text("Removed items stay in Recently Deleted in Photos for 30 days. Only items that are verified in this backup are offered.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HelpText("Removed photos stay in Recently Deleted in Photos for 30 days. Only photos verified in your backup are offered.")
         }
     }
 
@@ -92,18 +79,16 @@ struct FreeUpSpaceSheet: View {
         switch cleanup.state {
         case .ready:
             if model.isExporting {
-                Label("Wait for the export to finish first.", systemImage: "info.circle")
-                    .foregroundStyle(.secondary)
+                HelpText("Available when the export finishes.")
             } else if !model.hasPhotosAccess {
-                Label("Uncloud needs access to your photo library.", systemImage: "info.circle")
-                    .foregroundStyle(.secondary)
+                HelpText("Uncloud needs access to Photos.")
             }
 
         case .finding:
             VStack(alignment: .leading, spacing: 8) {
                 ProgressView()
                     .progressViewStyle(.linear)
-                Text("Looking for items…")
+                Text("Looking for photos…")
                     .foregroundStyle(.secondary)
             }
 
@@ -129,7 +114,7 @@ struct FreeUpSpaceSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 ProgressView()
                     .progressViewStyle(.linear)
-                Text("Waiting for you to confirm in the macOS alert…")
+                Text("Confirm in the dialog to continue…")
                     .foregroundStyle(.secondary)
             }
 
@@ -162,7 +147,7 @@ struct FreeUpSpaceSheet: View {
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)
-            Button("Remove \(countText(plan.eligible.count, "Item")) from Library…", role: .destructive) {
+            Button("Remove \(countText(plan.eligible.count, "Photo"))…", role: .destructive) {
                 isConfirmingRemoval = true
             }
             .disabled(!cleanup.canRemove)
@@ -179,7 +164,7 @@ struct FreeUpSpaceSheet: View {
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)
-            Button("Find Items…") {
+            Button("Find Photos") {
                 cleanup.findItems()
             }
             .buttonStyle(.borderedProminent)
@@ -189,17 +174,17 @@ struct FreeUpSpaceSheet: View {
     }
 }
 
-/// What Find Items found, and why other items were skipped.
+/// What Find Photos found, and why other photos were skipped.
 private struct PlanSummary: View {
     let plan: LibraryCleanup.Plan
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if plan.eligible.isEmpty {
-                Label("No items can be removed with these options.", systemImage: "info.circle")
+                HelpText("No photos match these options.")
             } else {
                 Label {
-                    Text("\(countText(plan.eligible.count, "item")) (\(ByteCountFormatter.string(fromByteCount: plan.byteCount, countStyle: .file)) in the backup) \(plan.eligible.count == 1 ? "is" : "are") safely backed up and can be removed.")
+                    Text("\(Plural.photos(plan.eligible.count)) (\(ByteCountFormatter.string(fromByteCount: plan.byteCount, countStyle: .file))) \(plan.eligible.count == 1 ? "is" : "are") safely backed up and can be removed.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "checkmark.shield.fill")
@@ -225,16 +210,16 @@ private struct PlanSummary: View {
         let skipped = plan.skipped
         var reasons: [String] = []
         if skipped.notVerified > 0 {
-            reasons.append("\(countText(skipped.notVerified, "item")) not verified in this backup")
+            reasons.append("\(countText(skipped.notVerified, "photo")) not verified in your backup")
         }
         if skipped.edited > 0 {
-            reasons.append("\(countText(skipped.edited, "item")) changed in Photos since \(skipped.edited == 1 ? "it was" : "they were") backed up")
+            reasons.append("\(countText(skipped.edited, "photo")) changed in Photos since \(skipped.edited == 1 ? "it was" : "they were") backed up")
         }
         if skipped.favorites > 0 {
             reasons.append(countText(skipped.favorites, "favorite"))
         }
         if skipped.hidden > 0 {
-            reasons.append(countText(skipped.hidden, "hidden item"))
+            reasons.append(countText(skipped.hidden, "hidden photo"))
         }
         return reasons
     }
