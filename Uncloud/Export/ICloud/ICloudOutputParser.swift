@@ -42,21 +42,21 @@ enum ICloudFailure: Equatable, Sendable {
     var message: String {
         switch self {
         case .invalidCredentials:
-            "The Apple ID or password isn’t correct."
+            "The Apple Account or password is incorrect."
         case .twoFactorFailed:
             "The verification code wasn’t accepted. Try again."
         case .sessionExpired(needsSignIn: true):
-            "Your iCloud session has expired. Sign in again."
+            "Your iCloud sign-in has expired. Sign in again."
         case .sessionExpired(needsSignIn: false):
-            "Your iCloud session expired. Reconnecting…"
+            "Reconnecting to iCloud…"
         case .serviceUnavailable:
             "iCloud is temporarily unavailable. Try again later."
         case .libraryIndexing:
-            "iCloud is still preparing your photo library for access. This is normal after signing in or changing account settings, and can take from a few minutes to a few hours for large libraries. Uncloud will try again automatically."
+            "iCloud is still preparing your library. After signing in this can take a few minutes to a few hours. Uncloud keeps trying."
         case .setupIncomplete:
-            "Apple needs you to accept its updated iCloud Terms and Conditions before your photos can be downloaded. Apple shows them only in its own apps: in System Settings, click your name and look for a “Review” banner, or sign in at icloud.com. Uncloud checks again when you come back."
+            "Apple needs you to accept updated iCloud terms first. In System Settings, click your name and look for a Review banner, or sign in at icloud.com. Uncloud checks again when you come back."
         case .webAccessDisabled:
-            "iCloud Photos isn’t available for this Apple ID. Check that iCloud Photos is turned on and that Access iCloud Data on the Web is enabled."
+            "iCloud Photos isn’t available for this account. Make sure iCloud Photos and Access iCloud Data on the Web are turned on."
         case .network:
             "Couldn’t reach iCloud. Check your internet connection, then try again."
         case .other(let detail):

@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The Export History section for the Backup pane: one row per export chain, newest first. Selecting a row
-/// opens `ExportSessionDetailView`. Meant to sit directly in the pane's grouped `Form`.
+/// The History section for the Backup pane: the three newest export chains, a "Show All…" sheet for the rest, and
+/// a Show in Finder footer. Selecting a row opens `ExportSessionDetailView`. Meant to sit directly in the pane's
+/// grouped `Form`.
 struct ExportHistoryView: View {
     let chains: [ExportHistoryChain]
     /// Shown instead of the rows while the destination's drive isn't connected.
@@ -9,7 +10,11 @@ struct ExportHistoryView: View {
     /// Reveals the sessions folder in Finder.
     let showInFinder: () -> Void
 
+    /// Rows shown in the section. The rest are listed in the "Show All…" sheet.
+    private static let visibleLimit = 3
+
     @State private var selected: ExportHistoryChain?
+    @State private var showsAll = false
 
     var body: some View {
         Section {
@@ -17,26 +22,72 @@ struct ExportHistoryView: View {
                 Label(unavailableText, systemImage: "externaldrive.badge.xmark")
                     .foregroundStyle(.secondary)
             } else if chains.isEmpty {
-                Label("No exports to this drive yet.", systemImage: "clock.arrow.circlepath")
+                Label("No exports yet.", systemImage: "clock.arrow.circlepath")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(chains) { chain in
-                    Button {
-                        selected = chain
-                    } label: {
-                        ExportHistoryRow(chain: chain)
+                ForEach(chains.prefix(Self.visibleLimit)) { chain in
+                    historyButton(chain)
+                }
+                if chains.count > Self.visibleLimit {
+                    Button("Show All…") {
+                        showsAll = true
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Shows each attempt in this export.")
+                    .accessibilityHint("Opens every export to this drive.")
                 }
             }
         } header: {
-            SectionTitle(title: "Export History", symbol: "clock.arrow.circlepath", tint: Tokens.Tint.history)
+            SectionTitle(title: "History", symbol: "clock.arrow.circlepath", tint: Tokens.Tint.history)
         } footer: {
             if unavailableText == nil {
-                Button("Show History in Finder", action: showInFinder)
+                Button("Show in Finder", action: showInFinder)
+                    .buttonStyle(.link)
                     .accessibilityHint("Opens the export history files on this drive.")
             }
+        }
+        .sheet(item: $selected) { chain in
+            ExportSessionDetailView(chain: chain)
+        }
+        .sheet(isPresented: $showsAll) {
+            ExportHistoryAllSheet(chains: chains)
+        }
+    }
+
+    private func historyButton(_ chain: ExportHistoryChain) -> some View {
+        Button {
+            selected = chain
+        } label: {
+            ExportHistoryRow(chain: chain)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Shows details.")
+    }
+}
+
+/// Every export chain for the drive, newest first, in the sheet "Show All…" opens. Same rows as the section.
+private struct ExportHistoryAllSheet: View {
+    let chains: [ExportHistoryChain]
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: ExportHistoryChain?
+
+    var body: some View {
+        SheetScaffold("History", width: Tokens.Sheet.wide) {
+            List(chains) { chain in
+                Button {
+                    selected = chain
+                } label: {
+                    ExportHistoryRow(chain: chain)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows details.")
+            }
+            .frame(minHeight: 360)
+        } buttons: {
+            Button("Done") {
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
         }
         .sheet(item: $selected) { chain in
             ExportSessionDetailView(chain: chain)
@@ -175,10 +226,10 @@ enum ExportHistoryFormat {
         }
         let resumes = chain.attempts.count - 1
         if resumes > 0 {
-            tags.append(resumes == 1 ? "Resumed 1 time" : "Resumed \(resumes) times")
+            tags.append(resumes == 1 ? "Resumed once" : "Resumed \(resumes) times")
         }
         if chain.isReadOnly {
-            tags.append("From a newer Uncloud")
+            tags.append("From a newer version")
         }
         return tags
     }

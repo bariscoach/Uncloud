@@ -359,7 +359,7 @@ final class ICloudCleanup {
     private func scheduleRetry(message: String?) {
         retries += 1
         guard retries <= Self.maxRetries, let current = attempted else {
-            finish(cancelled: false, stoppedMessage: message ?? "Apple is limiting deletions. Try Clean Up again later.")
+            finish(cancelled: false, stoppedMessage: message ?? "Apple is limiting deletions. Try again later.")
             return
         }
         let next: ICloudBridgeDeleteOptions

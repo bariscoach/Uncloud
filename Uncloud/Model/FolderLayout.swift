@@ -37,13 +37,11 @@ enum FolderLayout: String, CaseIterable, Identifiable, Sendable {
         guard self == .flat else { return nil }
         switch source {
         case .iCloud:
-            return "Every photo and video is saved directly in the folder you chose, with no subfolders. "
-                + "Files keep their iCloud names; when two have the same name, the second gets its size added, "
-                + "like IMG_0001-2483921.HEIC."
+            return "Everything goes straight into your backup folder, with no subfolders. "
+                + "When two files share a name, the second gets its size added, like IMG_0001-2483921.HEIC."
         case .photosLibrary:
-            return "Every photo and video is saved directly in the folder you chose, with no subfolders. "
-                + "Files keep their original names; when two have the same name, the second gets a number, "
-                + "like IMG_0001 (1).HEIC."
+            return "Everything goes straight into your backup folder, with no subfolders. "
+                + "When two files share a name, the second gets a number, like IMG_0001 (1).HEIC."
         }
     }
 

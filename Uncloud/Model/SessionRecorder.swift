@@ -180,7 +180,7 @@ final class SessionRecorder {
     private func reportWriteFailure() {
         guard !didReportWriteFailure else { return }
         didReportWriteFailure = true
-        onWriteFailure?("Couldn't save the export history on this drive")
+        onWriteFailure?("Couldn’t save the export history on this drive.")
     }
 }
 

@@ -236,7 +236,7 @@ extension ExportCancellationTests {
             #expect(report.onDrive == 19, "20 − missing − truncated + the untracked download")
             #expect(report.isApproximate)
             #expect(model.processedCount == 19)
-            #expect(model.onDriveSummaryText == "about 19 already on this drive · about 1 to go")
+            #expect(model.onDriveSummaryText == "about 19 backed up · about 1 to go")
 
             // Set aside, never deleted; the records are gone, so the next export downloads both again.
             let aside = destination.appending(path: ".photo-export/set-aside/\(report.setAsideFolder)/\(truncated)")

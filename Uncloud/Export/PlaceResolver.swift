@@ -6,7 +6,7 @@ enum PlaceLookupError: LocalizedError {
     case unavailable
 
     var errorDescription: String? {
-        "Place names couldn’t be looked up. Check your internet connection, then choose Resume."
+        "Place names couldn’t be looked up. Check your internet connection, then resume."
     }
 }
 

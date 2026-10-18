@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The detail sheet for one export chain: an overview, one section per attempt, and the failed items of
-/// every attempt (up to 50). Opened from a row in Export History.
+/// The detail sheet for one export chain: an overview, one section per run, and the photos not exported in
+/// every run (up to 50). Opened from a row in History.
 struct ExportSessionDetailView: View {
     let chain: ExportHistoryChain
 
@@ -12,30 +12,21 @@ struct ExportSessionDetailView: View {
     private static let failureLimit = 50
 
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
-                overview
-                ForEach(Array(chain.attempts.enumerated()), id: \.element.id) { index, session in
-                    attemptSection(session, number: index + 1)
-                }
-                if !allFailures.isEmpty {
-                    failuresSection
-                }
+        FormSheetScaffold("Export Details", minHeight: 480) {
+            overview
+            ForEach(Array(chain.attempts.enumerated()), id: \.element.id) { index, session in
+                attemptSection(session, number: index + 1)
             }
-            .formStyle(.grouped)
-
-            Divider()
-            HStack {
-                Spacer()
-                Button("Done") {
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+            if !allFailures.isEmpty {
+                failuresSection
             }
-            .padding(Tokens.Sheet.padding)
+        } buttons: {
+            Button("Done") {
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
         }
-        .frame(minWidth: 520, idealWidth: 560, minHeight: 480, idealHeight: 620)
     }
 
     private var overview: some View {
@@ -58,14 +49,14 @@ struct ExportSessionDetailView: View {
                     Text(duration).monospacedDigit()
                 }
             }
-            LabeledContent("Items") {
+            LabeledContent("Photos") {
                 Text(chain.countsText)
                     .monospacedDigit()
                     .multilineTextAlignment(.trailing)
             }
-            if let attempts = chain.attemptsText {
-                LabeledContent("Attempts") {
-                    Text(attempts)
+            if let runs = chain.attemptsText {
+                LabeledContent("Runs") {
+                    Text(runs)
                 }
             }
         } header: {
@@ -83,20 +74,20 @@ struct ExportSessionDetailView: View {
                 Text(session.endedAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Still running")
                     .monospacedDigit()
             }
-            LabeledContent("Outcome") {
+            LabeledContent("Result") {
                 Text(Self.resultText(session))
                     .multilineTextAlignment(.trailing)
             }
-            LabeledContent(session.exportsFromPhotos ? "Exported" : "Downloaded") {
+            LabeledContent("Exported") {
                 Text(session.counts.exported.formatted()).monospacedDigit()
             }
             if session.counts.skipped > 0 {
-                LabeledContent("Already there") {
+                LabeledContent("Already backed up") {
                     Text(session.counts.skipped.formatted()).monospacedDigit()
                 }
             }
             if session.counts.failed > 0 {
-                LabeledContent("Failed") {
+                LabeledContent("Not exported") {
                     Text(session.counts.failed.formatted()).monospacedDigit()
                 }
             }
@@ -106,16 +97,16 @@ struct ExportSessionDetailView: View {
                         .monospacedDigit()
                 }
             }
-            LabeledContent("Source") {
+            LabeledContent("From") {
                 Text(session.source?.title ?? "Unknown")
             }
-            LabeledContent("Layout") {
+            LabeledContent("Folders") {
                 Text(session.layout?.title ?? "Unknown")
             }
             if let check = session.driveCheck {
-                LabeledContent("Drive Check") {
+                LabeledContent("Drive check") {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(check.onDrive.formatted()) already on this drive · \(check.toGo.formatted()) to go")
+                        Text("\(check.onDrive.formatted()) backed up · \(check.toGo.formatted()) to go")
                             .monospacedDigit()
                         Text(Self.checkProblemsText(check))
                             .font(.caption)
@@ -125,7 +116,7 @@ struct ExportSessionDetailView: View {
                 }
             }
             if let continuation = session.continuation {
-                LabeledContent("Continued") {
+                LabeledContent("Picked up") {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(Self.continuationText(continuation, source: session.source ?? .iCloud))
                         if let reason = continuation.fallbackReason {
@@ -137,7 +128,7 @@ struct ExportSessionDetailView: View {
                     .multilineTextAlignment(.trailing)
                 }
             }
-            LabeledContent("Uncloud Version") {
+            LabeledContent("App version") {
                 Text(session.appVersion)
                     .monospacedDigit()
             }
@@ -146,7 +137,7 @@ struct ExportSessionDetailView: View {
         }
     }
 
-    /// Failures from every attempt, oldest first, capped at `failureLimit`.
+    /// Failures from every run, oldest first, capped at `failureLimit`.
     private var allFailures: [ExportSession.Failure] {
         chain.attempts.flatMap(\.failures)
     }
@@ -174,16 +165,16 @@ struct ExportSessionDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             } label: {
-                Text("\(failures.count.formatted()) \(failures.count == 1 ? "item" : "items") couldn’t be \((chain.latest.source ?? .iCloud).copiedVerb)")
+                Text("\(Plural.photos(failures.count)) couldn’t be exported")
             }
         } header: {
-            Text("Failed Items (\(failures.count.formatted()))")
+            Text("Not Exported (\(failures.count.formatted()))")
         }
     }
 
-    /// "Attempt 2 · Automatic resume · 15:10" for an attempt that is waiting or ran after a resume.
+    /// "Run 2 · Resumed automatically · 15:10" for a run that is waiting or ran after a resume.
     private func attemptTitle(_ session: ExportSession, number: Int) -> String {
-        var parts = ["Attempt \(number)", Self.triggerText(session.trigger)]
+        var parts = ["Run \(number)", Self.triggerText(session.trigger)]
         if let resume = session.autoResume {
             parts.append(resume.resumeAt.formatted(date: .omitted, time: .shortened))
         }
@@ -192,25 +183,25 @@ struct ExportSessionDetailView: View {
 
     private static func triggerText(_ trigger: ExportSession.Trigger) -> String {
         switch trigger {
-        case .manual: "Started by hand"
+        case .manual: "Started by you"
         case .exportAll: "Export All"
         case .automaticBackup: "Automatic backup"
-        case .autoResume: "Automatic resume"
-        case .resume: "Resumed by hand"
+        case .autoResume: "Resumed automatically"
+        case .resume: "Resumed by you"
         }
     }
 
-    /// "Completed with 3 failures", "Stopped: Apple is limiting downloads", and so on, per attempt.
+    /// "Completed, 3 not exported", "Stopped: Apple is limiting downloads", and so on, per run.
     private static func resultText(_ session: ExportSession) -> String {
         switch session.result.status {
         case .running: "Running"
         case .completed: "Completed"
         case .completedWithFailures:
-            "Completed with \(session.counts.failed.formatted()) \(session.counts.failed == 1 ? "failure" : "failures")"
+            "Completed, \(session.counts.failed.formatted()) not exported"
         case .cancelled: "Cancelled"
         case .failed:
             session.result.reason.map { "Stopped: \($0)" } ?? "Stopped"
-        case .interrupted: "Interrupted"
+        case .interrupted: "Didn’t finish"
         }
     }
 
@@ -218,30 +209,23 @@ struct ExportSessionDetailView: View {
         var parts: [String] = []
         if check.missing > 0 { parts.append("\(check.missing.formatted()) missing") }
         if check.damaged > 0 { parts.append("\(check.damaged.formatted()) damaged") }
-        if check.setAside > 0 { parts.append("\(check.setAside.formatted()) set aside") }
-        if check.untracked > 0 { parts.append("\(check.untracked.formatted()) not recorded") }
-        let checked = check.mode == .full ? "Full check" : "Quick check"
+        if check.setAside > 0 { parts.append("\(check.setAside.formatted()) moved") }
+        if check.untracked > 0 { parts.append("\(check.untracked.formatted()) unrecognized") }
+        let checked = check.mode == .full ? "Every file" : "Changed folders"
         return parts.isEmpty ? "\(checked): no problems found" : "\(checked): " + parts.joined(separator: " · ")
     }
 
-    /// How an attempt continued, in the source's own verb ("Downloaded only…" for iCloud).
+    /// How a run picked up where the last one stopped. The source doesn't change the wording: every photo is exported.
     static func continuationText(_ continuation: ExportSession.Continuation, source: LibrarySource) -> String {
         switch continuation.strategy {
         case .fullWalk: "Checked the whole library"
         case .fromRank:
             if let rank = continuation.startRank {
-                "Continued from item \(rank.formatted())"
+                "Continued from photo \(rank.formatted())"
             } else {
                 "Continued where the last export stopped"
             }
-        case .selection: "\(source.copiedVerb.prefix(1).uppercased() + source.copiedVerb.dropFirst()) only the selected items"
+        case .selection: "Exported only the selected photos"
         }
-    }
-}
-
-private extension ExportSession {
-    /// Whether this attempt exported from the Photos library, which reads "Exported" rather than "Downloaded".
-    var exportsFromPhotos: Bool {
-        source == .photosLibrary
     }
 }

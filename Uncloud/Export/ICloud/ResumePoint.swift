@@ -111,8 +111,8 @@ enum ICloudContinuationPlan: Equatable, Sendable {
         var startRank: Int { anchorRank + 1 }
     }
 
-    static let reasonAnchorMoved = "The last exported item couldn’t be found where expected"
-    static let reasonTooManyChanges = "Too many items changed since the last export"
+    static let reasonAnchorMoved = "The last exported photo moved in your library"
+    static let reasonTooManyChanges = "Too many photos changed since the last export"
 }
 
 /// Decides between continuing from the resume point and walking everything. Pure apart from `fetch`, the

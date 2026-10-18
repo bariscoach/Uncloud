@@ -140,7 +140,7 @@ extension ExportCancellationTests {
             #expect(second.counts.exported == 0 && second.counts.skipped == 0)
             #expect(second.result.status == .completed)
             #expect(model.processedCount == 1000 && model.totalCount == 1000)
-            #expect(model.activity.contains { $0.message.hasPrefix("Continuing from item \(1000.formatted()) of \(1000.formatted())") })
+            #expect(model.activity.contains { $0.message.hasPrefix("Continuing from photo \(1000.formatted()) of \(1000.formatted())") })
             let again = try #require(ICloudResumePoint.load(in: fixture.destination))
             #expect(try #require(again.lastFullWalkAt) > point.lastFullWalkAt!)
         }
@@ -173,7 +173,7 @@ extension ExportCancellationTests {
             let point = try #require(ICloudResumePoint.load(in: fixture.destination))
             #expect(point.anchor == .init(id: "asset-999", rank: 1004))
             #expect(point.libraryCount == 1005)
-            #expect(harness.model.activity.contains { $0.message.contains("after 5 new items") })
+            #expect(harness.model.activity.contains { $0.message.contains("after 5 new photos") })
         }
         await harness.tearDown()
     }
@@ -429,7 +429,7 @@ extension ExportCancellationTests {
             model.requestLayoutChange(to: .flat)
             #expect(model.layout == .flat)
             #expect(await harness.waitFor { model.flatFolderWarning != nil })
-            #expect(model.flatFolderWarning == "This folder already has other files. Uncloud will leave them alone, but a dedicated folder is easier to keep tidy. A file of yours with the same name and size as a photo counts as already downloaded.")
+            #expect(model.flatFolderWarning == "This folder has other files. Uncloud leaves them alone, but a folder of its own is tidier. A file with the same name and size as a photo counts as backed up.")
 
             let first = try #require(await Self.export(harness))
             #expect(first.result.status == .completed)
@@ -487,9 +487,9 @@ extension ExportCancellationTests {
             let question = try #require(model.pendingLayoutChange)
             #expect(model.layout == .month)
             #expect(question.from == .month && question.to == .flat && question.itemsSaved == 30)
-            #expect(question.title == "Download Everything Again?")
-            #expect(question.message.contains("already has 30 items saved by month"))
-            #expect(question.message.contains("Switching to All in One Folder downloads your whole library again"))
+            #expect(question.title == "Export Everything Again?")
+            #expect(question.message.contains("already has 30 photos organized by month"))
+            #expect(question.message.contains("Switching to All in One Folder exports your whole library again"))
 
             model.resolveLayoutChange(.cancel)
             #expect(model.pendingLayoutChange == nil && model.layout == .month)
@@ -498,7 +498,7 @@ extension ExportCancellationTests {
             model.resolveLayoutChange(.downloadAgainHere)
             #expect(model.layout == .flat)
             #expect(await harness.waitFor { model.layoutSwitchNotice != nil })
-            #expect(model.layoutSwitchNotice?.contains("downloads everything again") == true)
+            #expect(model.layoutSwitchNotice?.contains("exports everything again") == true)
             // Nothing in one folder yet, so it counts as nothing on the drive.
             #expect(await harness.waitFor { model.processedCount == 0 })
 

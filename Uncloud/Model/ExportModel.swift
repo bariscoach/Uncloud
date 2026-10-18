@@ -461,7 +461,7 @@ final class ExportModel {
         if offersResumeExport { return "Resume Export" }
         if selection.isEverything { return "Export All Photos" }
         let count = selection.selectedCount(total: total ?? 0)
-        return "Export \(count.formatted()) \(count == 1 ? "Item" : "Items")"
+        return "Export \(count.formatted()) \(count == 1 ? "Photo" : "Photos")"
     }
 
     var fractionComplete: Double {
@@ -599,8 +599,8 @@ final class ExportModel {
     private func confirmExport(despite warning: String) async -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "There May Not Be Enough Space"
-        alert.informativeText = "\(warning) The export stops if the drive fills up, and you can resume it after making room."
+        alert.messageText = "Your Drive May Run Out of Space"
+        alert.informativeText = "\(warning) If it fills up, the export stops and you can resume after making room."
         alert.addButton(withTitle: "Export Anyway")
         alert.addButton(withTitle: "Cancel")
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -616,7 +616,7 @@ final class ExportModel {
         estimatedTimeRemaining = nil
         phase = .paused
         recorder?.checkpoint()
-        record(.info, source == .iCloud ? "Paused." : "Paused. The item in progress will finish first.")
+        record(.info, source == .iCloud ? "Paused." : "Paused. The photo in progress finishes first.")
     }
 
     /// Stops the export. Events that arrived before the engine stopped are still counted, so the
@@ -637,7 +637,7 @@ final class ExportModel {
         Task {
             try? await Task.sleep(for: Self.cancelTimeout)
             guard runNumber == run, phase == .cancelling else { return }
-            record(.warning, "The export is still stopping in the background.")
+            record(.warning, "Still stopping in the background.")
             exportTask?.cancel()
             finish(.cancelled)
         }
@@ -784,7 +784,7 @@ final class ExportModel {
             }
             processedCount = report.onDrive
             if report.onDrive > 0 {
-                record(.info, "Continuing from where the last export stopped: \(report.isApproximate ? "about " : "")\(report.onDrive.formatted()) already on this drive.")
+                record(.info, "Picking up where the last export stopped. \(report.isApproximate ? "About " : "")\(report.onDrive.formatted()) photos already backed up.")
             }
         }
 
@@ -931,16 +931,16 @@ final class ExportModel {
         refreshDestinationFreeSpace(force: true)
 
         if skippedThisRun > 0, result != .idle {
-            let noun = skippedThisRun == 1 ? "item was" : "items were"
-            record(.info, "\(skippedThisRun.formatted()) \(noun) already in the destination.")
+            let noun = skippedThisRun == 1 ? "photo" : "photos"
+            record(.info, "\(skippedThisRun.formatted()) \(noun) already backed up.")
         }
         switch result {
         case .completed where failedCount > 0:
-            record(.warning, "Export finished, but \(failedCount.formatted()) items couldn’t be \(source.copiedVerb). Choose Resume to try them again.")
+            record(.warning, "Export finished, but \(failedCount.formatted()) photos couldn’t be exported. Export again to retry them.")
         case .completed:
             record(.success, "Export complete.")
         case .cancelled:
-            record(.info, "Export cancelled. Choose Resume to continue later.")
+            record(.info, "Export cancelled. You can resume it later.")
         case let .failed(message):
             record(.error, message)
         default:
@@ -1216,7 +1216,7 @@ final class ExportModel {
     var onDriveSummaryText: String? {
         guard let onDrive = onDriveCount, let toGo = toGoCount else { return nil }
         let about = isOnDriveCountApproximate ? "about " : ""
-        return "\(about)\(onDrive.formatted()) already on this drive · \(about)\(toGo.formatted()) to go"
+        return "\(about)\(onDrive.formatted()) backed up · \(about)\(toGo.formatted()) to go"
     }
 
     /// Checks the drive now: `full` stats every file (Backup Tools > Check Drive); otherwise only folders
@@ -1291,7 +1291,7 @@ final class ExportModel {
         let hadSnapshot = await Task.detached(priority: .utility) { ExportManifest.filesSnapshot(in: url) != nil }.value
         driveCheckState = .checking(filesListed: 0, expectedFiles: nil, mode: mode)
         if !hadSnapshot, phase == .preparing {
-            record(.info, "First check of this drive takes a little longer.")
+            record(.info, "The first check of a drive takes a little longer.")
         }
 
         let input: DriveCheck.Input
@@ -1338,20 +1338,20 @@ final class ExportModel {
                 let count = report.missingFiles.count + report.damagedFiles.count - report.setAsideFailures.count
                 let files = count == 1 ? "file is" : "files are"
                 record(.warning, changesDrive
-                    ? "\(count.formatted()) \(files) missing or damaged and will be \(source.copiedVerb) again."
-                    : "\(count.formatted()) \(files) missing or damaged. They’ll be fixed when you export or choose Check Drive.")
+                    ? "\(count.formatted()) \(files) missing or damaged and will be exported again."
+                    : "\(count.formatted()) \(files) missing or damaged. They’re fixed on the next export or check.")
             }
             if !report.setAsideFiles.isEmpty {
-                record(.info, "Moved \(report.setAsideFiles.count.formatted()) damaged \(report.setAsideFiles.count == 1 ? "file" : "files") to .photo-export/set-aside on the drive.")
+                record(.info, "Moved \(report.setAsideFiles.count.formatted()) damaged \(report.setAsideFiles.count == 1 ? "file" : "files") to a separate folder on the drive.")
             }
             if let first = report.setAsideFailures.first {
                 let count = report.setAsideFailures.count
-                record(.error, "Couldn’t move \(count.formatted()) damaged \(count == 1 ? "file" : "files") aside, such as “\(first.path)”: \(first.reason) "
-                    + "\(count == 1 ? "It stays" : "They stay") where \(count == 1 ? "it is" : "they are") and will be checked again next time.")
+                record(.error, "Couldn’t move \(count.formatted()) damaged \(count == 1 ? "file" : "files"), such as “\(first.path)”: \(first.reason) "
+                    + "They’re checked again next time.")
             }
             if !report.changedFiles.isEmpty {
                 let count = report.changedFiles.count
-                record(.info, "\(count.formatted()) \(count == 1 ? "file" : "files") that Uncloud can’t tell it saved changed size since the last check, such as “\(report.changedFiles[0])”. \(count == 1 ? "It was" : "They were") left as \(count == 1 ? "it is" : "they are").")
+                record(.info, "\(count.formatted()) \(count == 1 ? "file" : "files") that Uncloud may not have saved changes to since the last check, such as “\(report.changedFiles[0])”. \(count == 1 ? "It was" : "They were") left alone.")
             }
             return report
         } catch {
@@ -1488,11 +1488,11 @@ final class ExportModel {
         guard let storageEstimate else { return nil }
         switch storageEstimate.basis {
         case .heuristic:
-            return "Estimated from each item’s dimensions and length, including edited versions and Live Photo videos."
+            return "Estimated from each photo’s size and length, including edits and Live Photos."
         case .scanned where storageEstimate.isExact:
-            return "Originals and Live Photo videos, as sized by iCloud."
+            return "Originals and Live Photos, as sized by iCloud."
         case .scanned, .sampled:
-            return "Originals and Live Photo videos, estimated from the items checked so far. Uncloud checks the rest in the background."
+            return "Estimated so far. Uncloud is still measuring the rest."
         }
     }
 
@@ -1663,7 +1663,7 @@ final class ExportModel {
         let destination = Destination(url: URL(filePath: path, directoryHint: .isDirectory))
         self.destination = destination
         destinationFreeBytes = nil
-        destinationIssue = "“\(destination.displayName)” isn’t available. Connect the drive or choose a different folder."
+        destinationIssue = "“\(destination.displayName)” isn’t connected. Connect the drive or choose another backup folder."
         sessions = []
         iCloudItemsByLayout = [:]
         iCloudItemsByLayoutFolder = nil
@@ -1671,7 +1671,7 @@ final class ExportModel {
     }
 
     private static func notWritableMessage(for destination: Destination) -> String {
-        "You can’t save files to “\(destination.displayName)”. Choose a different folder."
+        "Uncloud can’t write to “\(destination.displayName)”. Choose another backup folder."
     }
 
     // MARK: - Automatic backup
@@ -1728,16 +1728,16 @@ final class ExportModel {
     }
 
     private func notifyBackupFinished(_ result: Phase) {
-        let name = destination?.displayName ?? "your destination"
+        let name = destination?.displayName ?? "your backup drive"
         let body: String
         switch result {
         case .completed where failedCount > 0:
-            body = "Backup finished, but \(failedCount.formatted()) items couldn’t be \(source.copiedVerb)."
+            body = "Export finished, but \(failedCount.formatted()) photos couldn’t be exported."
         case .completed where exportedThisRun == 0:
             body = "Your backup on “\(name)” is up to date."
         case .completed:
-            let noun = exportedThisRun == 1 ? "item" : "items"
-            body = "Backed up \(exportedThisRun.formatted()) new \(noun) to “\(name)”."
+            let noun = exportedThisRun == 1 ? "photo" : "photos"
+            body = "Exported \(exportedThisRun.formatted()) new \(noun) to “\(name)”."
         case let .failed(message):
             body = message
         default:
@@ -1784,7 +1784,7 @@ final class ExportModel {
     private func scheduleAutoResume(_ pending: AutoResume) {
         cancelAutoResume()
         autoResume = pending
-        record(.warning, "Paused because \(Self.lowercasingFirst(pending.reason)). Resuming at \(Self.resumeTimeText(pending.resumeAt)) (attempt \(pending.attempt)).")
+        record(.warning, "Paused: \(pending.reason). Resumes at \(Self.resumeTimeText(pending.resumeAt)) (try \(pending.attempt)).")
         observeWakeAndMount()
         startAutoResumeTimer()
     }
@@ -1875,7 +1875,7 @@ final class ExportModel {
 
         // From here the run is started; nothing else may start it a second time.
         cancelAutoResume()
-        record(.info, "Resuming automatically (attempt \(pending.attempt)).")
+        record(.info, "Resuming (try \(pending.attempt)).")
         Task {
             let started = await startExport(selection: pending.selection, automatic: pending.automatic, resumeAttempt: pending.attempt)
             guard !started, !isExporting, autoResume == nil, phase != .completed else { return }
@@ -1885,13 +1885,6 @@ final class ExportModel {
             observeWakeAndMount()
             startAutoResumeTimer()
         }
-    }
-
-    private static func lowercasingFirst(_ text: String) -> String {
-        guard let first = text.first else { return text }
-        // "Apple", "iCloud" and "Uncloud" keep their capital.
-        if text.hasPrefix("Apple") || text.hasPrefix("iCloud") { return text }
-        return first.lowercased() + text.dropFirst()
     }
 
     // MARK: - Folder layout changes (plan 7e, D3, D5)
@@ -1915,7 +1908,7 @@ final class ExportModel {
         let title: String
         let message: String
         static let chooseNewFolderTitle = "Choose New Folder…"
-        static let downloadAgainTitle = "Download Again Here"
+        static let downloadAgainTitle = "Export Again Here"
         static let cancelTitle = "Cancel"
     }
 
@@ -1955,7 +1948,7 @@ final class ExportModel {
         case .downloadAgainHere:
             guard !isExporting else { return }
             layout = pending.to
-            record(.info, "Folder layout changed to \(pending.to.title.lowercased()). The next export downloads everything again into this folder.")
+            record(.info, "Now organized \(pending.to.title.lowercased()). The next export saves everything again in this folder.")
         case .cancel:
             break
         }
@@ -1994,14 +1987,14 @@ final class ExportModel {
         let what = newLayout == .album ? "every album" : "your whole library"
         guard knowsICloudItemsByLayout else {
             let why = destinationIssue != nil
-                ? "Uncloud can’t read “\(destination.displayName)” right now, so it can’t tell whether it already has items saved another way."
-                : "Uncloud is still reading “\(destination.displayName)”, so it can’t tell yet whether it already has items saved another way."
+                ? "Uncloud can’t read “\(destination.displayName)” right now, so it can’t tell whether it already has photos saved another way."
+                : "Uncloud is still reading “\(destination.displayName)”, so it can’t tell yet whether it already has photos saved another way."
             return LayoutChangeConfirmation(
                 from: layout,
                 to: newLayout,
                 itemsSaved: 0,
-                title: "Download Everything Again?",
-                message: why + " If it does, switching to \(newLayout.title) downloads \(what) again\(size) into this folder, next to the copies already there. "
+                title: "Export Everything Again?",
+                message: why + " If it does, switching to \(newLayout.title) exports \(what) again\(size), next to those copies. "
                     + "To keep one copy, choose a new folder for the new layout."
             )
         }
@@ -2013,9 +2006,9 @@ final class ExportModel {
             from: from,
             to: newLayout,
             itemsSaved: saved,
-            title: "Download Everything Again?",
-            message: "“\(destination.displayName)” already has \(saved.formatted()) \(saved == 1 ? "item" : "items") saved \(Self.savedPhrase(from)). "
-                + "Switching to \(newLayout.title) downloads \(what) again\(size) into this folder, next to the copies already there. "
+            title: "Export Everything Again?",
+            message: "“\(destination.displayName)” already has \(saved.formatted()) \(saved == 1 ? "photo" : "photos") organized \(Self.savedPhrase(from)). "
+                + "Switching to \(newLayout.title) exports \(what) again\(size), next to those copies. "
                 + "To keep one copy, choose a new folder for the new layout."
         )
     }
@@ -2026,14 +2019,14 @@ final class ExportModel {
         switch source {
         case .photosLibrary:
             guard let previous = previousLayout, previous != layout, processedCount > 0 else { return nil }
-            return "This folder already has items exported \(previous.title.lowercased()). They’ll stay where they are, and new items will use the layout you choose here."
+            return "This folder already has photos organized \(previous.title.lowercased()). They stay, and new photos use the new folders."
         case .iCloud:
             let elsewhere = iCloudItemsByLayout.filter { $0.key != layout }
             let saved = elsewhere.values.reduce(0, +)
             guard saved > iCloudItemsByLayout[layout, default: 0],
                   let from = elsewhere.max(by: { $0.value < $1.value })?.key else { return nil }
-            return "This folder already has \(saved.formatted()) \(saved == 1 ? "item" : "items") saved \(Self.savedPhrase(from)). "
-                + "Exporting \(layout.title.lowercased()) downloads everything again into this folder. To keep one copy, choose a new folder."
+            return "This folder already has \(saved.formatted()) \(saved == 1 ? "photo" : "photos") organized \(Self.savedPhrase(from)). "
+                + "Organizing \(layout.title.lowercased()) exports everything again. To keep one copy, choose a new folder."
         }
     }
 
@@ -2043,9 +2036,9 @@ final class ExportModel {
         guard layout == .flat, let destination, destinationIssue == nil else { return nil }
         let listed = flatFolderOtherFiles.flatMap { $0.folder == destination.url ? $0.count : nil } ?? 0
         guard listed > 0 || (lastDriveCheck?.otherFiles ?? 0) > 0 else { return nil }
-        var text = "This folder already has other files. Uncloud will leave them alone, but a dedicated folder is easier to keep tidy."
+        var text = "This folder has other files. Uncloud leaves them alone, but a folder of its own is tidier."
         if source == .iCloud {
-            text += " A file of yours with the same name and size as a photo counts as already \(source.copiedVerb)."
+            text += " A file with the same name and size as a photo counts as backed up."
         }
         return text
     }
@@ -2072,7 +2065,7 @@ final class ExportModel {
 
     private static func savedPhrase(_ layout: FolderLayout) -> String {
         switch layout {
-        case .flat: "all in one folder"
+        case .flat: "in one folder"
         default: layout.title.lowercased()
         }
     }

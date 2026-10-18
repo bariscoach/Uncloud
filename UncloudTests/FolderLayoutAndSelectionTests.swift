@@ -52,7 +52,7 @@ struct FolderLayoutFlatTests {
 
     @Test func captionsNameTheCollisionRuleOfEachSource() {
         let iCloud = FolderLayout.flat.caption(for: .iCloud) ?? ""
-        #expect(iCloud.hasPrefix("Every photo and video is saved directly in the folder you chose, with no subfolders."))
+        #expect(iCloud.hasPrefix("Everything goes straight into your backup folder, with no subfolders."))
         #expect(iCloud.contains("like IMG_0001-2483921.HEIC."))
         let photos = FolderLayout.flat.caption(for: .photosLibrary) ?? ""
         #expect(photos.contains("the second gets a number"))
