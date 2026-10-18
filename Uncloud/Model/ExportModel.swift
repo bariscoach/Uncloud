@@ -88,6 +88,8 @@ final class ExportModel {
     }
     /// Signing in to iCloud, for the sign-in sheet in iCloud mode.
     let signIn = ICloudSignIn()
+    /// The new-photos count and watermark. See ExportModel+NewPhotos.swift.
+    let newPhotos = NewPhotosTracker()
     /// Browses the current source's whole library. Nil while iCloud is signed out.
     /// Replaced when the source or the iCloud account changes.
     private(set) var browser: LibraryBrowser?
@@ -515,8 +517,14 @@ final class ExportModel {
 
     /// Title of the primary action, shared by the Library toolbar and the Export menu.
     func primaryExportTitle(total: Int?) -> String {
-        if destination == nil, !isExporting { return "Choose Folder…" }
-        return exportTitle(total: total)
+        NewPhotosTitle.primary(
+            isPaused: phase == .paused,
+            hasInterruptedRun: hasIncompleteRun,
+            needsFolder: destination == nil && !isExporting,
+            isEverything: selection.isEverything,
+            hasNewPhotosStatus: newPhotosStatus != nil,
+            fallback: exportTitle(total: total)
+        )
     }
 
     /// Whether the primary action can run. Without a folder it only needs a ready source.
@@ -654,6 +662,7 @@ final class ExportModel {
         resumesInterrupted: Bool = false
     ) async -> Bool {
         guard !isExporting, !isEngineRunning else { return false }
+        cancelNewPhotosRefresh()
         let previousPhase = phase
         phase = .preparing
 
@@ -884,6 +893,7 @@ final class ExportModel {
         if result == .completed {
             lastBackupDate = .now
         }
+        recordNewPhotosWatermark(result, selection: run?.selection ?? selection)
         storage.exportDidFinish()
         refreshDestinationFreeSpace(force: true)
 
@@ -1356,6 +1366,7 @@ final class ExportModel {
     /// Updates the idle "X of Y items" figures from the library and the destination's manifest.
     func refreshProgress() {
         guard !isExporting else { return }
+        refreshNewPhotos()
         refreshFlatFolderCheck()
         guard isSourceReady, let url = destination?.url else {
             totalCount = 0

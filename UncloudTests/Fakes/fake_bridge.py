@@ -65,6 +65,7 @@ deleteDone events of the real bridge; --state, if given, is rewritten with the n
 Closing stdin ends it; SIGTERM, SIGSTOP and SIGCONT keep their default meaning.
 """
 
+import datetime
 import json
 import os
 import queue
@@ -250,6 +251,12 @@ def item_path(dest, index, flat=False, fake=None):
     return path
 
 
+def fake_added(index):
+    """The fake's added date, an ISO 8601 UTC string: a later item number was added later, one minute apart."""
+    moment = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(minutes=index)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def fake_bytes(index):
     return 1000 + index
 
@@ -308,6 +315,7 @@ class Bridge:
             for rank in range(offset, min(total, offset + limit)):
                 asset_id, number = self.order[rank]
                 items.append({"id": asset_id, "rank": rank, "filename": display_name(self.fake, number), "created": None,
+                              "added": fake_added(number),
                               "type": "image", "size": fake_bytes(number), "bytes": fake_bytes(number),
                               "thumbURL": None})
             self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})

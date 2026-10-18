@@ -76,6 +76,7 @@ private struct LibraryToolbar: ToolbarContent {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.primaryExportEnabled(total: total))
+            .help(model.primaryExportHelp ?? "")
         }
     }
 
@@ -147,6 +148,8 @@ private struct LibraryBrowserView: View {
         }
         .task(id: ObjectIdentifier(browser)) {
             browser.load()
+            // The library may have new photos since the last count, or the source may have changed.
+            model.refreshNewPhotos()
         }
         // Apple finishes indexing by itself, so the library is checked again every five minutes while
         // this is shown. Ending the state (the reload) cancels the task.

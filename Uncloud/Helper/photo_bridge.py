@@ -16,7 +16,7 @@ information only (for example, iCloud is still indexing the library), and nothin
 Requests, each with an "id" that every reply carries. Ranks are positions in icloudpd's walk: rank 0
 is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting every other rank by one.
   {"cmd":"page","offset":O,"limit":L}  -> {"event":"page","offset":O,"items":[...]}
-      items in icloudpd's order from rank O: {id, rank, filename, created, type, size, bytes, thumbURL}
+      items in icloudpd's order from rank O: {id, rank, filename, created, added, type, size, bytes, thumbURL}
       (size: the original's bytes; bytes: what a download writes, see stats)
   {"cmd":"count"}                     -> {"event":"count","count":N}
   {"cmd":"albums"}                    -> {"event":"albums","albums":[names]}  (no smart albums)
@@ -735,18 +735,29 @@ def download_bytes(asset: Any) -> Optional[int]:
     return total
 
 
+def utc_timestamp(moment: Any) -> Optional[str]:
+    """An ISO 8601 UTC string for a datetime, or None when it can't be converted."""
+    try:
+        if moment.tzinfo is None:
+            moment = moment.astimezone()
+        return moment.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, OSError, OverflowError):
+        return None
+
+
 def describe(asset: Any) -> Dict[str, Any]:
     from pyicloud_ipd.item_type import AssetItemType
 
     try:
-        moment = asset.asset_date
-        if moment.tzinfo is None:
-            moment = moment.astimezone()
-        created: Optional[str] = (
-            moment.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        )
-    except (ValueError, OSError, OverflowError):
+        created: Optional[str] = utc_timestamp(asset.asset_date)
+    except (KeyError, TypeError, ValueError, OSError, OverflowError):
         created = None
+    # The date the item was added to the library: the order icloudpd's walk uses, so new items are the ones
+    # added after the last export. Nil when the record doesn't say.
+    try:
+        added: Optional[str] = utc_timestamp(asset.added_date)
+    except (KeyError, TypeError, ValueError, OSError, OverflowError):
+        added = None
     try:
         size: Optional[int] = int(asset.size)
     except (KeyError, TypeError, ValueError):
@@ -755,6 +766,7 @@ def describe(asset: Any) -> Dict[str, Any]:
         "id": asset.id,
         "filename": asset.filename,
         "created": created,
+        "added": added,
         "type": "movie" if asset.item_type == AssetItemType.MOVIE else "image",
         "size": size,
         "bytes": download_bytes(asset),

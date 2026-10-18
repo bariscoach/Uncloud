@@ -136,6 +136,7 @@ struct BackupPane: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .disabled(!model.primaryExportEnabled(total: total))
+                    .help(model.primaryExportHelp ?? "")
                 }
                 if let date = model.lastBackupDate {
                     LabeledContent("Last Export") {

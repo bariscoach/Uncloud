@@ -38,6 +38,8 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            NewPhotosReminderSection(reminder: settings.newPhotosReminder)
+
             Section("General") {
                 Toggle("Open at login", isOn: $settings.openAtLogin)
                 if let error = settings.loginItemError {
