@@ -40,6 +40,11 @@ struct ExportCommands: Commands {
             }
             .keyboardShortcut("3")
 
+            Button("Browse Backup") {
+                model.pane = .browse
+            }
+            .keyboardShortcut("4")
+
             Divider()
         }
 

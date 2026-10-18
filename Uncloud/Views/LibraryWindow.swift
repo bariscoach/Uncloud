@@ -4,6 +4,7 @@ import SwiftUI
 /// The main window: a sidebar with the Library and Backup panes, and the selected pane in the detail.
 struct LibraryWindow: View {
     @Environment(ExportModel.self) private var model
+    @Environment(BackupTools.self) private var backupTools
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while the "Export started" banner is up over the Library.
     @State private var showsExportStarted = false
@@ -39,6 +40,13 @@ struct LibraryWindow: View {
                     IconTile(symbol: "icloud", tint: Tokens.Tint.iCloud, size: Tokens.Tile.sidebar)
                 }
                 .tag(ExportModel.Pane.cleanup)
+
+                Label {
+                    Text("Browse Backup")
+                } icon: {
+                    IconTile(symbol: "map", tint: Tokens.Tint.places, size: Tokens.Tile.sidebar)
+                }
+                .tag(ExportModel.Pane.browse)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             .safeAreaInset(edge: .bottom) {
@@ -65,6 +73,9 @@ struct LibraryWindow: View {
             case .cleanup:
                 CleanupView()
                     .navigationTitle("Clean Up iCloud")
+            case .browse:
+                BrowseBackupView(browse: backupTools.browse)
+                    .navigationTitle("Browse Backup")
             }
         }
         .frame(minWidth: 760, minHeight: 500)

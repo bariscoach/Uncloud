@@ -56,9 +56,19 @@ actor PlaceResolver {
         longitude: Double,
         onWait: @Sendable (Duration) -> Void
     ) async throws -> String {
-        let key = String(format: "%.1f,%.1f", latitude, longitude)
+        try await place(latitude: latitude, longitude: longitude, onWait: onWait).folderPath
+    }
+
+    /// The country and city at the coordinates, cached like `folderPath`. Browse Backup reads names through this;
+    /// an empty place means the coordinates have no address.
+    func place(
+        latitude: Double,
+        longitude: Double,
+        onWait: @Sendable (Duration) -> Void
+    ) async throws -> Place {
+        let key = Self.cellKey(latitude: latitude, longitude: longitude)
         if let place = cache[key] {
-            return place.folderPath
+            return place
         }
 
         var delay = Duration.seconds(2)
@@ -68,11 +78,11 @@ actor PlaceResolver {
                 let place = try await Self.lookUp(latitude: latitude, longitude: longitude)
                 cache[key] = place
                 saveCache()
-                return place.folderPath
+                return place
             } catch where Self.isNotFound(error) {
                 cache[key] = Place()
                 saveCache()
-                return Self.unknownFolder
+                return Place()
             } catch {
                 guard attempt < Self.maxAttempts else { break }
                 onWait(delay)
@@ -81,6 +91,11 @@ actor PlaceResolver {
             }
         }
         throw PlaceLookupError.unavailable
+    }
+
+    /// The ~10 km cell a coordinate falls in. Browse Backup groups photos by the same key.
+    static func cellKey(latitude: Double, longitude: Double) -> String {
+        String(format: "%.1f,%.1f", latitude, longitude)
     }
 
     private func saveCache() {

@@ -48,6 +48,7 @@ enum Tokens {
         static let tools = Color.green         // Backup Tools
         static let history = Color.indigo      // Export History
         static let neutral = Color.gray        // Activity
+        static let places = Color.purple       // Browse Backup: the map and places
     }
 
     /// Status colours. Always paired with a symbol, never colour alone.

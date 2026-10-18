@@ -22,6 +22,7 @@ final class ExportModel {
         case library
         case backup
         case cleanup
+        case browse
     }
 
     /// The sheets of the welcome flow. The landing page replaces the first-run welcome; Help > Getting Started remains.

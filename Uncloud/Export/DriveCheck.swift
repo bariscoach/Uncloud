@@ -173,6 +173,32 @@ enum ICloudItemCount {
     }
 }
 
+extension ICloudItemCount {
+    /// The Live Photo movies among `paths`: a `.mov` whose photo (same folder, same name, any other file type) is
+    /// listed too. Pairs them the way `groupedItemCount` does, so the two agree on what a Live Photo is.
+    static func livePhotoMovies<S: Sequence>(in paths: S) -> Set<String> where S.Element == String {
+        var photoStems: Set<String> = []
+        var movies: [String] = []
+        for path in Set(paths) {
+            let (folder, name) = split(path)
+            let ext = (name as NSString).pathExtension.lowercased()
+            let stem = (name as NSString).deletingPathExtension.lowercased()
+            switch ext {
+            case "xmp":
+                continue
+            case "mov":
+                movies.append(path)
+            default:
+                photoStems.insert(folder + "\n" + stem)
+            }
+        }
+        return Set(movies.filter { path in
+            let (folder, name) = split(path)
+            return photoStems.contains(folder + "\n" + (name as NSString).deletingPathExtension.lowercased())
+        })
+    }
+}
+
 /// What "Check the drive" found, after acting on it.
 struct DriveCheckReport: Equatable, Sendable {
     var mode: DriveInventory.Mode

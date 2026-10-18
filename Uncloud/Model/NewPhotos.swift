@@ -15,6 +15,19 @@ struct NewPhotosContext: Equatable, Sendable {
     /// path on that volume identify the destination, so a drive that mounts under another name keeps its watermark.
     /// The Apple ID enters only as the pseudonymous account label that sessions use.
     var storageKey: String {
+        let account = appleID.map(ExportSession.accountHash(appleID:)) ?? ""
+        let identity = "uncloud-new-photos-v1|\(source.rawValue)|\(account)|\(Self.destinationIdentity(of: destination))"
+        return Self.hashed(identity)
+    }
+
+    /// The key for a destination's files in Application Support, such as Browse Backup's index. It names the same
+    /// folder as `storageKey` does, whatever the source.
+    static func destinationKey(for destination: URL) -> String {
+        hashed("uncloud-destination-v1|" + destinationIdentity(of: destination))
+    }
+
+    /// The volume's UUID and the path on that volume. A drive that mounts under another name keeps its identity.
+    private static func destinationIdentity(of destination: URL) -> String {
         let values = try? destination.resourceValues(forKeys: [.volumeUUIDStringKey, .volumeURLKey])
         let volumeID = values?.volumeUUIDString ?? ""
         let path = destination.standardizedFileURL.path(percentEncoded: false)
@@ -25,9 +38,11 @@ struct NewPhotosContext: Equatable, Sendable {
                 relative = String(path.dropFirst(prefix.count))
             }
         }
-        let account = appleID.map(ExportSession.accountHash(appleID:)) ?? ""
-        let identity = "uncloud-new-photos-v1|\(source.rawValue)|\(account)|\(volumeID)|\(relative)"
-        return SHA256.hash(data: Data(identity.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        return "\(volumeID)|\(relative)"
+    }
+
+    private static func hashed(_ identity: String) -> String {
+        SHA256.hash(data: Data(identity.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 }
 

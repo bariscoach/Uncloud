@@ -17,6 +17,8 @@ final class BackupTools {
     let verification: BackupVerification
     let cleanup: LibraryCleanup
     let duplicates: DuplicateCleanup
+    /// Browse Backup's index and places. It lives here so the index keeps building while the pane isn't shown.
+    let browse: BrowseBackup
     private let model: ExportModel
 
     init(model: ExportModel) {
@@ -24,6 +26,9 @@ final class BackupTools {
         verification = BackupVerification(model: model)
         cleanup = LibraryCleanup(model: model)
         duplicates = DuplicateCleanup(model: model)
+        browse = BrowseBackup(isExportRunning: { [weak model] in
+            model.map { $0.isExporting || $0.isEngineRunning } ?? false
+        })
         // Re-export isn't included: it starts an export itself and re-checks before changing the manifest.
         model.isExportBlocked = { [weak self] in
             guard let self else { return false }
