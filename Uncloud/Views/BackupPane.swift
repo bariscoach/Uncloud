@@ -127,8 +127,9 @@ struct BackupPane: View {
                     )
                 }
                 ProgressCard()
-                // While an export waits to resume, the card's Resume Now and Don't Resume take its place.
-                if !model.isExporting, model.autoResume == nil {
+                // While an export waits to resume, the card's Resume Now and Don't Resume take its place. An interrupted
+                // run offers Resume Export in the card, so this button stays off to avoid showing it twice.
+                if !model.isExporting, model.autoResume == nil, !model.offersResumeExport {
                     Button(model.primaryExportTitle(total: total)) {
                         model.performPrimaryAction()
                     }

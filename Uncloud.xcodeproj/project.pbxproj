@@ -28,6 +28,7 @@
 		20CB5FE1B8B8556A8A78132A /* ICloudSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F242D7D8C735C12BFF2E8E /* ICloudSignIn.swift */; };
 		21FA84C3879FA85F375224A8 /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B323FF83970C4D84959183E1 /* SessionStoreTests.swift */; };
 		22D893F297464E4DC1F5F415 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3ED0A36CD11690520DC5A1 /* SessionStore.swift */; };
+		23808B32F64982271B85E829 /* ResumeExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05598542B4665181D89B9931 /* ResumeExportTests.swift */; };
 		24167CE7E0C69E9DCF6EB022 /* StorageEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223292FA231E5C2569A0EA6D /* StorageEstimator.swift */; };
 		2465C5CC69C6F7F37627D314 /* test_launcher.py in Resources */ = {isa = PBXBuildFile; fileRef = 9FE2C438DFF93F23FE709749 /* test_launcher.py */; };
 		25CE95878FDD7E11A60B1E6A /* UncloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BB841704199E1A9A83035CB /* UncloudApp.swift */; };
@@ -218,6 +219,7 @@
 
 /* Begin PBXFileReference section */
 		021DD8E980C244B272F1A046 /* AutoBackupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoBackupController.swift; sourceTree = "<group>"; };
+		05598542B4665181D89B9931 /* ResumeExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeExportTests.swift; sourceTree = "<group>"; };
 		05CBE207BE129786DF0F6A69 /* Uncloud.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Uncloud.entitlements; sourceTree = "<group>"; };
 		063AE52551C1E2661DBADD1A /* BackupToolSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupToolSheets.swift; sourceTree = "<group>"; };
 		0C10D098209F9365755A30B3 /* DuplicateCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateCleanup.swift; sourceTree = "<group>"; };
@@ -399,6 +401,7 @@
 				69CB7F0D69FDCC970F2D5BB6 /* LayoutChangeConfirmationTests.swift */,
 				D3AE57A1D510FA954FCEA436 /* LibrarySourceWordingTests.swift */,
 				A442D2C0F3709A6E902B9D3C /* ManifestAdditionsTests.swift */,
+				05598542B4665181D89B9931 /* ResumeExportTests.swift */,
 				89738564B882A968009AE992 /* SessionRecorderTests.swift */,
 				D6D0433ACF883D323723A1B1 /* SessionsAndDriveCheckTests.swift */,
 				B323FF83970C4D84959183E1 /* SessionStoreTests.swift */,
@@ -965,6 +968,7 @@
 				91E633E1C1CB948B75B7F959 /* LayoutChangeConfirmationTests.swift in Sources */,
 				AB8D8C744F5397FAB7462B3A /* LibrarySourceWordingTests.swift in Sources */,
 				81A5A8FB58C23898B1D048D8 /* ManifestAdditionsTests.swift in Sources */,
+				23808B32F64982271B85E829 /* ResumeExportTests.swift in Sources */,
 				0CA845398FDDACDFABE0DA5C /* SessionRecorderTests.swift in Sources */,
 				21FA84C3879FA85F375224A8 /* SessionStoreTests.swift in Sources */,
 				FD856B22CB208A73C4ABB6C6 /* SessionsAndDriveCheckTests.swift in Sources */,

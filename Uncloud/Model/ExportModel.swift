@@ -40,6 +40,8 @@ final class ExportModel {
     private(set) var processedCount = 0
     private(set) var failedCount = 0
     private(set) var hasIncompleteRun = false
+    /// True when the unfinished run was Export All, as its session recorded. Resume Export continues it with everything.
+    private(set) var interruptedRunWasExportAll = false
     private(set) var previousLayout: FolderLayout?
     private(set) var estimatedTimeRemaining: Duration?
     private(set) var activity: [ActivityEntry] = []
@@ -256,6 +258,7 @@ final class ExportModel {
         processedCount = 0
         failedCount = 0
         hasIncompleteRun = false
+        interruptedRunWasExportAll = false
         previousLayout = nil
         estimatedTimeRemaining = nil
         isOnDriveCountApproximate = false
@@ -429,6 +432,7 @@ final class ExportModel {
     /// "Export All Photos" when everything is selected, otherwise the number of selected items.
     func exportTitle(total: Int?) -> String {
         if phase == .paused { return "Resume" }
+        if offersResumeExport { return "Resume Export" }
         if selection.isEverything { return "Export All Photos" }
         let count = selection.selectedCount(total: total ?? 0)
         return "Export \(count.formatted()) \(count == 1 ? "Item" : "Items")"
@@ -440,8 +444,34 @@ final class ExportModel {
 
     // MARK: - Export control
 
-    /// Starts an export of the saved selection, or resumes a paused one.
+    /// True while an unfinished run waits to be resumed by hand, after it stopped, failed or was cancelled. Then the
+    /// primary action continues it instead of starting over. Not while exporting, or while an automatic resume is counting down.
+    var offersResumeExport: Bool {
+        Self.offersResumeExport(phase: phase, hasIncompleteRun: hasIncompleteRun, autoResume: autoResume)
+    }
+
+    nonisolated static func offersResumeExport(phase: Phase, hasIncompleteRun: Bool, autoResume: AutoResume?) -> Bool {
+        switch phase {
+        case .idle, .cancelled, .failed:
+            hasIncompleteRun && autoResume == nil
+        case .preparing, .running, .paused, .cancelling, .completed:
+            false
+        }
+    }
+
+    /// Starts an export of the saved selection, resumes a paused one, or, when an unfinished run waits, continues
+    /// it with the selection it used (Export All, else the saved one). A resumed run is recorded as resumed by hand.
     func startOrResume() {
+        if offersResumeExport {
+            startRun(selection: interruptedRunWasExportAll ? .everything : nil, resumesInterrupted: true)
+        } else {
+            startRun(selection: nil)
+        }
+    }
+
+    /// Starts a new export with the current selection instead of resuming. Nothing is deleted; files already
+    /// on the drive are skipped.
+    func startNewExport() {
         startRun(selection: nil)
     }
 
@@ -492,18 +522,18 @@ final class ExportModel {
     /// Whether the primary action can run. Without a folder it only needs a ready source.
     func primaryExportEnabled(total: Int?) -> Bool {
         if destination == nil { return !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady }
-        if phase == .paused { return canStart }
+        if phase == .paused || offersResumeExport { return canStart }
         return canStart && selection.selectedCount(total: total ?? 0) > 0
     }
 
-    /// Whether Export All Photos can run. Without a folder, it asks for one first. Not while paused: Resume
-    /// continues the paused run, and starting another export over it would replace it.
+    /// Whether Export All Photos can run. Without a folder, it asks for one first. Not while paused or while an
+    /// interrupted run awaits Resume Export: those continue the run, and starting another export over it would replace it.
     var canExportAll: Bool {
-        if phase == .paused { return false }
+        if phase == .paused || offersResumeExport { return false }
         return destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady : canStart
     }
 
-    private func startRun(selection: LibrarySelection?) {
+    private func startRun(selection: LibrarySelection?, resumesInterrupted: Bool = false) {
         guard canStart else { return }
         if phase == .paused {
             resume()
@@ -519,10 +549,10 @@ final class ExportModel {
                     let proceed = await (storageWarningConfirmation ?? confirmExport(despite:))(warning)
                     isConfirmingStorageWarning = false
                     guard proceed else { return }
-                    await startExport(selection: selection)
+                    await startExport(selection: selection, resumesInterrupted: resumesInterrupted)
                 }
             } else {
-                Task { await startExport(selection: selection) }
+                Task { await startExport(selection: selection, resumesInterrupted: resumesInterrupted) }
             }
         }
     }
@@ -614,12 +644,14 @@ final class ExportModel {
     /// `selection` overrides the saved selection for this run only (Export All Photos).
     /// `automatic` marks the run as started by automatic backup, once it has really started.
     /// `resumeAttempt` marks it as an automatic resume; any other run replaces a pending resume.
+    /// `resumesInterrupted` marks it as Resume Export, which continues the unfinished run whatever its age.
     /// Returns whether the run started.
     @discardableResult
     private func startExport(
         selection override: LibrarySelection? = nil,
         automatic: Bool = false,
-        resumeAttempt: Int? = nil
+        resumeAttempt: Int? = nil,
+        resumesInterrupted: Bool = false
     ) async -> Bool {
         guard !isExporting, !isEngineRunning else { return false }
         let previousPhase = phase
@@ -675,6 +707,7 @@ final class ExportModel {
             automatic: automatic,
             resumeAttempt: resumeAttempt,
             isResuming: isResuming,
+            resumesInterrupted: resumesInterrupted,
             appleID: appleID
         )
 
@@ -910,6 +943,7 @@ final class ExportModel {
         automatic: Bool,
         resumeAttempt: Int?,
         isResuming: Bool,
+        resumesInterrupted: Bool,
         appleID: String?
     ) {
         heartbeatTask?.cancel()
@@ -925,9 +959,10 @@ final class ExportModel {
             trigger = .autoResume
             previous = newest
         } else if isResuming, let newest, newest.isFinished,
-                  now.timeIntervalSince(newest.endedAt ?? newest.updatedAt) <= 24 * 3600,
                   newest.source == source, newest.account == account, newest.layout == layout,
-                  newest.selection.kind == summary.kind {
+                  // Resume Export continues the interrupted run however old it is; other resumes only within a day.
+                  resumesInterrupted || (now.timeIntervalSince(newest.endedAt ?? newest.updatedAt) <= 24 * 3600
+                      && newest.selection.kind == summary.kind) {
             trigger = .resume
             previous = newest
         }
@@ -1063,6 +1098,15 @@ final class ExportModel {
         } else if FileManager.default.fileExists(atPath: store.directory.path(percentEncoded: false)) {
             NSWorkspace.shared.activateFileViewerSelecting([store.directory])
         }
+    }
+
+    /// Whether the unfinished run was Export All, judged by its session: the newest export session, when it hasn't
+    /// completed. Sessions record only the selection's kind and count, not its IDs, so Export All (`everything`) is
+    /// the one selection that can be resumed exactly. Any other run resumes with the saved selection.
+    nonisolated static func interruptedRunWasExportAll(sessions: [ExportSession]) -> Bool {
+        guard let newest = sessions.last(where: { $0.kind == .export && !$0.isReadOnly }) else { return false }
+        let completed: Set<ExportSession.Status> = [.completed, .completedWithFailures]
+        return !completed.contains(newest.result.status) && newest.selection.kind == .everything
     }
 
     private static func selectionSummary(_ selection: LibrarySelection, libraryTotal: Int?) -> ExportSession.SelectionSummary {
@@ -1317,6 +1361,7 @@ final class ExportModel {
             totalCount = 0
             processedCount = 0
             hasIncompleteRun = false
+            interruptedRunWasExportAll = false
             previousLayout = nil
             // Signed out of iCloud: the layout question still needs the folder's items by layout.
             if source == .iCloud, let url = destination?.url {
@@ -1346,12 +1391,17 @@ final class ExportModel {
                     iCloudItemsByLayoutFolder = url
                 }
             }
+            // Only read while a run is unfinished: its session says which selection it used.
+            let wasExportAll = progress.progress.hasIncompleteRun
+                ? await Task.detached(priority: .utility) { Self.interruptedRunWasExportAll(sessions: SessionStore(destination: url).list()) }.value
+                : false
             guard !isExporting, destination?.url == url, self.source == source, self.selection == selection,
                   self.layout == layout else { return }
             totalCount = progress.progress.total
             processedCount = progress.progress.exported
             isOnDriveCountApproximate = progress.isApproximate
             hasIncompleteRun = progress.progress.hasIncompleteRun
+            interruptedRunWasExportAll = wasExportAll
             previousLayout = progress.progress.previousLayout
         }
     }

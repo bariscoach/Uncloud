@@ -56,6 +56,21 @@ struct ProgressCard: View {
                     .accessibilityHint("Stops waiting. You can resume the export yourself later.")
                     Spacer()
                 }
+            } else if model.offersResumeExport {
+                // The one obvious action for an interrupted run, with a quieter way to start over.
+                HStack {
+                    Button("Resume Export") {
+                        model.startOrResume()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!model.canStart)
+                    Button("Start New Export") {
+                        model.startNewExport()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!model.canStart)
+                    Spacer()
+                }
             } else if model.canPause || model.phase == .paused || model.canCancel {
                 HStack {
                     if model.canPause || model.phase == .paused {
@@ -109,13 +124,22 @@ struct ProgressCard: View {
         return "About \(formatted) left"
     }
 
+    /// "Your last export stopped before it finished — 120 of 500 copied." The counts are left out when unknown.
+    private var interruptedText: String {
+        let about = model.isOnDriveCountApproximate ? "about " : ""
+        let counts = model.totalCount > 0
+            ? " — \(about)\(model.processedCount.formatted()) of \(model.totalCount.formatted()) copied"
+            : ""
+        return "Your last export stopped before it finished\(counts). Choose Resume Export to continue where it left off."
+    }
+
     @ViewBuilder
     private var status: some View {
         switch model.phase {
         // A drive check's progress is shown by the Drive row above the card, not repeated here.
         case .idle:
             if model.hasIncompleteRun {
-                Label("A previous export didn’t finish. Resume to continue where it left off.", systemImage: "info.circle")
+                Label(interruptedText, systemImage: "info.circle")
                     .foregroundStyle(.secondary)
             } else if model.totalCount > 0, model.processedCount == model.totalCount {
                 Label("Everything is already \(model.source.copiedVerb) to this folder.", systemImage: "checkmark.circle.fill")
