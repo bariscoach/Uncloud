@@ -15,9 +15,14 @@ struct BackupPane: View {
     /// Shown while no source is ready: nothing to export yet, so point back to the Library's landing page.
     private var notReady: some View {
         ContentUnavailableView {
-            Label("Nothing to Export Yet", systemImage: "externaldrive")
+            Label {
+                Text("Nothing to Export Yet")
+            } icon: {
+                Image(systemName: "externaldrive")
+                    .foregroundStyle(.secondary)
+            }
         } description: {
-            Text("Choose where your photos come from first: iCloud or the Photos library on this Mac.")
+            Text("Sign in to iCloud or choose Photos on This Mac first.")
         } actions: {
             Button("Get Started") {
                 model.pane = .library
@@ -62,52 +67,13 @@ struct BackupPane: View {
                     )
                 }
             } header: {
-                SectionTitle(title: "Save To", symbol: "externaldrive", tint: Tokens.Tint.drive)
+                SectionTitle("Backup Folder")
             }
 
             Section {
-                Picker("Folder layout", selection: Binding(get: { model.layout }, set: { model.requestLayoutChange(to: $0) })) {
-                    ForEach(FolderLayout.allCases.filter { $0.isAvailable(for: model.source) }) { layout in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(layout.title)
-                            Text(layout.example)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .tag(layout)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-                .disabled(model.isExporting)
-                .confirmationDialog(
-                    model.pendingLayoutChange?.title ?? "",
-                    isPresented: Binding(get: { model.pendingLayoutChange != nil }, set: { if !$0 { model.resolveLayoutChange(.cancel) } }),
-                    presenting: model.pendingLayoutChange
-                ) { _ in
-                    Button(ExportModel.LayoutChangeConfirmation.chooseNewFolderTitle) { model.resolveLayoutChange(.chooseNewFolder) }
-                        .keyboardShortcut(.defaultAction)
-                    Button(ExportModel.LayoutChangeConfirmation.downloadAgainTitle) { model.resolveLayoutChange(.downloadAgainHere) }
-                    Button(ExportModel.LayoutChangeConfirmation.cancelTitle, role: .cancel) { model.resolveLayoutChange(.cancel) }
-                } message: { confirmation in
-                    Text(confirmation.message)
-                }
-
-                if model.layout.usesPlaces {
-                    Label("Place names come from each photo’s location, which is sent to Apple to look up the city and country. Photos without a location go in “Unknown Location”.", systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if model.layout == .album {
-                    Label(model.source == .iCloud
-                          ? "Each album is saved in its own folder. Photos that aren’t in any album aren’t included."
-                          : "Items in more than one album are saved in each album’s folder. On drives formatted as APFS the extra copies take no additional space.",
-                          systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let caption = model.layout.caption(for: model.source) {
-                    Label(caption, systemImage: "info.circle")
+                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                    layoutPicker
+                    Text(model.layout.example)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -122,20 +88,24 @@ struct BackupPane: View {
                         .foregroundStyle(.orange)
                 }
 
-                Toggle("Save metadata files (.xmp)", isOn: $model.writesSidecars)
-                    .disabled(model.isExporting)
-                Text("Adds a small file next to each item with its albums, favorite status, location and dates, which apps like Lightroom can read. Titles, captions, keywords and people aren’t available to other apps, so they can’t be included.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                    Toggle("Save XMP metadata files", isOn: $model.writesSidecars)
+                        .disabled(model.isExporting)
+                        .help(xmpExplanation)
+                        .accessibilityHint(xmpExplanation)
+                    Text("Adds a small file beside each photo with its albums, favorites, location and dates, for apps like Lightroom.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
-                SectionTitle(title: "Folders and Files", symbol: "folder", tint: Tokens.Tint.folders)
+                SectionTitle("Folders")
             }
 
             if model.destination != nil {
                 Section {
                     BackupToolButtons()
                 } header: {
-                    SectionTitle(title: "Backup Tools", symbol: "checkmark.shield", tint: Tokens.Tint.tools)
+                    SectionTitle("Tools")
                 }
 
                 ExportHistoryView(
@@ -145,12 +115,25 @@ struct BackupPane: View {
                 )
             }
 
+            // Activity is a disclosure row, collapsed by default, after the history.
             Section {
-                ActivitySection()
+                ActivitySection(asRow: true)
             }
         }
         .formStyle(.grouped)
         .navigationSubtitle(model.destination?.displayName ?? "")
+        .toolbar {
+            if model.destination != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        model.revealDestination()
+                    } label: {
+                        Label("Show in Finder", systemImage: "folder")
+                    }
+                    .help("Show in Finder")
+                }
+            }
+        }
         .sheet(item: manualCheckBinding) { report in
             CheckDriveResultsSheet(report: report, source: model.source) {
                 model.showSetAsideFolder(report.setAsideFolder)
@@ -165,33 +148,89 @@ struct BackupPane: View {
         }
     }
 
-    /// The selection's estimated size, with the destination's free space beneath it.
+    /// The folder layout menu. Its explanation for the selected layout is in `.help`, not on screen.
+    private var layoutPicker: some View {
+        @Bindable var model = model
+
+        return Picker("Folders", selection: Binding(get: { model.layout }, set: { model.requestLayoutChange(to: $0) })) {
+            ForEach(FolderLayout.allCases.filter { $0.isAvailable(for: model.source) }) { layout in
+                Text(layout.title).tag(layout)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .disabled(model.isExporting)
+        .help(layoutExplanation ?? "")
+        .accessibilityHint(layoutExplanation ?? "")
+        .confirmationDialog(
+            model.pendingLayoutChange?.title ?? "",
+            isPresented: Binding(get: { model.pendingLayoutChange != nil }, set: { if !$0 { model.resolveLayoutChange(.cancel) } }),
+            presenting: model.pendingLayoutChange
+        ) { _ in
+            Button(ExportModel.LayoutChangeConfirmation.chooseNewFolderTitle) { model.resolveLayoutChange(.chooseNewFolder) }
+                .keyboardShortcut(.defaultAction)
+            Button(ExportModel.LayoutChangeConfirmation.downloadAgainTitle) { model.resolveLayoutChange(.downloadAgainHere) }
+            Button(ExportModel.LayoutChangeConfirmation.cancelTitle, role: .cancel) { model.resolveLayoutChange(.cancel) }
+        } message: { confirmation in
+            Text(confirmation.message)
+        }
+    }
+
+    /// What the selected layout does with places, albums and the source. Was three captions under the picker.
+    private var layoutExplanation: String? {
+        var parts: [String] = []
+        if model.layout.usesPlaces {
+            parts.append("Place names come from each photo’s location, which Apple looks up. Photos without one go in “Unknown Location”.")
+        }
+        if model.layout == .album {
+            parts.append(model.source == .iCloud
+                ? "Each album gets its own folder. Photos that aren’t in an album aren’t exported."
+                : "Photos in several albums are saved in each one. On APFS drives the extra copies use no extra space.")
+        }
+        if let caption = model.layout.caption(for: model.source) {
+            parts.append(caption)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    /// The second sentence of the XMP caption, which moved to the toggle's help.
+    private var xmpExplanation: String {
+        "Titles, captions, keywords and people aren’t available to other apps, so they can’t be included."
+    }
+
+    /// The selection's estimated size and the destination's free space, as one row's value.
+    private var spaceValue: String? {
+        guard let text = model.storageEstimateText else { return nil }
+        let estimate = text.prefix(1).uppercased() + text.dropFirst()
+        var parts = [model.storageEstimate == nil ? estimate : "\(estimate) needed"]
+        if model.destination != nil, let free = model.destinationFreeBytes {
+            parts.append("\(StorageEstimate.format(free)) free")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The estimate's basis and the amount still to export, which were two captions. Now the row's help.
+    private var spaceHelp: String {
+        var parts: [String] = []
+        if let note = model.storageEstimateNote {
+            parts.append(note)
+        }
+        if let estimate = model.storageEstimate, let needed = model.storageNeededBytes, needed < estimate.bytes {
+            parts.append("About \(StorageEstimate.format(needed)) still to export.")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// The selection's estimated size, with the destination's free space beside it.
     @ViewBuilder
     private var spaceNeededRow: some View {
-        if let text = model.storageEstimateText {
-            LabeledContent {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(text.prefix(1).uppercased() + text.dropFirst())
-                        .monospacedDigit()
-                    if let estimate = model.storageEstimate, let needed = model.storageNeededBytes, needed < estimate.bytes {
-                        Text("About \(StorageEstimate.format(needed)) still to copy")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    if let destination = model.destination, let free = model.destinationFreeBytes {
-                        Text("\(StorageEstimate.format(free)) free on “\(destination.displayName)”")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-            } label: {
-                Text("Space needed")
-                if let note = model.storageEstimateNote {
-                    Text(note)
-                }
+        if let value = spaceValue {
+            LabeledContent("Space") {
+                Text(value)
+                    .monospacedDigit()
             }
+            .help(spaceHelp)
+            .accessibilityHint(spaceHelp)
         }
     }
 
@@ -209,8 +248,11 @@ struct BackupPane: View {
     }
 
     private var destinationRow: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: Tokens.Space.m) {
+            Image(systemName: "externaldrive")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 if let destination = model.destination {
                     Text(destination.displayName)
                         .lineLimit(1)
@@ -222,44 +264,38 @@ struct BackupPane: View {
                         .truncationMode(.middle)
                         .textSelection(.enabled)
                 } else {
-                    Text("No folder chosen")
+                    Text("No backup folder chosen")
                         .foregroundStyle(.secondary)
                 }
             }
-            // The name and path keep their width ahead of the buttons, so the name stays on one line.
+            // The name and path keep their width ahead of the button, so the name stays on one line.
             .layoutPriority(1)
             Spacer()
-            if model.destination != nil {
-                Button {
-                    model.revealDestination()
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .help("Show in Finder")
-                .accessibilityLabel("Show in Finder")
-                .fixedSize()
-            }
-            Button(model.destination == nil ? "Choose Folder…" : "Change Folder…") {
+            Button(model.destination == nil ? "Choose Folder…" : "Change…") {
                 model.beginChoosingDestination()
             }
             .disabled(model.isExporting)
-            // The buttons keep their width, so a long folder name or path truncates instead of squeezing them.
+            // The button keeps its width, so a long folder name or path truncates instead of squeezing it.
             .fixedSize()
         }
     }
 }
 
-/// A section title with a coloured icon tile, as in System Settings. Every section of the Backup pane uses one.
+/// A section header in the Backup pane: plain headline text, as in System Settings. The `title:symbol:tint:` form is
+/// kept so existing callers compile. It draws the title alone, with no icon tile.
 struct SectionTitle: View {
     let title: String
-    let symbol: String
-    let tint: Color
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    init(title: String, symbol: String, tint: Color) {
+        self.title = title
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            IconTile(symbol: symbol, tint: tint)
-            Text(title)
-                .font(.headline)
-        }
+        Text(title)
+            .font(.headline)
     }
 }

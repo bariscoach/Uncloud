@@ -31,22 +31,27 @@ extension View {
     }
 }
 
-/// Verify Backup, Find Duplicates and Free Up Space, as rows in the Backup pane. Free Up Space exists only for the Photos library.
+/// Verify Backup, Find Duplicates and Free Up Space, as one row of bordered buttons in the Backup pane. Their
+/// explanations are `.help` and accessibility hints. Free Up Space is visible for iCloud too, but disabled there:
+/// `BackupTools.canOpenFreeUpSpace` already requires the Photos library.
 struct BackupToolButtons: View {
     @Environment(BackupTools.self) private var tools
     @Environment(ExportModel.self) private var model
 
+    private static let verifyHelp = "Checks that every file is intact."
+    private static let duplicatesHelp = "Finds photos saved more than once."
+    private static let freeUpSpaceHelp = "Removes photos from this Mac that are safely backed up."
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: Tokens.Space.s) {
             Button {
                 tools.showVerify()
             } label: {
                 Label("Verify Backup…", systemImage: "checkmark.shield")
             }
             .disabled(!tools.canOpenVerify)
-            Text("Checks every file in your folder against the checksum saved when it was exported.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .help(Self.verifyHelp)
+            .accessibilityHint(Self.verifyHelp)
 
             Button {
                 tools.showDuplicates()
@@ -54,23 +59,23 @@ struct BackupToolButtons: View {
                 Label("Find Duplicates…", systemImage: "doc.on.doc")
             }
             .disabled(!tools.canOpenDuplicates)
-            Text("Finds items saved more than once in your folder, so you can move the extra copies to the Trash.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .help(Self.duplicatesHelp)
+            .accessibilityHint(Self.duplicatesHelp)
 
-            if model.source == .photosLibrary {
-                Button {
-                    tools.showFreeUpSpace()
-                } label: {
-                    Label("Free Up Space…", systemImage: "externaldrive.badge.minus")
-                }
-                .disabled(!tools.canOpenFreeUpSpace)
-                Text("Removes items from the Photos library on this Mac, only after they are verified in your folder.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Button {
+                tools.showFreeUpSpace()
+            } label: {
+                Label("Free Up Space…", systemImage: "externaldrive.badge.minus")
             }
+            .disabled(!tools.canOpenFreeUpSpace)
+            .help(freeUpSpaceHelp)
+            .accessibilityHint(freeUpSpaceHelp)
         }
         .buttonStyle(.bordered)
-        .padding(.vertical, 4)
+        .padding(.vertical, Tokens.Space.xs)
+    }
+
+    private var freeUpSpaceHelp: String {
+        model.source == .photosLibrary ? Self.freeUpSpaceHelp : "Only for Photos on This Mac."
     }
 }

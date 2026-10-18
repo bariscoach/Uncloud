@@ -18,7 +18,8 @@ struct BackupHeroContentTests {
         failedCount: Int = 0,
         newPhotos: NewPhotosStatus? = nil,
         lastExport: Date? = nil,
-        readySummary: String? = nil
+        readySummary: String? = nil,
+        fraction: Double? = nil
     ) -> BackupHeroContent {
         BackupHeroContent.make(
             phase: phase,
@@ -29,6 +30,7 @@ struct BackupHeroContentTests {
             newPhotos: newPhotos,
             lastExport: lastExport,
             readySummary: readySummary,
+            fraction: fraction,
             now: Self.now
         )
     }
@@ -41,7 +43,7 @@ struct BackupHeroContentTests {
 
     @Test func row1PreparingIsExporting() {
         let content = make(phase: .preparing)
-        #expect(content == BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: "Preparing Export…", subtitle: nil, tone: .accent))
+        #expect(content == BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: "Getting ready…", subtitle: nil, tone: .accent))
     }
 
     @Test func row1RunningIsExporting() {
@@ -49,47 +51,53 @@ struct BackupHeroContentTests {
         #expect(content == BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: "Exporting…", subtitle: nil, tone: .accent))
     }
 
+    @Test func row1RunningShowsThePercentWhenKnown() {
+        let content = make(phase: .running, fraction: 0.42)
+        #expect(content.title == "Exporting… 42%")
+        #expect(content.kind == .exporting)
+    }
+
     @Test func row1PausedIsExportingNeutral() {
         let content = make(phase: .paused)
-        #expect(content == BackupHeroContent(kind: .exporting, symbol: "pause.circle", title: "Export Paused", subtitle: nil, tone: .neutral))
+        #expect(content == BackupHeroContent(kind: .exporting, symbol: "pause.circle", title: "Export paused", subtitle: nil, tone: .neutral))
     }
 
     @Test func row1CancellingIsExportingNeutral() {
         let content = make(phase: .cancelling)
-        #expect(content == BackupHeroContent(kind: .exporting, symbol: "xmark.circle", title: "Cancelling…", subtitle: nil, tone: .neutral))
+        #expect(content == BackupHeroContent(kind: .exporting, symbol: "xmark.circle", title: "Stopping…", subtitle: nil, tone: .neutral))
     }
 
     @Test func row2WaitingToResume() {
         let content = make(hasAutoResume: true)
-        #expect(content == BackupHeroContent(kind: .waiting, symbol: "clock", title: "Waiting to Resume", subtitle: nil, tone: .warning))
+        #expect(content == BackupHeroContent(kind: .waiting, symbol: "clock", title: "Waiting to resume", subtitle: nil, tone: .warning))
     }
 
     @Test func row3InterruptedRunOffersResume() {
         let content = make(offersResumeExport: true)
-        #expect(content == BackupHeroContent(kind: .interrupted, symbol: "arrow.clockwise.circle", title: "Your Last Export Didn’t Finish", subtitle: nil, tone: .warning))
+        #expect(content == BackupHeroContent(kind: .interrupted, symbol: "arrow.clockwise.circle", title: "Your last export didn’t finish", subtitle: nil, tone: .warning))
     }
 
     @Test func row4WithoutFolderChoosesOne() {
         let content = make(hasDestination: false)
         #expect(content == BackupHeroContent(
-            kind: .needsFolder, symbol: "externaldrive.badge.plus", title: "Choose Where to Save",
-            subtitle: "Pick a folder on your external drive to start.", tone: .accent
+            kind: .needsFolder, symbol: "externaldrive.badge.plus", title: "Choose a backup folder",
+            subtitle: "Pick a folder on your external drive.", tone: .accent
         ))
     }
 
     @Test func row5CompletedWithFailuresFinishedWithProblems() {
         let content = make(phase: .completed, failedCount: 2)
-        #expect(content == BackupHeroContent(kind: .finishedWithProblems, symbol: "exclamationmark.triangle", title: "Finished with Problems", subtitle: nil, tone: .warning))
+        #expect(content == BackupHeroContent(kind: .finishedWithProblems, symbol: "exclamationmark.triangle", title: "Some photos weren’t exported", subtitle: nil, tone: .warning))
     }
 
     @Test func row6FailedIsStopped() {
         let content = make(phase: .failed("Disk full"))
-        #expect(content == BackupHeroContent(kind: .stopped, symbol: "xmark.octagon", title: "Export Stopped", subtitle: nil, tone: .danger))
+        #expect(content == BackupHeroContent(kind: .stopped, symbol: "xmark.octagon", title: "Export stopped", subtitle: nil, tone: .danger))
     }
 
     @Test func row7CancelledIsCancelled() {
         let content = make(phase: .cancelled)
-        #expect(content == BackupHeroContent(kind: .cancelled, symbol: "xmark.circle", title: "Export Cancelled", subtitle: nil, tone: .neutral))
+        #expect(content == BackupHeroContent(kind: .cancelled, symbol: "xmark.circle", title: "Export cancelled", subtitle: nil, tone: .neutral))
     }
 
     @Test func row8NewPhotosSaysHowManySinceLastExport() {
@@ -113,24 +121,24 @@ struct BackupHeroContentTests {
 
     @Test func row9NoNewPhotosIsUpToDate() {
         let content = make(newPhotos: newPhotos(0))
-        #expect(content == BackupHeroContent(kind: .upToDate, symbol: "checkmark.circle", title: "Up to Date", subtitle: "Last export 3 days ago.", tone: .success))
+        #expect(content == BackupHeroContent(kind: .upToDate, symbol: "checkmark.circle", title: "Your backup is up to date", subtitle: "Last export 3 days ago.", tone: .success))
     }
 
     @Test func row10CompletedIsExportComplete() {
         let content = make(phase: .completed, lastExport: Self.threeDaysAgo)
-        #expect(content == BackupHeroContent(kind: .complete, symbol: "checkmark.circle", title: "Export Complete", subtitle: "Last export 3 days ago.", tone: .success))
+        #expect(content == BackupHeroContent(kind: .complete, symbol: "checkmark.circle", title: "Export complete", subtitle: "Last export 3 days ago.", tone: .success))
     }
 
     @Test func row10CompletedWithoutADateHasNoSubtitle() {
         let content = make(phase: .completed)
         #expect(content.subtitle == nil)
-        #expect(content.title == "Export Complete")
+        #expect(content.title == "Export complete")
     }
 
     @Test func row11OtherwiseIsReadyWithTheDriveSummary() {
         let content = make(readySummary: "0 already on this drive · 93,015 to go")
         #expect(content == BackupHeroContent(
-            kind: .ready, symbol: "arrow.down.circle", title: "Ready to Export",
+            kind: .ready, symbol: "arrow.down.circle", title: "Ready to export",
             subtitle: "0 already on this drive · 93,015 to go", tone: .accent
         ))
     }
@@ -145,7 +153,7 @@ struct BackupHeroContentTests {
     @Test func pausedExportWinsOverNewPhotos() {
         let content = make(phase: .paused, newPhotos: newPhotos(1_243))
         #expect(content.kind == .exporting)
-        #expect(content.title == "Export Paused")
+        #expect(content.title == "Export paused")
     }
 
     @Test func waitingToResumeWinsOverInterrupted() {

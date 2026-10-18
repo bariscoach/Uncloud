@@ -40,41 +40,43 @@ struct BackupHeroContent: Equatable {
         newPhotos: NewPhotosStatus?,
         lastExport: Date?,
         readySummary: String?,
+        fraction: Double? = nil,
         now: Date
     ) -> BackupHeroContent {
         switch phase {
         case .preparing:
-            return BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: "Preparing Export…", subtitle: nil, tone: .accent)
+            return BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: "Getting ready…", subtitle: nil, tone: .accent)
         case .running:
-            return BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: "Exporting…", subtitle: nil, tone: .accent)
+            let title = fraction.map { "Exporting… \(Int($0 * 100))%" } ?? "Exporting…"
+            return BackupHeroContent(kind: .exporting, symbol: "arrow.down.circle", title: title, subtitle: nil, tone: .accent)
         case .paused:
-            return BackupHeroContent(kind: .exporting, symbol: "pause.circle", title: "Export Paused", subtitle: nil, tone: .neutral)
+            return BackupHeroContent(kind: .exporting, symbol: "pause.circle", title: "Export paused", subtitle: nil, tone: .neutral)
         case .cancelling:
-            return BackupHeroContent(kind: .exporting, symbol: "xmark.circle", title: "Cancelling…", subtitle: nil, tone: .neutral)
+            return BackupHeroContent(kind: .exporting, symbol: "xmark.circle", title: "Stopping…", subtitle: nil, tone: .neutral)
         case .idle, .completed, .cancelled, .failed:
             break
         }
 
         if hasAutoResume {
-            return BackupHeroContent(kind: .waiting, symbol: "clock", title: "Waiting to Resume", subtitle: nil, tone: .warning)
+            return BackupHeroContent(kind: .waiting, symbol: "clock", title: "Waiting to resume", subtitle: nil, tone: .warning)
         }
         if offersResumeExport {
-            return BackupHeroContent(kind: .interrupted, symbol: "arrow.clockwise.circle", title: "Your Last Export Didn’t Finish", subtitle: nil, tone: .warning)
+            return BackupHeroContent(kind: .interrupted, symbol: "arrow.clockwise.circle", title: "Your last export didn’t finish", subtitle: nil, tone: .warning)
         }
         if !hasDestination {
             return BackupHeroContent(
-                kind: .needsFolder, symbol: "externaldrive.badge.plus", title: "Choose Where to Save",
-                subtitle: "Pick a folder on your external drive to start.", tone: .accent
+                kind: .needsFolder, symbol: "externaldrive.badge.plus", title: "Choose a backup folder",
+                subtitle: "Pick a folder on your external drive.", tone: .accent
             )
         }
         if phase == .completed, failedCount > 0 {
-            return BackupHeroContent(kind: .finishedWithProblems, symbol: "exclamationmark.triangle", title: "Finished with Problems", subtitle: nil, tone: .warning)
+            return BackupHeroContent(kind: .finishedWithProblems, symbol: "exclamationmark.triangle", title: "Some photos weren’t exported", subtitle: nil, tone: .warning)
         }
         if case .failed = phase {
-            return BackupHeroContent(kind: .stopped, symbol: "xmark.octagon", title: "Export Stopped", subtitle: nil, tone: .danger)
+            return BackupHeroContent(kind: .stopped, symbol: "xmark.octagon", title: "Export stopped", subtitle: nil, tone: .danger)
         }
         if phase == .cancelled {
-            return BackupHeroContent(kind: .cancelled, symbol: "xmark.circle", title: "Export Cancelled", subtitle: nil, tone: .neutral)
+            return BackupHeroContent(kind: .cancelled, symbol: "xmark.circle", title: "Export cancelled", subtitle: nil, tone: .neutral)
         }
         if let newPhotos {
             let day = NewPhotosText.dayPhrase(newPhotos.since, now: now)
@@ -85,14 +87,14 @@ struct BackupHeroContent: Equatable {
                     subtitle: "Since your last export \(when).", tone: .accent
                 )
             }
-            return BackupHeroContent(kind: .upToDate, symbol: "checkmark.circle", title: "Up to Date", subtitle: "Last export \(day.text).", tone: .success)
+            return BackupHeroContent(kind: .upToDate, symbol: "checkmark.circle", title: "Your backup is up to date", subtitle: "Last export \(day.text).", tone: .success)
         }
         if phase == .completed {
             let subtitle = lastExport.map { "Last export \(NewPhotosText.dayPhrase($0, now: now).text)." }
-            return BackupHeroContent(kind: .complete, symbol: "checkmark.circle", title: "Export Complete", subtitle: subtitle, tone: .success)
+            return BackupHeroContent(kind: .complete, symbol: "checkmark.circle", title: "Export complete", subtitle: subtitle, tone: .success)
         }
         return BackupHeroContent(
-            kind: .ready, symbol: "arrow.down.circle", title: "Ready to Export",
+            kind: .ready, symbol: "arrow.down.circle", title: "Ready to export",
             subtitle: readySummary.map { $0.prefix(1).uppercased() + $0.dropFirst() }, tone: .accent
         )
     }
@@ -109,12 +111,12 @@ struct BackupHeroHeader: View {
             IconTile(symbol: content.symbol, tint: content.tone.color(accent: accent ?? .accentColor), size: Tokens.Tile.hero)
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 Text(content.title)
-                    .font(.title2.weight(.semibold))
+                    .font(Tokens.Font.heroTitle)
                     .monospacedDigit()
                     .fixedSize(horizontal: false, vertical: true)
                 if let subtitle = content.subtitle {
                     Text(subtitle)
-                        .font(.callout)
+                        .font(Tokens.Font.heroSubtitle)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -131,6 +133,7 @@ struct BackupHeroHeader: View {
 struct BackupHero: View {
     @Environment(ExportModel.self) private var model
     @Environment(\.uncloudAccent) private var accent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let total: Int?
 
     var body: some View {
@@ -143,6 +146,7 @@ struct BackupHero: View {
             newPhotos: model.newPhotosStatus,
             lastExport: model.lastBackupDate,
             readySummary: model.onDriveSummaryText,
+            fraction: model.fractionComplete,
             now: .now
         )
         let tint = content.tone.color(accent: accent ?? .accentColor)
@@ -174,6 +178,7 @@ struct BackupHero: View {
             }
         }
         .padding(.vertical, Tokens.Space.s)
+        .animation(Tokens.Motion.animation(reduceMotion), value: content.kind)
         .listRowBackground(heroBackground(tint))
     }
 
@@ -199,7 +204,7 @@ struct BackupHero: View {
     /// A faint wash in the tone's colour behind the hero. On macOS 26 it follows the concentric corner of the row.
     @ViewBuilder
     private func heroBackground(_ tint: Color) -> some View {
-        let fill = tint.opacity(0.10)
+        let fill = tint.opacity(Tokens.Hero.wash)
         if #available(macOS 26, *) {
             ConcentricRectangle(corners: .concentric(minimum: .fixed(Tokens.Radius.l)), isUniform: true).fill(fill)
         } else {
