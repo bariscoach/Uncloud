@@ -21,10 +21,13 @@ enum Tokens {
         static let xl: CGFloat = 20
         static let xxl: CGFloat = 24
         static let xxxl: CGFloat = 32
+        /// Between Form sections when a custom gap is needed.
+        static let section: CGFloat = 24
     }
 
-    /// IconTile side lengths. Use only these four.
+    /// IconTile side lengths. Use only the three that remain: `sidebar` is retiring.
     enum Tile {
+        @available(*, deprecated, message: "Retiring: sidebar rows use plain SF Symbols. Use Tile.section.")
         static let sidebar: CGFloat = 20
         static let section: CGFloat = 24
         static let feature: CGFloat = 32   // benefit rows, How It Works steps
@@ -37,17 +40,49 @@ enum Tokens {
         static let narrow: CGFloat = 420   // Sign In, delete and recover confirmations
         static let regular: CGFloat = 520  // Verify, Free Up Space, Check Drive, Session Detail
         static let wide: CGFloat = 560     // Find Duplicates
+        /// The buttons along a sheet's bottom edge.
+        static let footerControlSize: ControlSize = .regular
     }
 
-    /// Fixed hues for places and features. Each hue means one thing everywhere.
+    /// The Backup hero's look.
+    enum Hero {
+        /// How much of the status colour washes the hero's background.
+        static let wash: Double = 0.06
+    }
+
+    /// Text styles. Hero titles are semibold; helper text and metadata are quieter.
+    enum Font {
+        static let heroTitle = SwiftUI.Font.title.weight(.semibold)
+        static let heroSubtitle = SwiftUI.Font.body
+        static let help = SwiftUI.Font.callout
+        static let meta = SwiftUI.Font.caption
+    }
+
+    /// Motion. Every new animation goes through `animation(_:)` so Reduce Motion turns it off.
+    enum Motion {
+        static let standard: Animation = .smooth(duration: 0.25)
+
+        /// The standard animation, or nil (no animation) when Reduce Motion is on.
+        static func animation(_ reduceMotion: Bool) -> Animation? {
+            reduceMotion ? nil : standard
+        }
+    }
+
+    /// Fixed hues for places and features. Each hue means one thing everywhere. Only `library`, `iCloud` and
+    /// `drive` remain, for Getting Started illustrations. Colour no longer marks sections or places.
     enum Tint {
         static let library = Color.pink        // photos (also "Photos on This Mac" in the footer)
         static let iCloud = Color.blue         // anything iCloud: footer, Clean Up iCloud row
         static let drive = Color.teal          // Backup row, Save To
+        @available(*, deprecated, message: "Retiring: sections don't take colour. Use a plain SF Symbol.")
         static let folders = Color.mint        // Folders and Files
+        @available(*, deprecated, message: "Retiring: sections don't take colour. Use a plain SF Symbol.")
         static let tools = Color.green         // Backup Tools
+        @available(*, deprecated, message: "Retiring: sections don't take colour. Use a plain SF Symbol.")
         static let history = Color.indigo      // Export History
+        @available(*, deprecated, message: "Retiring: sections don't take colour. Use a plain SF Symbol.")
         static let neutral = Color.gray        // Activity
+        @available(*, deprecated, message: "Retiring: places don't take colour. Use a plain SF Symbol.")
         static let places = Color.purple       // Browse Backup: the map and places
     }
 
