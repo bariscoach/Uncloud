@@ -29,6 +29,13 @@ struct LibraryWindow: View {
                 // Increased prominence makes the percentage a coloured capsule while an export runs.
                 .badgeProminence(model.isExporting ? .increased : .standard)
                 .tag(ExportModel.Pane.backup)
+
+                Label {
+                    Text("Clean Up iCloud")
+                } icon: {
+                    IconTile(symbol: "trash", tint: .red)
+                }
+                .tag(ExportModel.Pane.cleanup)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             .safeAreaInset(edge: .bottom) {
@@ -50,6 +57,8 @@ struct LibraryWindow: View {
                     .animation(reduceMotion ? nil : .smooth, value: showsExportStarted)
             case .backup:
                 BackupPane()
+            case .cleanup:
+                CleanupView()
             }
         }
         .frame(minWidth: 760, minHeight: 500)

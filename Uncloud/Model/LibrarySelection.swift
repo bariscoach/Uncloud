@@ -60,6 +60,16 @@ enum LibrarySelection: Codable, Equatable, Sendable {
         }
     }
 
+    /// The selection without items that no longer exist, such as ones just deleted from iCloud. Removing them from
+    /// an `allExcept` exclusion keeps `selectedCount` right, since that count subtracts the excluded IDs.
+    func forgetting<S: Sequence>(_ ids: S) -> LibrarySelection where S.Element == String {
+        let ids = Set(ids)
+        return switch self {
+        case .allExcept(let excluded): .allExcept(excluded.subtracting(ids))
+        case .only(let selected): .only(selected.subtracting(ids))
+        }
+    }
+
     mutating func selectAll() {
         self = .everything
     }

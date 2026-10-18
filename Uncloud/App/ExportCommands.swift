@@ -78,6 +78,11 @@ struct ExportCommands: Commands {
             }
             .disabled(!tools.canOpenVerify)
 
+            Button("Find Duplicates…") {
+                tools.showDuplicates()
+            }
+            .disabled(!tools.canOpenDuplicates)
+
             // Only the Photos library can free up space; the item is hidden for iCloud.
             if model.source == .photosLibrary {
                 Button("Free Up Space…") {

@@ -226,5 +226,66 @@ class FakeBridgeTests(unittest.TestCase):
         self.assertEqual(replies[-1]["kind"], "PyiCloudServiceUnavailableException")
 
 
+class FakeDeleteTests(unittest.TestCase):
+    """The fake's delete command, which the app's Swift tests use in place of the real bridge's."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state = os.path.join(self.tmp.name, "library.json")
+        self.sessions = []
+
+    def tearDown(self):
+        for session in self.sessions:
+            try:
+                session.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self.tmp.cleanup()
+
+    def start(self, *options):
+        session = Session(*options, "--rate", "0")
+        self.sessions.append(session)
+        return session
+
+    @staticmethod
+    def delete(session, **request):
+        # Confirmed for the whole library unless a test says otherwise.
+        request.setdefault("confirmedCount", session.ready["count"])
+        return session.call({"cmd": "delete", "id": "x", **request}, {"deleteDone", "error"})
+
+    def test_only_mode_removes_the_named_items_and_keeps_the_order(self):
+        session = self.start("--total", "5", "--state", self.state)
+        replies = self.delete(session, mode="only", ids=["asset-1", "asset-3", "missing"], batchSize=100)
+        self.assertEqual(replies[0]["event"], "deleteProgress")
+        self.assertEqual(next(r for r in replies if r["event"] == "deleteTargets")["ids"], ["asset-1", "asset-3"])
+        done = replies[-1]
+        self.assertEqual((done["event"], done["deleted"], done["failed"], done["missing"]), ("deleteDone", 2, 0, 1))
+        self.assertEqual(session.ready["count"], 5)
+        self.assertEqual(session.call({"cmd": "count", "id": "c"}, {"count"})[-1]["count"], 3)
+        self.assertEqual([item["id"] for item in session.page(0)], ["asset-0", "asset-2", "asset-4"])
+        session.close()
+        self.sessions.remove(session)
+        relaunched = self.start("--state", self.state)
+        self.assertEqual(relaunched.ready["count"], 3, "the deletions are written to the state file")
+
+    def test_all_except_removes_everything_but_the_excluded(self):
+        session = self.start("--total", "4")
+        replies = self.delete(session, mode="allExcept", ids=["asset-0"], batchSize=2)
+        self.assertEqual([r["event"] for r in replies if r["event"] == "deleted"], ["deleted", "deleted"])
+        self.assertEqual(replies[-1]["deleted"], 3)
+        self.assertEqual([item["id"] for item in session.page(0)], ["asset-0"])
+
+    def test_failures_and_throttle_are_reported_per_batch(self):
+        session = self.start("--total", "6", "--delete-fail-every", "3", "--delete-throttle-after", "2")
+        replies = self.delete(session, mode="allExcept", ids=[], batchSize=2)
+        failed = [f for r in replies if r["event"] == "deleteFailed" for f in r["failures"]]
+        self.assertEqual([f["id"] for f in failed], ["asset-0", "asset-3"])
+        done = replies[-1]
+        self.assertEqual(done["stopped"], "throttled")
+        self.assertEqual((done["deleted"], done["failed"]), (2, 2))
+        self.assertEqual(session.call({"cmd": "count", "id": "c"}, {"count"})[-1]["count"], 4)
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,21 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
          plus the Live Photo movie when there is one (not XMP sidecars, a few KB each). Browsing
          requests are answered between pages, and the walk stops early (complete false) when a
          download is waiting, so it never holds up an export.
+  {"cmd":"delete","mode":"only"|"allExcept","ids":[...],"hints":{id: rank},"batchSize":N,"confirmedCount":C}
+      deletes items from iCloud Photos (they move to Recently Deleted, isDeleted = 1). "only" deletes the items
+      in ids; "allExcept" deletes every item not in ids. Targets are resolved first, walking the library without
+      changing it, then deleted in batches of batchSize (default 100, at most 200), about a second apart.
+      Deferred while a download runs, like a download. Missing IDs (no longer in the library) are counted.
+      -> {"event":"deleteProgress","phase":"finding"|"deleting","done":D,"total":T} as the work goes on,
+         {"event":"deleteTargets","ids":[...]} once the targets are known (so a run can resume as "only"),
+         {"event":"deleted","ids":[...]} and {"event":"deleteFailed","failures":[{"id","reason"}]} per batch,
+         finally {"event":"deleteDone","deleted":N,"failed":N,"missing":N,"cancelled":BOOL,
+         "stopped":null|"throttled"|"error"|"changed","message":...}. A throttle or lost connection ends the run as
+         "throttled" with the message; the items it didn't reach aren't deleted and aren't failed. Throttled means
+         ACCESS_DENIED, 429, 503 or any 5xx; three batches in a row where every item failed end it as "error".
+         confirmedCount is how many items the user confirmed: if the targets resolved are more, nothing is sent
+         and the run ends as "changed".
+         Cancel and pause act between batches; a batch already sent can't be recalled.
   {"cmd":"cancel","target":ID}        stops that download (between chunks) or stats walk (after its page).
   {"cmd":"pause","target":ID}         holds that download between chunks or items; browsing requests are
   {"cmd":"resume","target":ID}        still answered while it's held. Neither has a reply.
@@ -88,6 +103,7 @@ import os  # noqa: E402
 import queue  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
+import urllib.parse  # noqa: E402
 from collections import deque  # noqa: E402
 from functools import partial  # noqa: E402
 from itertools import islice  # noqa: E402
@@ -104,6 +120,17 @@ HINT_FRACTION = 0.3
 HINT_GAP = 25
 # A download checks for cancel, pause and pings after each chunk of this many bytes.
 DOWNLOAD_CHUNK = 32 * 1024
+# Items per CloudKit modify request, the largest allowed, and the pause between two of them.
+DELETE_BATCH_SIZE = 100
+DELETE_BATCH_MAX = 200
+DELETE_PACE = 1.0
+# Batches in a row where every item failed before the run gives up.
+DELETE_FAILURE_STREAK = 3
+DELETE_CHANGED_MESSAGE = (
+    "Your iCloud library changed since you confirmed, so nothing was deleted. Review your selection and try again."
+)
+# Session errors that mean Apple is limiting requests, whatever class they come as.
+THROTTLE_MARKERS = ("ACCESS_DENIED", "429", "503")
 
 LOGGER = logging.getLogger("photo_bridge")
 
@@ -133,6 +160,20 @@ class DownloadCancelled(Exception):
 
 class DownloadInterrupted(Exception):
     """A download held by a pause couldn't be picked up where it stopped."""
+
+
+class DeleteStopped(Exception):
+    """A delete run that ends early: `kind` is "throttled", "changed" or "error", with the message for the app."""
+
+    def __init__(self, kind: str, message: str):
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+
+
+def is_throttle_error(error: BaseException) -> bool:
+    text = f"{type(error).__name__} {error}"
+    return any(marker in text for marker in THROTTLE_MARKERS)
 
 
 class FileAppeared(Exception):
@@ -793,11 +834,13 @@ class Bridge:
 
                 names = [n for n in self.albums(refresh=True) if n not in PhotoLibrary.SMART_FOLDERS]
                 self.channel.send({"id": request_id, "event": "albums", "albums": names})
-            elif command in ("download", "stats"):
+            elif command in ("download", "stats", "delete"):
                 if downloading:
                     self._deferred.append(request)
                 elif command == "download":
                     self.download(request)
+                elif command == "delete":
+                    self.delete(request)
                 else:
                     self.stats(request)
             else:
@@ -977,7 +1020,7 @@ class Bridge:
             run.set_total(run.total - len(remaining))
 
     def _hinted(
-        self, album: Any, remaining: set, hints: Dict[str, Any], run: "_DownloadRun", start_rank: int = 0
+        self, album: Any, remaining: set, hints: Dict[str, Any], run: "_RequestRun", start_rank: int = 0
     ) -> Iterable[tuple]:
         ranks = []
         for asset_id, rank in hints.items():
@@ -1001,23 +1044,256 @@ class Bridge:
                     yield window.start + offset, asset
 
 
-class _DownloadRun:
-    def __init__(self, bridge: Bridge, request_id: Any, plan: DownloadPlan):
+    # Deleting
+
+    def delete(self, request: Dict[str, Any]) -> None:
+        """Deletes items from iCloud Photos: resolves every target first (never deleting while walking, which
+        would shift the offsets), then sends CloudKit modify requests of `batchSize` items. See the protocol notes."""
+        request_id = request.get("id")
+        mode = request.get("mode")
+        if mode not in ("only", "allExcept"):
+            raise RequestError("badRequest", "mode must be only or allExcept.")
+        batch_size = request.get("batchSize", DELETE_BATCH_SIZE)
+        if not isinstance(batch_size, int) or isinstance(batch_size, bool) or not 1 <= batch_size <= DELETE_BATCH_MAX:
+            raise RequestError("badRequest", f"batchSize must be from 1 to {DELETE_BATCH_MAX}.")
+        confirmed = request.get("confirmedCount")
+        if not isinstance(confirmed, int) or isinstance(confirmed, bool) or confirmed < 0:
+            raise RequestError("badRequest", "confirmedCount is required: the number of items the user confirmed, 0 or more.")
+        ids = set(str(i) for i in (request.pop("ids", None) or []))
+        hints = request.get("hints") or {}
+        run = _DeleteRun(self, request_id)
+        missing = 0
+        stopped = message = None
+        try:
+            targets = self._delete_targets(mode, ids, hints, run)
+            if not run.should_stop():
+                if len(targets) > confirmed:
+                    # The library grew since the user confirmed: delete nothing, not even the confirmed part.
+                    stopped, message = "changed", DELETE_CHANGED_MESSAGE
+                else:
+                    run.targets([target.id for target in targets])
+                    missing = len(ids) - len(targets) if mode == "only" else 0
+                    run.deleting(targets, batch_size)
+        except DeleteStopped as stop:
+            stopped, message = stop.kind, stop.message
+        except DownloadStopped as error:
+            stopped, message = "throttled", str(error)
+        except Exception as error:  # noqa: BLE001
+            if not is_run_ending(error):
+                self.channel.forget(request_id)
+                raise
+            stopped, message = "throttled", str(error)
+        run.finish(missing=missing, stopped=stopped, message=message)
+
+    def _delete_targets(self, mode: str, ids: set, hints: Dict[str, Any], run: "_DeleteRun") -> List["_DeleteTarget"]:
+        album = self.library.all
+        targets: List[_DeleteTarget] = []
+        if mode == "allExcept":
+            total = len(album)
+            run.progress("finding", 0, total)
+            for _, asset in walk(album):
+                if run.should_stop():
+                    break
+                if asset.id not in ids:
+                    targets.append(_DeleteTarget.of(asset))
+                run.tick("finding", len(targets), total)
+            return targets
+        remaining = set(ids)
+        run.progress("finding", 0, len(ids))
+        for _, asset in self._hinted(album, remaining, hints, run):
+            remaining.discard(asset.id)
+            targets.append(_DeleteTarget.of(asset))
+            run.progress("finding", len(targets), len(ids))
+        if remaining and not run.should_stop():
+            for _, asset in walk(album):
+                if run.should_stop():
+                    break
+                if asset.id in remaining:
+                    remaining.discard(asset.id)
+                    targets.append(_DeleteTarget.of(asset))
+                    run.progress("finding", len(targets), len(ids))
+                    if not remaining:
+                        break
+                else:
+                    run.tick("finding", len(targets), len(ids))
+        return targets
+
+    def _delete_batch(self, batch: List["_DeleteTarget"]) -> tuple:
+        """One CloudKit modify request. Returns (deleted IDs, [(id, reason)] for the items that failed)."""
+        library = self.library
+        url = f"{library.service_endpoint}/records/modify?{urllib.parse.urlencode(library.params)}"
+        body = {
+            "atomic": False,
+            "desiredKeys": ["isDeleted"],
+            "operations": [
+                {
+                    "operationType": "update",
+                    "record": {
+                        "fields": {"isDeleted": {"value": 1}},
+                        "recordChangeTag": target.change_tag,
+                        "recordName": target.record_name,
+                        "recordType": "CPLAsset",
+                    },
+                }
+                for target in batch
+            ],
+            "zoneID": library.zone_id,
+        }
+        response = library.session.post(url, data=json.dumps(body), headers={"Content-type": "application/json"})
+        status = getattr(response, "status_code", 200)
+        if status == 429 or 500 <= status < 600:
+            raise DeleteStopped("throttled", f"iCloud answered with HTTP {status}.")
+        if not response.ok:
+            reason = f"iCloud answered with HTTP {response.status_code}."
+            return [], [(target.id, reason) for target in batch]
+        try:
+            records = response.json().get("records")
+        except (ValueError, AttributeError):
+            records = None
+        answers: Dict[str, Any] = {}
+        for record in records if isinstance(records, list) else []:
+            if isinstance(record, dict) and "recordName" in record:
+                answers[record["recordName"]] = record
+        deleted: List[str] = []
+        failures: List[tuple] = []
+        for target in batch:
+            answer = answers.get(target.record_name)
+            if answer is None:
+                failures.append((target.id, "No response from iCloud."))
+            elif "serverErrorCode" in answer:
+                failures.append((target.id, str(answer.get("reason") or answer["serverErrorCode"])))
+            else:
+                deleted.append(target.id)
+        return deleted, failures
+
+
+class _RequestRun:
+    """What a long request (a download or a delete) needs from the request loop: pings, pause and cancel."""
+
+    def __init__(self, bridge: Bridge, request_id: Any):
         self.bridge = bridge
         self.channel = bridge.channel
         self.request_id = request_id
-        self.plan = plan
-        self.total = 0
-        self.done = 0
-        self.counts = {"downloaded": 0, "skipped": 0, "failed": 0}
-        self._announced: Optional[tuple] = None
-        self._since_poll = 0
 
     def should_stop(self) -> bool:
         """Checked before each item: answers pings, holds while paused, then says whether to stop."""
         self.channel.answer_pings()
         self.hold()
         return self.channel.is_cancelled(self.request_id)
+
+    def hold(self) -> bool:
+        """Waits while the request is paused, answering browsing requests. False once cancelled."""
+        while self.channel.is_paused(self.request_id) and not self.channel.is_cancelled(self.request_id):
+            self.bridge.serve_waiting()
+            self.channel.wait_for_input(0.05)
+        return not self.channel.is_cancelled(self.request_id)
+
+
+class _DeleteTarget:
+    """What a delete batch needs of an item: its IDs, not the whole asset object."""
+
+    __slots__ = ("id", "record_name", "change_tag")
+
+    def __init__(self, asset_id: str, record_name: str, change_tag: str):
+        self.id = asset_id
+        self.record_name = record_name
+        self.change_tag = change_tag
+
+    @classmethod
+    def of(cls, asset: Any) -> "_DeleteTarget":
+        record = asset._asset_record
+        return cls(asset.id, record["recordName"], record["recordChangeTag"])
+
+
+class _DeleteRun(_RequestRun):
+    """Reports a delete's progress and runs its batches; see Bridge.delete."""
+
+    def __init__(self, bridge: Bridge, request_id: Any):
+        super().__init__(bridge, request_id)
+        self._announced: Optional[tuple] = None
+        self._ticks = 0
+        self.counts = {"deleted": 0, "failed": 0}
+
+    def progress(self, phase: str, done: int, total: int) -> None:
+        state = (phase, done, total)
+        if state != self._announced:
+            self._announced = state
+            self.channel.send({
+                "id": self.request_id, "event": "deleteProgress", "phase": phase, "done": done, "total": total,
+            })
+
+    def tick(self, phase: str, done: int, total: int) -> None:
+        """Called per item while resolving targets: reports progress and answers browsing once per page."""
+        self._ticks += 1
+        if self._ticks % PAGE_CHUNK == 0:
+            self.progress(phase, done, total)
+            self.bridge.serve_waiting()
+
+    def targets(self, ids: List[str]) -> None:
+        self.channel.send({"id": self.request_id, "event": "deleteTargets", "ids": ids})
+
+    def deleting(self, targets: List["_DeleteTarget"], batch_size: int) -> None:
+        total = len(targets)
+        self.progress("deleting", 0, total)
+        streak = 0
+        for start in range(0, total, batch_size):
+            if start:
+                self.pace(DELETE_PACE)
+            if self.should_stop():
+                break
+            batch = targets[start:start + batch_size]
+            try:
+                deleted, failures = self.bridge._delete_batch(batch)
+            except DeleteStopped:
+                raise
+            except Exception as error:  # noqa: BLE001
+                if is_run_ending(error) or is_throttle_error(error):
+                    # Not this batch's fault: the items it didn't reach stay as they are, for a retry.
+                    raise DeleteStopped("throttled", str(error))
+                deleted, failures = [], [(target.id, f"{type(error).__name__}: {error}") for target in batch]
+            if deleted:
+                self.counts["deleted"] += len(deleted)
+                self.channel.send({"id": self.request_id, "event": "deleted", "ids": deleted})
+            if failures:
+                self.counts["failed"] += len(failures)
+                self.channel.send({
+                    "id": self.request_id, "event": "deleteFailed",
+                    "failures": [{"id": asset_id, "reason": reason} for asset_id, reason in failures],
+                })
+            self.progress("deleting", start + len(batch), total)
+            if not deleted and len(failures) == len(batch):
+                streak += 1
+                if streak >= DELETE_FAILURE_STREAK:
+                    raise DeleteStopped("error", failures[-1][1])
+            else:
+                streak = 0
+
+    def pace(self, seconds: float) -> None:
+        """Waits between batches, answering browsing and pings, and ends early on cancel."""
+        deadline = time.monotonic() + seconds
+        while not self.channel.is_cancelled(self.request_id) and time.monotonic() < deadline:
+            self.bridge.serve_waiting()
+            self.channel.wait_for_input(min(0.05, max(0.0, deadline - time.monotonic())))
+
+    def finish(self, missing: int, stopped: Optional[str], message: Optional[str]) -> None:
+        cancelled = self.channel.is_cancelled(self.request_id)
+        self.channel.forget(self.request_id)
+        self.channel.send({
+            "id": self.request_id, "event": "deleteDone", "deleted": self.counts["deleted"],
+            "failed": self.counts["failed"], "missing": missing, "cancelled": cancelled,
+            "stopped": stopped, "message": message,
+        })
+
+
+class _DownloadRun(_RequestRun):
+    def __init__(self, bridge: Bridge, request_id: Any, plan: DownloadPlan):
+        super().__init__(bridge, request_id)
+        self.plan = plan
+        self.total = 0
+        self.done = 0
+        self.counts = {"downloaded": 0, "skipped": 0, "failed": 0}
+        self._announced: Optional[tuple] = None
+        self._since_poll = 0
 
     def between_chunks(self) -> Optional[str]:
         """Checked after each chunk of a file: "cancel", "pause" or None."""
@@ -1027,13 +1303,6 @@ class _DownloadRun:
         if self.channel.is_paused(self.request_id):
             return "pause"
         return None
-
-    def hold(self) -> bool:
-        """Waits while the download is paused, answering browsing requests. False once cancelled."""
-        while self.channel.is_paused(self.request_id) and not self.channel.is_cancelled(self.request_id):
-            self.bridge.serve_waiting()
-            self.channel.wait_for_input(0.05)
-        return not self.channel.is_cancelled(self.request_id)
 
     def set_total(self, total: int) -> None:
         self.total = max(0, total)

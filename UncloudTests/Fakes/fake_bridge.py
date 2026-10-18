@@ -36,6 +36,10 @@ Fake options:
   --same-name-every K item numbers with N % K == 1 (K > 1) get item N-1's file name. Every photo is then exactly
                       fake_bytes(N) bytes, and a name taken by a file of another size gets the size added, as
                       icloudpd's name-size-dedup-with-suffix does: IMG_000000-1001.JPG (fake_icloudpd agrees)
+  --delete-batch-delay S  seconds each delete batch takes (default 0), for cancel and pause tests
+  --delete-throttle-after N  the Nth delete batch of this launch (counting from 0, throttled ones included) is
+                      throttled: the run ends with "stopped":"throttled", as Apple's 503 ends it. Later requests go through.
+  --delete-fail-every K  items whose number is divisible by K (K > 0) fail to delete with a server error
 
 Speaks the bridge's JSON-lines protocol (page, count, albums, download, stats, cancel, pause, resume,
 ping) closely enough for the app: "ready" after signing in, downloads write DEST/YYYY/MM files through
@@ -53,6 +57,10 @@ rank 0 and shifts every older item's rank by one. A page reply lists items from 
 before that asset), and
 "layout": "none" puts files directly in DEST instead of DEST/YYYY/MM. Item i (by ID number) is
 fake_bytes(i) bytes in page and stats replies, and its file is IMG_NNNNNN.JPG.
+
+Delete requests ("delete", with "mode", "ids", "hints" and "batchSize") remove items from the order, so
+the next count and page reflect them. They reply with the deleteProgress, deleteTargets, deleted, deleteFailed and
+deleteDone events of the real bridge; --state, if given, is rewritten with the new order.
 
 Closing stdin ends it; SIGTERM, SIGSTOP and SIGCONT keep their default meaning.
 """
@@ -74,7 +82,8 @@ def parse(argv):
     fake = {"total": 1000, "rate": 50.0, "auth_delay": 0.0, "launch_log": None, "stats_delay": 0.0,
             "chunks": 1, "chunk_delay": 0.0, "stuck": False, "remove_dest_at": None,
             "state": None, "insert_at": None, "insert_count": 1, "delete_at": None, "throttle_after": None,
-            "live_every": 0, "movie_fails_at": None, "same_name_every": 0}
+            "live_every": 0, "movie_fails_at": None, "same_name_every": 0,
+            "delete_batch_delay": 0.0, "delete_throttle_after": None, "delete_fail_every": 0}
     own = argv[:argv.index("--")] if "--" in argv else []
     index = 0
     while index < len(own):
@@ -113,6 +122,12 @@ def parse(argv):
             fake["movie_fails_at"] = int(own[index + 1]); index += 2
         elif flag == "--same-name-every":
             fake["same_name_every"] = int(own[index + 1]); index += 2
+        elif flag == "--delete-batch-delay":
+            fake["delete_batch_delay"] = float(own[index + 1]); index += 2
+        elif flag == "--delete-throttle-after":
+            fake["delete_throttle_after"] = int(own[index + 1]); index += 2
+        elif flag == "--delete-fail-every":
+            fake["delete_fail_every"] = int(own[index + 1]); index += 2
         else:
             index += 1
     return fake
@@ -247,6 +262,8 @@ class Bridge:
         self.total = len(order)
         self.deferred = []
         self.downloaded = 0
+        self.delete_batches = 0
+        self.delete_attempts = 0
 
     def log(self, text):
         if self.fake["launch_log"]:
@@ -294,14 +311,96 @@ class Bridge:
                               "type": "image", "size": fake_bytes(number), "bytes": fake_bytes(number),
                               "thumbURL": None})
             self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
-        elif command in ("download", "stats") and busy:
+        elif command in ("download", "stats", "delete") and busy:
             self.deferred.append(request)
         elif command == "download":
             self.download(request)
         elif command == "stats":
             self.stats(request)
+        elif command == "delete":
+            self.delete(request)
         else:
             self.channel.send({"id": request_id, "event": "error", "kind": "badRequest", "message": "unknown"})
+
+    def delete(self, request):
+        """Resolves the targets from the order (rank by rank), then removes them in batches, as the real bridge does."""
+        channel = self.channel
+        request_id = request.get("id")
+        only = request.get("mode") == "only"
+        ids = set(request.get("ids") or [])
+        size = int(request.get("batchSize") or 100)
+        confirmed = request.get("confirmedCount")
+        if not isinstance(confirmed, int) or isinstance(confirmed, bool) or confirmed < 0:
+            channel.send({"id": request_id, "event": "error", "kind": "badRequest", "message": "confirmedCount"})
+            return
+        self.log(f"delete-start {request_id} mode={'only' if only else 'allExcept'} ids={len(ids)} confirmed={confirmed}")
+        channel.send({"id": request_id, "event": "deleteProgress", "phase": "finding", "done": 0, "total": len(self.order)})
+        chosen = [asset_id for asset_id, _ in self.order if (asset_id in ids) == only]
+        if len(chosen) > confirmed:
+            with channel.lock:
+                channel.cancelled.discard(request_id)
+                channel.paused.discard(request_id)
+            channel.send({"id": request_id, "event": "deleteDone", "deleted": 0, "failed": 0, "missing": 0,
+                          "cancelled": False, "stopped": "changed",
+                          "message": "Your iCloud library changed since you confirmed, so nothing was deleted. "
+                                     "Review your selection and try again."})
+            return
+        channel.send({"id": request_id, "event": "deleteTargets", "ids": chosen})
+        missing = len(ids) - len(chosen) if only else 0
+        numbers = {asset_id: number for asset_id, number in self.order}
+        deleted = failed = 0
+        stopped = message = None
+        done = 0
+        streak = 0
+        for start in range(0, len(chosen), size):
+            if start:
+                time.sleep(self.fake["delete_batch_delay"])
+            self.channel.answer_pings()
+            if not self.hold(request_id) or channel.is_cancelled(request_id):
+                break
+            batch = chosen[start:start + size]
+            attempt = self.delete_attempts
+            self.delete_attempts += 1
+            if attempt == self.fake["delete_throttle_after"]:
+                stopped, message = "throttled", THROTTLE_MESSAGE
+                break
+            self.delete_batches += 1
+            ok, bad = [], []
+            for asset_id in batch:
+                number = numbers[asset_id]
+                if self.fake["delete_fail_every"] and number % self.fake["delete_fail_every"] == 0:
+                    bad.append({"id": asset_id, "reason": "The item couldn't be deleted."})
+                else:
+                    ok.append(asset_id)
+            gone = set(ok)
+            self.order = [(asset_id, number) for asset_id, number in self.order if asset_id not in gone]
+            if self.fake["state"]:
+                with open(self.fake["state"], "w", encoding="utf-8") as handle:
+                    next_number = max([number for _, number in self.order] + [self.total]) + 1
+                    json.dump({"order": [list(item) for item in self.order], "next": next_number}, handle)
+            self.total = len(self.order)
+            deleted += len(ok)
+            failed += len(bad)
+            if ok:
+                channel.send({"id": request_id, "event": "deleted", "ids": ok})
+            if bad:
+                channel.send({"id": request_id, "event": "deleteFailed", "failures": bad})
+            done += len(batch)
+            channel.send({"id": request_id, "event": "deleteProgress", "phase": "deleting", "done": done, "total": len(chosen)})
+            if bad and not ok:
+                streak += 1
+                if streak >= 3:
+                    stopped, message = "error", bad[-1]["reason"]
+                    break
+            else:
+                streak = 0
+            self.serve_waiting()
+        cancelled = channel.is_cancelled(request_id)
+        with channel.lock:
+            channel.cancelled.discard(request_id)
+            channel.paused.discard(request_id)
+        channel.send({"id": request_id, "event": "deleteDone", "deleted": deleted, "failed": failed,
+                      "missing": missing, "cancelled": cancelled, "stopped": stopped, "message": message})
 
     def stats(self, request):
         channel = self.channel

@@ -1,12 +1,13 @@
 import Foundation
 
-/// Shared state for the Verify Backup and Free Up Space sheets, so both the
+/// Shared state for the Verify Backup, Find Duplicates and Free Up Space sheets, so both the
 /// Backup pane and the Export menu can open them.
 @MainActor
 @Observable
 final class BackupTools {
     enum Sheet: Identifiable {
         case verify
+        case duplicates
         case freeUpSpace
 
         var id: Self { self }
@@ -15,21 +16,27 @@ final class BackupTools {
     var sheet: Sheet?
     let verification: BackupVerification
     let cleanup: LibraryCleanup
+    let duplicates: DuplicateCleanup
     private let model: ExportModel
 
     init(model: ExportModel) {
         self.model = model
         verification = BackupVerification(model: model)
         cleanup = LibraryCleanup(model: model)
+        duplicates = DuplicateCleanup(model: model)
         // Re-export isn't included: it starts an export itself and re-checks before changing the manifest.
         model.isExportBlocked = { [weak self] in
             guard let self else { return false }
-            return verification.isChecking || cleanup.isBusy
+            return verification.isChecking || cleanup.isBusy || duplicates.isBusy || model.iCloudCleanup?.isRunning == true
         }
     }
 
     var canOpenVerify: Bool {
         sheet == nil && !model.isExporting && !model.isEngineRunning && model.destination != nil && model.destinationIssue == nil
+    }
+
+    var canOpenDuplicates: Bool {
+        canOpenVerify
     }
 
     var canOpenFreeUpSpace: Bool {
@@ -42,6 +49,12 @@ final class BackupTools {
         sheet = .verify
     }
 
+    func showDuplicates() {
+        guard canOpenDuplicates else { return }
+        duplicates.reset()
+        sheet = .duplicates
+    }
+
     func showFreeUpSpace() {
         guard canOpenFreeUpSpace else { return }
         cleanup.reset()
@@ -52,5 +65,6 @@ final class BackupTools {
     func sheetDismissed() {
         verification.cancel()
         cleanup.cancel()
+        duplicates.cancel()
     }
 }

@@ -21,6 +21,10 @@ struct ICloudBridgeRequest: Encodable, Sendable {
     var stopAt: String?
     /// Cancel, pause and resume: the request they apply to.
     var target: Int?
+    /// Delete only: items per CloudKit request, at most 200.
+    var batchSize: Int?
+    /// Delete only: how many items the user confirmed. The bridge deletes nothing if more resolve.
+    var confirmedCount: Int?
 }
 
 /// One line from `photo_bridge.py`. Replies to a request carry its `id`; `asset` is an iCloud asset ID.
@@ -72,6 +76,18 @@ struct ICloudBridgeMessage: Decodable, Sendable {
     var sizes: [String: Int64]?
     var unsized: [String]?
     var complete: Bool?
+    /// Delete events: the IDs a `deleteTargets` or `deleted` event names.
+    var ids: [String]?
+    /// `deleteFailed`: the items that weren't deleted, with iCloud's reason for each.
+    var failures: [ICloudBridgeDeleteFailure]?
+    /// `deleteProgress`: "finding" while the targets are resolved, "deleting" while batches are sent.
+    var phase: String?
+    /// `deleteDone`: items deleted in the run.
+    var deleted: Int?
+    /// `deleteDone`: targets that were no longer in the library.
+    var missing: Int?
+    /// `deleteDone`: why the run ended early, "throttled" or "error"; nil when it ran to the end or was cancelled.
+    var stopped: String?
 }
 
 /// A download sent to the bridge: its request ID, for pausing it, and its events.
@@ -193,6 +209,111 @@ enum ICloudBridgeDownloadEvent: Sendable, Equatable {
     }
 }
 
+/// What to delete from iCloud Photos, for `ICloudBridge.delete(_:)`. Deleted items move to Recently Deleted.
+///
+/// The bridge resolves every target before it deletes anything, so the walk never sees the library change.
+struct ICloudBridgeDeleteOptions: Sendable, Equatable {
+    enum Mode: String, Sendable {
+        /// Only the items in `ids`. Items no longer in the library count as missing.
+        case only
+        /// Every item except the items in `ids`.
+        case allExcept
+    }
+
+    /// The largest batch the bridge accepts.
+    static let maxBatchSize = 200
+
+    var mode: Mode
+    /// How many items the user confirmed. Required: a run never deletes more than this many.
+    var confirmedCount: Int
+    var ids: [String] = []
+    /// Where each ID was last seen, so `.only` fetches those pages instead of walking the library.
+    var rankHints: [String: Int]?
+    /// Items per CloudKit request, from 1 to `maxBatchSize`.
+    var batchSize = 100
+
+    var request: ICloudBridgeRequest {
+        ICloudBridgeRequest(
+            cmd: "delete",
+            mode: mode.rawValue,
+            ids: ids,
+            hints: rankHints,
+            batchSize: min(max(batchSize, 1), Self.maxBatchSize),
+            confirmedCount: max(confirmedCount, 0)
+        )
+    }
+}
+
+/// One item the bridge couldn't delete, and iCloud's reason.
+struct ICloudBridgeDeleteFailure: Decodable, Sendable, Equatable {
+    let id: String
+    let reason: String
+}
+
+/// A typed event of a bridge delete; see `ICloudBridgeDeletion.events`.
+enum ICloudBridgeDeleteEvent: Sendable, Equatable {
+    /// Targets resolved so far, of the total the resolution is looking for.
+    case finding(done: Int, total: Int)
+    /// Every ID the run will try to delete, once known. A run can be resumed for these as `.only`.
+    case targets([String])
+    /// Deleted in one batch.
+    case deleted([String])
+    /// Not deleted in one batch, with each reason.
+    case failed([ICloudBridgeDeleteFailure])
+    /// Items handled so far, of the targets.
+    case progress(done: Int, total: Int)
+    /// The run ended: its counts, whether it was cancelled, and why it stopped early if it did.
+    case done(deleted: Int, failed: Int, missing: Int, cancelled: Bool, stopped: ICloudBridgeDeleteEvent.Stop?, message: String?)
+
+    enum Stop: String, Sendable, Equatable {
+        /// Apple's throttle (or a lost connection) ended the run. Items it didn't reach are neither deleted nor failed.
+        case throttled
+        /// Something else went wrong: three batches in a row failed completely.
+        case error
+        /// The library changed since the user confirmed, so nothing was deleted.
+        case changed
+    }
+
+    /// Nil for messages that aren't delete events.
+    init?(_ message: ICloudBridgeMessage) {
+        switch message.event {
+        case "deleteProgress":
+            let done = message.done ?? 0
+            let total = message.total ?? 0
+            self = message.phase == "finding" ? .finding(done: done, total: total) : .progress(done: done, total: total)
+        case "deleteTargets":
+            self = .targets(message.ids ?? [])
+        case "deleted":
+            self = .deleted(message.ids ?? [])
+        case "deleteFailed":
+            self = .failed(message.failures ?? [])
+        case "deleteDone":
+            self = .done(
+                deleted: message.deleted ?? 0,
+                failed: message.failed ?? 0,
+                missing: message.missing ?? 0,
+                cancelled: message.cancelled ?? false,
+                stopped: message.stopped.flatMap(Stop.init(rawValue:)),
+                message: message.message
+            )
+        default:
+            return nil
+        }
+    }
+}
+
+/// A delete sent to the bridge: its request ID, for pausing, resuming or cancelling it, and its events.
+struct ICloudBridgeDeletion: Sendable {
+    let id: Int
+    let messages: AsyncThrowingStream<ICloudBridgeMessage, Error>
+
+    /// The same events, typed. Ends after `.done`. A bridge-level error (not a throttle, which ends the run
+    /// as `.done(stopped: .throttled)`) is thrown.
+    var events: AsyncCompactMapSequence<AsyncThrowingStream<ICloudBridgeMessage, Error>, ICloudBridgeDeleteEvent> {
+        messages.compactMap { ICloudBridgeDeleteEvent($0) }
+    }
+}
+
 /// A persistent `photo_bridge.py` process for one Apple ID: request/response by ID, plus event
 /// streams for downloads. It starts on first use, answers the bridge's password request from the
 /// Keychain (or fails with `ICloudError.signInRequired`), and starts again on the next request if
@@ -259,9 +380,9 @@ final class ICloudBridge: Sendable {
     private static let terminateGrace = DispatchTimeInterval.seconds(5)
     private static let readChunk = 64 * 1024
     /// Requests the bridge stops by itself, between chunks or pages, when they're cancelled.
-    private static let longCommands: Set<String> = ["download", "stats"]
+    private static let longCommands: Set<String> = ["download", "stats", "delete"]
     /// Events that end a request.
-    private static let finalEvents: Set<String> = ["error", "page", "count", "albums", "done", "stats", "pong"]
+    private static let finalEvents: Set<String> = ["error", "page", "count", "albums", "done", "stats", "pong", "deleteDone"]
 
     let appleID: String
     let executableURL: URL?
@@ -431,12 +552,35 @@ final class ICloudBridge: Sendable {
 
     /// Holds a download between chunks or items. Browsing goes on meanwhile.
     func pauseDownload(_ id: Int) {
-        write(ICloudBridgeRequest(cmd: "pause", target: id))
+        pauseRequest(id)
     }
 
     /// Continues a download held by `pauseDownload(_:)`.
     func resumeDownload(_ id: Int) {
+        resumeRequest(id)
+    }
+
+    /// Holds a long request (a download, walk or delete) between chunks, items or batches.
+    func pauseRequest(_ id: Int) {
+        write(ICloudBridgeRequest(cmd: "pause", target: id))
+    }
+
+    /// Continues a request held by `pauseRequest(_:)`.
+    func resumeRequest(_ id: Int) {
         write(ICloudBridgeRequest(cmd: "resume", target: id))
+    }
+
+    /// Asks a long request to stop. A delete stops before its next batch; a batch already sent is not recalled.
+    /// The request still ends with its final event, which the stream delivers.
+    func cancelRequest(_ id: Int) {
+        write(ICloudBridgeRequest(cmd: "cancel", target: id))
+    }
+
+    /// Starts deleting items from iCloud Photos and streams its events through `deleteDone`. Ending the stream
+    /// early asks the bridge to stop before its next batch (see `cancelRequest(_:)`).
+    func delete(_ options: ICloudBridgeDeleteOptions) async throws -> ICloudBridgeDeletion {
+        let (id, messages) = try await start(options.request)
+        return ICloudBridgeDeletion(id: id, messages: messages)
     }
 
     /// Waits up to `timeout` until request `id` has ended in the bridge, such as a cancelled download

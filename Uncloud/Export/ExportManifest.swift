@@ -162,7 +162,7 @@ final class ExportManifest {
 
     /// Throws `unsafePath` unless every existing component of `relativePath` under `destination` is a plain file or
     /// folder (not a symbolic link), and the resolved location stays inside the resolved destination.
-    private static func requireInsideDestination(_ relativePath: String, in destination: URL) throws {
+    static func requireInsideDestination(_ relativePath: String, in destination: URL) throws {
         let fileManager = FileManager.default
         let root = destination.standardizedFileURL.resolvingSymlinksInPath()
         var current = destination.standardizedFileURL
@@ -226,6 +226,17 @@ final class ExportManifest {
             records[id] = Array(fields.dropFirst())
         }
         return records
+    }
+
+    /// The line each record's first export is on in `exported.tsv`, so records can be ordered by when they were first exported.
+    static func firstRecordPositions(in destination: URL) -> [String: Int] {
+        var positions: [String: Int] = [:]
+        for (index, line) in readLines(at: folder(in: destination).appending(path: journalName)).lines.enumerated() {
+            if let id = firstField(of: line), positions[id] == nil {
+                positions[id] = index
+            }
+        }
+        return positions
     }
 
     /// The recorded SHA-256 for each relative path, from `checksums.tsv`. A later line for the same path wins.

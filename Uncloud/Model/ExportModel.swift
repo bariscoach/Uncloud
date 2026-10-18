@@ -21,6 +21,7 @@ final class ExportModel {
     enum Pane: Hashable {
         case library
         case backup
+        case cleanup
     }
 
     /// The sheets of the welcome flow. The landing page replaces the first-run welcome; Help > Getting Started remains.
@@ -75,7 +76,7 @@ final class ExportModel {
     var source: LibrarySource {
         didSet {
             guard source != oldValue else { return }
-            guard !isExporting else {
+            guard !isExporting, iCloudCleanup?.isRunning != true else {
                 source = oldValue
                 return
             }
@@ -88,6 +89,8 @@ final class ExportModel {
     /// Browses the current source's whole library. Nil while iCloud is signed out.
     /// Replaced when the source or the iCloud account changes.
     private(set) var browser: LibraryBrowser?
+    /// Deletes items from iCloud Photos for the current account; nil while iCloud is signed out. Replaced with `browser`.
+    private(set) var iCloudCleanup: ICloudCleanup?
     /// Which items of the current source exports and automatic backups include. Saved per source
     /// and account; replaced along with `browser`.
     var selection: LibrarySelection = .everything {
@@ -283,17 +286,42 @@ final class ExportModel {
         switch source {
         case .photosLibrary:
             browser = LibraryBrowser()
+            iCloudCleanup = nil
             selection = selectionStore.load(source: .photosLibrary, account: nil)
         case .iCloud:
             if let account {
-                browser = LibraryBrowser(appleID: account)
+                let newBrowser = LibraryBrowser(appleID: account)
+                browser = newBrowser
+                iCloudCleanup = makeICloudCleanup(appleID: account, browser: newBrowser)
                 selection = selectionStore.load(source: .iCloud, account: account)
             } else {
                 browser = nil
+                iCloudCleanup = nil
                 selection = .everything
             }
         }
         storage.configure(source: source, account: account, browser: browser, selection: selection)
+    }
+
+    private func makeICloudCleanup(appleID: String, browser: LibraryBrowser) -> ICloudCleanup {
+        ICloudCleanup(appleID: appleID, bridge: .shared(appleID: appleID), environment: ICloudCleanup.Environment(
+            isExportRunning: { [weak self] in self.map { $0.isExporting || $0.isEngineRunning } ?? false },
+            libraryCount: { [weak browser] in browser?.count },
+            rankHints: { [weak browser] ids in await browser?.rankHints(for: ids) ?? [:] },
+            libraryDidChange: { [weak self, weak browser] deleted in
+                browser?.reload()
+                // The saved sizes were measured for items that are gone now; measure the library again.
+                AssetSizeStore().removeAll()
+                self?.iCloudItemsDeleted(deleted)
+            }
+        ))
+    }
+
+    /// After items were deleted from iCloud Photos: the export selection forgets them, and the size estimate
+    /// measures the library again. The backup on the destination drive is not touched.
+    func iCloudItemsDeleted(_ ids: Set<String>) {
+        selection = selection.forgetting(ids)
+        storage.libraryContentsDidChange()
     }
 
     /// Saves the selection shortly after the last change, and updates the idle totals.

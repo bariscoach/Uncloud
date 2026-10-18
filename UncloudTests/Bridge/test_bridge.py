@@ -158,6 +158,9 @@ class FakeLibrary:
     def __init__(self, samples, session):
         self._samples = samples
         self.session = session
+        self.service_endpoint = "https://fake"
+        self.params = {"clientId": "fake"}
+        self.zone_id = {"zoneName": "PrimarySync"}
         self.private_libraries = {"PrimarySync": self}
         self.shared_libraries = {}
         self.album_members = {"Trip": [samples[1], samples[5]]}
@@ -1143,6 +1146,326 @@ class IndexingTests(unittest.TestCase):
         error = PyiCloudServiceNotActivatedException("Some other reason", None)
         with self.assertRaises(PyiCloudServiceNotActivatedException):
             self.primary_library(IndexingSession(SAMPLES, error=error))
+
+
+class ModifySession(FakeSession):
+    """CloudKit's records/modify. Each CPLAsset named in the body is removed from `samples` in place, so the
+    library reads back smaller, unless `fail` gives it a serverErrorCode reason or `omit` leaves it out of the
+    answer. `status` maps a request's number (from 0) to an HTTP status, `raise_at` to an exception raised
+    instead, and `on_post(number)` runs before each answer. Every request is kept in `posts` as (url, body)."""
+
+    def __init__(self, samples, fail=None, omit=(), status=None, raise_at=None, on_post=None):
+        super().__init__(samples)
+        self.samples = samples
+        self.fail = fail or {}
+        self.omit = set(omit)
+        self.status = status or {}
+        self.raise_at = raise_at or {}
+        self.on_post = on_post
+        self.posts = []
+
+    def post(self, url, data=None, headers=None):
+        number = len(self.posts)
+        body = json.loads(data)
+        self.posts.append((url, body))
+        if self.on_post is not None:
+            self.on_post(number)
+        if number in self.raise_at:
+            raise self.raise_at[number]
+        if number in self.status:
+            response = FakeResponse({})
+            response.ok = False
+            response.status_code = self.status[number]
+            return response
+        records, removed = [], set()
+        for operation in body["operations"]:
+            name = operation["record"]["recordName"]
+            if name in self.omit:
+                continue
+            if name in self.fail:
+                records.append({"recordName": name, "serverErrorCode": "CAS_FAILED", "reason": self.fail[name]})
+            else:
+                records.append({"recordName": name, "recordType": "CPLAsset", "fields": {"isDeleted": {"value": 1}}})
+                removed.add(name)
+        self.samples[:] = [sample for sample in self.samples if sample[1]["recordName"] not in removed]
+        response = FakeResponse({"records": records})
+        response.status_code = 200
+        return response
+
+
+def delete_bridge(samples=None, **options):
+    """A bridge over a copy of `samples` (the library's own list is changed by deletes), with a ModifySession."""
+    samples = list(SAMPLES if samples is None else samples)
+    session = ModifySession(samples, **options)
+    library = FakeLibrary(samples, session)
+    channel = Collector()
+    bridge = pb.Bridge(channel, FakeICloud(library), library, "user@example.com", "/nonexistent-cookies")
+    return bridge, channel, session
+
+
+def many_samples(count):
+    return [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(count)]
+
+
+class DeleteTests(unittest.TestCase):
+    REQUEST_ID = 60
+
+    def setUp(self):
+        self.original_pace = pb.DELETE_PACE
+        pb.DELETE_PACE = 0.0
+
+    def tearDown(self):
+        pb.DELETE_PACE = self.original_pace
+
+    def delete(self, bridge, **request):
+        # Confirmed as many items as the library holds, unless a test says otherwise.
+        confirmed = len(bridge.library._samples)
+        request = {"id": self.REQUEST_ID, "cmd": "delete", "confirmedCount": confirmed, **request}
+        bridge.handle(request, downloading=False)
+        return [m for m in bridge.channel.messages if m.get("id") == self.REQUEST_ID]
+
+    @staticmethod
+    def events(messages, name):
+        return [m for m in messages if m["event"] == name]
+
+    @staticmethod
+    def names(session):
+        return [op["record"]["recordName"] for _, body in session.posts for op in body["operations"]]
+
+    def test_two_hundred_fifty_items_go_in_three_batches(self):
+        bridge, channel, session = delete_bridge(many_samples(250))
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        self.assertEqual([len(body["operations"]) for _, body in session.posts], [100, 100, 50])
+        done = events[-1]
+        self.assertEqual(done["event"], "deleteDone")
+        self.assertEqual((done["deleted"], done["failed"], done["missing"]), (250, 0, 0))
+        self.assertFalse(done["cancelled"])
+        self.assertIsNone(done["stopped"])
+        self.assertEqual(len(self.events(events, "deleted")), 3)
+        self.assertEqual(len(bridge.library._samples), 0)
+        progress = [(e["phase"], e["done"], e["total"]) for e in self.events(events, "deleteProgress")]
+        self.assertIn(("finding", 100, 250), progress)
+        self.assertEqual(progress[-1], ("deleting", 250, 250))
+
+    def test_request_body_has_the_cloudkit_shape(self):
+        bridge, channel, session = delete_bridge()
+        self.delete(bridge, mode="only", ids=["ID02"])
+        url, body = session.posts[0]
+        self.assertEqual(url.split("?")[0], "https://fake/records/modify")
+        self.assertIn("clientId=fake", url)
+        self.assertEqual(body, {
+            "atomic": False,
+            "desiredKeys": ["isDeleted"],
+            "operations": [{
+                "operationType": "update",
+                "record": {
+                    "fields": {"isDeleted": {"value": 1}},
+                    "recordChangeTag": "x",
+                    "recordName": "A-ID02",
+                    "recordType": "CPLAsset",
+                },
+            }],
+            "zoneID": {"zoneName": "PrimarySync"},
+        })
+
+    def test_partial_failures_come_from_server_error_codes(self):
+        bridge, channel, session = delete_bridge(fail={"A-ID02": "Not allowed to delete this item."})
+        events = self.delete(bridge, mode="allExcept", ids=["ID06"])
+        failed = self.events(events, "deleteFailed")
+        self.assertEqual(failed, [{"id": self.REQUEST_ID, "event": "deleteFailed",
+                                   "failures": [{"id": "ID02", "reason": "Not allowed to delete this item."}]}])
+        deleted = [i for e in self.events(events, "deleted") for i in e["ids"]]
+        self.assertEqual(deleted, ["ID01", "ID03", "ID04", "ID05"])
+        done = events[-1]
+        self.assertEqual((done["deleted"], done["failed"]), (4, 1))
+        # The failed item stays in the library.
+        self.assertEqual([s[0]["recordName"] for s in bridge.library._samples], ["ID02", "ID06"])
+
+    def test_an_item_missing_from_the_answer_counts_as_failed(self):
+        bridge, channel, session = delete_bridge(omit={"A-ID03"})
+        events = self.delete(bridge, mode="only", ids=["ID03", "ID04"])
+        failures = self.events(events, "deleteFailed")[0]["failures"]
+        self.assertEqual(failures, [{"id": "ID03", "reason": "No response from iCloud."}])
+        self.assertEqual(events[-1]["deleted"], 1)
+
+    def test_an_http_error_fails_only_its_batch(self):
+        bridge, channel, session = delete_bridge(many_samples(250), status={0: 400})
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        failures = [f for e in self.events(events, "deleteFailed") for f in e["failures"]]
+        self.assertEqual(len(failures), 100)
+        self.assertEqual(failures[0], {"id": "N0000", "reason": "iCloud answered with HTTP 400."})
+        done = events[-1]
+        self.assertEqual((done["deleted"], done["failed"], done["stopped"]), (150, 100, None))
+        self.assertEqual(len(session.posts), 3)
+
+    def test_cancel_stops_before_the_next_batch(self):
+        bridge, channel, session = delete_bridge(many_samples(250))
+
+        def cancel(number):
+            if number == 0:
+                channel.feed(f'{{"cmd":"cancel","target":{self.REQUEST_ID}}}')
+
+        session.on_post = cancel
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        self.assertEqual(len(session.posts), 1)
+        done = events[-1]
+        self.assertTrue(done["cancelled"])
+        self.assertEqual((done["deleted"], done["failed"]), (100, 0))
+        self.assertFalse(channel.is_cancelled(self.REQUEST_ID))  # forgotten once the run ends
+
+    def test_pause_holds_between_batches_and_browsing_is_answered(self):
+        bridge, channel, session = delete_bridge(many_samples(250))
+        seen_while_paused = {}
+
+        def on_post(number):
+            if number == 0:
+                channel.feed(f'{{"cmd":"pause","target":{self.REQUEST_ID}}}')
+                channel.feed('{"id":61,"cmd":"count"}')
+                threading.Thread(target=resume_after_count, daemon=True).start()
+
+        def resume_after_count():
+            for _ in range(500):
+                if any(m.get("id") == 61 for m in channel.messages):
+                    break
+                threading.Event().wait(0.01)
+            seen_while_paused["posts"] = len(session.posts)
+            channel.feed(f'{{"cmd":"resume","target":{self.REQUEST_ID}}}')
+
+        session.on_post = on_post
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        self.assertEqual(seen_while_paused["posts"], 1)  # the count was answered before the second batch
+        self.assertEqual(next(m for m in channel.messages if m.get("id") == 61)["count"], 150)  # after the first batch
+        self.assertEqual(len(session.posts), 3)
+        self.assertEqual(events[-1]["deleted"], 250)
+        self.assertFalse(events[-1]["cancelled"])
+
+    def test_a_throttle_stops_the_run_with_the_items_it_did_not_reach(self):
+        from pyicloud_ipd.exceptions import PyiCloudServiceUnavailableException
+
+        throttle = PyiCloudServiceUnavailableException("Apple iCloud is temporary refusing to serve icloudpd")
+        bridge, channel, session = delete_bridge(many_samples(250), raise_at={1: throttle})
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        done = events[-1]
+        self.assertEqual(done["event"], "deleteDone")
+        self.assertEqual(done["stopped"], "throttled")
+        self.assertEqual(done["message"], "Apple iCloud is temporary refusing to serve icloudpd")
+        self.assertEqual((done["deleted"], done["failed"]), (100, 0))
+        self.assertFalse(self.events(events, "deleteFailed"))
+        self.assertEqual(len(session.posts), 2)
+        self.assertEqual(len(bridge.library._samples), 150)
+
+    def test_all_except_resolves_targets_without_the_excluded_ids(self):
+        bridge, channel, session = delete_bridge()
+        events = self.delete(bridge, mode="allExcept", ids=["ID01", "ID02"])
+        targets = self.events(events, "deleteTargets")[0]["ids"]
+        self.assertEqual(targets, ["ID03", "ID04", "ID05", "ID06"])
+        self.assertEqual(self.names(session), ["A-ID03", "A-ID04", "A-ID05", "A-ID06"])
+        self.assertEqual(events[-1]["deleted"], 4)
+        self.assertEqual(events[-1]["missing"], 0)
+
+    def test_missing_ids_are_counted_and_not_sent(self):
+        bridge, channel, session = delete_bridge()
+        events = self.delete(bridge, mode="only", ids=["ID02", "NOPE", "GONE"])
+        self.assertEqual(self.events(events, "deleteTargets")[0]["ids"], ["ID02"])
+        self.assertEqual(self.names(session), ["A-ID02"])
+        self.assertEqual((events[-1]["deleted"], events[-1]["missing"]), (1, 2))
+
+    def test_no_targets_means_no_posts(self):
+        bridge, channel, session = delete_bridge()
+        events = self.delete(bridge, mode="only", ids=["NOPE"])
+        self.assertEqual(session.posts, [])
+        self.assertEqual(events[-1], {"id": self.REQUEST_ID, "event": "deleteDone", "deleted": 0, "failed": 0,
+                                      "missing": 1, "cancelled": False, "stopped": None, "message": None})
+        events = self.delete(bridge, mode="allExcept", ids=[s[0]["recordName"] for s in SAMPLES])
+        self.assertEqual(session.posts, [])
+        self.assertEqual(events[-1]["deleted"], 0)
+
+    def test_hinted_ranks_are_used_for_only_mode(self):
+        bridge, channel, session = delete_bridge()
+        events = self.delete(bridge, mode="only", ids=["ID05"], hints={"ID05": 4})
+        self.assertEqual(self.events(events, "deleteTargets")[0]["ids"], ["ID05"])
+        self.assertEqual(events[-1]["deleted"], 1)
+
+    def test_a_delete_during_a_download_waits_its_turn(self):
+        bridge, channel, session = delete_bridge()
+        bridge.handle({"id": 62, "cmd": "delete", "mode": "allExcept", "ids": []}, downloading=True)
+        self.assertEqual(len(bridge._deferred), 1)
+        self.assertEqual(session.posts, [])
+        self.assertEqual([m for m in channel.messages if m.get("id") == 62], [])
+
+    def test_more_items_than_confirmed_deletes_nothing(self):
+        bridge, channel, session = delete_bridge()
+        events = self.delete(bridge, mode="allExcept", ids=[], confirmedCount=5)
+        self.assertEqual(session.posts, [])
+        self.assertEqual(self.events(events, "deleteTargets"), [])
+        done = events[-1]
+        self.assertEqual((done["event"], done["stopped"], done["deleted"], done["message"]),
+                         ("deleteDone", "changed", 0, pb.DELETE_CHANGED_MESSAGE))
+        self.assertEqual(len(bridge.library._samples), 6)
+
+    def test_equal_or_fewer_confirmed_than_targets_proceeds(self):
+        for confirmed in (6, 7):
+            bridge, channel, session = delete_bridge()
+            events = self.delete(bridge, mode="allExcept", ids=[], confirmedCount=confirmed)
+            self.assertIsNone(events[-1]["stopped"], confirmed)
+            self.assertEqual(events[-1]["deleted"], 6, confirmed)
+
+    def test_confirmed_count_is_required_and_checked(self):
+        bridge, channel, session = delete_bridge()
+        bridge.handle({"id": self.REQUEST_ID, "cmd": "delete", "mode": "only", "ids": ["ID01"]}, downloading=False)
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+        self.delete(bridge, mode="only", ids=["ID01"], confirmedCount=-1)
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+        self.delete(bridge, mode="only", ids=["ID01"], confirmedCount=True)
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+        self.assertEqual(session.posts, [])
+
+    def test_access_denied_stops_as_throttled_after_one_batch(self):
+        from pyicloud_ipd.exceptions import PyiCloudAPIResponseException
+
+        bridge, channel, session = delete_bridge(many_samples(250), raise_at={
+            0: PyiCloudAPIResponseException("ACCESS_DENIED", "ACCESS_DENIED"),
+        })
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        self.assertEqual(len(session.posts), 1)
+        done = events[-1]
+        self.assertEqual((done["stopped"], done["deleted"], done["failed"]), ("throttled", 0, 0))
+        self.assertEqual(len(bridge.library._samples), 250, "the remaining items are untouched")
+
+    def test_http_503_stops_as_throttled_after_one_batch(self):
+        bridge, channel, session = delete_bridge(many_samples(250), status={0: 503})
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        self.assertEqual(len(session.posts), 1)
+        done = events[-1]
+        self.assertEqual((done["stopped"], done["deleted"], done["failed"]), ("throttled", 0, 0))
+        self.assertEqual(self.events(events, "deleteFailed"), [])
+        self.assertEqual(len(bridge.library._samples), 250)
+
+    def test_three_fully_failed_batches_stop_as_error(self):
+        bridge, channel, session = delete_bridge(many_samples(400), status={0: 400, 1: 400, 2: 400})
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        self.assertEqual(len(session.posts), 3, "no fourth batch is sent")
+        done = events[-1]
+        self.assertEqual((done["stopped"], done["deleted"], done["failed"]), ("error", 0, 300))
+        self.assertEqual(done["message"], "iCloud answered with HTTP 400.")
+
+    def test_a_good_batch_resets_the_failure_streak(self):
+        bridge, channel, session = delete_bridge(many_samples(500), status={0: 400, 1: 400, 3: 400, 4: 400})
+        events = self.delete(bridge, mode="allExcept", ids=[])
+        self.assertEqual(len(session.posts), 5)
+        done = events[-1]
+        self.assertIsNone(done["stopped"])
+        self.assertEqual((done["deleted"], done["failed"]), (100, 400))
+
+    def test_bad_requests_are_refused(self):
+        bridge, channel, session = delete_bridge()
+        self.delete(bridge, mode="sometimes", ids=[])
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+        self.delete(bridge, mode="only", ids=["ID01"], batchSize=0)
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+        self.delete(bridge, mode="only", ids=["ID01"], batchSize=201)
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+        self.assertEqual(session.posts, [])
 
 
 class SignInTests(unittest.TestCase):

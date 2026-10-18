@@ -135,6 +135,15 @@ final class StorageEstimator {
         }
     }
 
+    /// Measures the iCloud library again from nothing, after its contents changed (items were deleted from iCloud).
+    /// Other sources and accounts are left alone.
+    func libraryContentsDidChange() {
+        guard case .iCloud(let account)? = owner, let browser else { return }
+        self.owner = nil
+        self.browser = nil
+        configure(source: .iCloud, account: account, browser: browser, selection: selection)
+    }
+
     func selectionDidChange(_ selection: LibrarySelection) {
         guard selection != self.selection else { return }
         self.selection = selection

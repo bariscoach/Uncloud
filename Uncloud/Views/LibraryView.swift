@@ -98,10 +98,6 @@ private struct LibraryToolbar: ToolbarContent {
 private struct LibraryBrowserView: View {
     @Environment(ExportModel.self) private var model
     let browser: LibraryBrowser
-    @FocusState private var focusedIndex: Int?
-    /// The last tile clicked, the start of a shift-click range.
-    @State private var anchor: Int?
-    @State private var rangeTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -142,8 +138,8 @@ private struct LibraryBrowserView: View {
                     .buttonStyle(.borderedProminent)
                 }
             case .loading, .ready:
-                if let count = browser.count {
-                    grid(count: count)
+                if browser.count != nil {
+                    LibraryGrid(browser: browser, selection: selectionBinding)
                 } else {
                     loading
                 }
@@ -163,6 +159,13 @@ private struct LibraryBrowserView: View {
                 }
             }
         }
+    }
+
+    private var selectionBinding: Binding<LibrarySelection> {
+        Binding(
+            get: { model.selection },
+            set: { model.selection = $0 }
+        )
     }
 
     private var loading: some View {
@@ -186,159 +189,5 @@ private struct LibraryBrowserView: View {
             }
             .padding()
         }
-    }
-
-    /// The library as a lazy grid. Every cell asks for its own item, so nothing is materialized up front.
-    private func grid(count: Int) -> some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 2)], spacing: 2) {
-                ForEach(0..<count, id: \.self) { index in
-                    LibraryTile(
-                        item: browser.item(at: index),
-                        isSelected: browser.item(at: index).map { model.selection.contains($0.id) } ?? false,
-                        browser: browser
-                    )
-                    .focusable()
-                    .focused($focusedIndex, equals: index)
-                    .onTapGesture {
-                        // A tap with Shift held selects the range from the last tile clicked.
-                        tap(index, extendsRange: NSEvent.modifierFlags.contains(.shift))
-                    }
-                    .onKeyPress(.space) {
-                        tap(index, extendsRange: false)
-                        return .handled
-                    }
-                }
-            }
-        }
-        .focusable()
-        // Edit > Select All (⌘A) reaches the grid only while it has focus; text fields keep their own.
-        .onCommand(#selector(NSResponder.selectAll(_:))) {
-            model.selection.selectAll()
-        }
-        .focusedValue(\.gridSelection, GridSelectionActions(
-            selectAll: { model.selection.selectAll() },
-            deselectAll: { model.selection.deselectAll() }
-        ))
-    }
-
-    private func tap(_ index: Int, extendsRange: Bool) {
-        focusedIndex = index
-        if extendsRange, let anchor {
-            selectRange(from: anchor, to: index)
-        } else if let item = browser.item(at: index) {
-            model.selection.toggle(item.id)
-        }
-        anchor = index
-    }
-
-    /// Selects every item between two positions. Items on pages still loading are added as their pages arrive.
-    private func selectRange(from start: Int, to end: Int) {
-        rangeTask?.cancel()
-        let browser = browser
-        let model = model
-        let lower = min(start, end)
-        let upper = max(start, end)
-        rangeTask = Task { @MainActor in
-            var pending = Array(lower...upper)
-            // About 45 seconds at most; the pages normally arrive in well under a second.
-            for _ in 0..<300 {
-                var ids: [String] = []
-                var missing: [Int] = []
-                for index in pending {
-                    if let item = browser.item(at: index) {
-                        ids.append(item.id)
-                    } else {
-                        missing.append(index)
-                    }
-                }
-                model.selection.select(ids)
-                if missing.isEmpty || Task.isCancelled { return }
-                pending = missing
-                try? await Task.sleep(for: .milliseconds(150))
-            }
-        }
-    }
-}
-
-/// One cell of the grid. Selected cells get an accent ring and checkmark; unselected cells look normal.
-private struct LibraryTile: View {
-    let item: LibraryItem?
-    let isSelected: Bool
-    let browser: LibraryBrowser
-    @State private var image: NSImage?
-
-    var body: some View {
-        Rectangle()
-            .fill(.quaternary)
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                if let image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                }
-            }
-            .clipped()
-            .overlay(alignment: .bottomLeading) {
-                if item?.isVideo == true {
-                    Image(systemName: "video.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.white)
-                        .padding(4)
-                        .background(.regularMaterial, in: Capsule())
-                        .padding(4)
-                        .accessibilityHidden(true)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                selectionMark
-                    .padding(4)
-            }
-            .overlay {
-                if isSelected {
-                    Rectangle()
-                        .strokeBorder(Color.accentColor, lineWidth: 3)
-                }
-            }
-            .contentShape(Rectangle())
-            .task(id: item?.id) {
-                guard let item else {
-                    image = nil
-                    return
-                }
-                image = await browser.thumbnail(for: item, pixelSize: CGSize(width: 256, height: 256))
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(accessibilityLabel)
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    @ViewBuilder
-    private var selectionMark: some View {
-        if isSelected {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.white, Color.accentColor)
-                .accessibilityHidden(true)
-        } else {
-            Image(systemName: "circle")
-                .font(.title3)
-                .foregroundStyle(.white)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private var accessibilityLabel: String {
-        guard let item else { return "Loading" }
-        var label = item.filename
-        if let created = item.created {
-            label += ", " + created.formatted(date: .abbreviated, time: .shortened)
-        }
-        if item.isVideo {
-            label += ", video"
-        }
-        return label
     }
 }
