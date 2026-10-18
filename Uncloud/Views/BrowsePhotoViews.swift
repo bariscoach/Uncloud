@@ -69,53 +69,44 @@ extension BrowseQuickLook: @preconcurrency QLPreviewPanelDataSource {
     }
 }
 
+/// A group of photos under a header in the grid: a day or a month.
+struct BrowsePhotoSection: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let subtitle: String?
+    /// In the grid's order. The sections' paths, in order, are the grid's `paths`.
+    let paths: [String]
+}
+
 /// The photos of a set of paths as a lazy grid of thumbnails. Click selects, ⌘-click adds or removes, ⌘A selects all,
-/// Space and double-click open Quick Look, and the context menu opens, reveals or copies the location.
+/// Space and double-click open Quick Look, and the context menu opens, reveals or copies the location. With `sections`,
+/// each group has a header that stays pinned while its photos scroll.
 struct BrowsePhotoGrid: View {
     let paths: [String]
     let destination: URL
     @Binding var selection: Set<String>
     /// The location text for Copy Location: the place and coordinates. Nil when the photo has no location.
     let locationText: (String) -> String?
+    var sections: [BrowsePhotoSection]? = nil
     @FocusState private var isFocused: Bool
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 2)], spacing: 2) {
-                ForEach(paths, id: \.self) { path in
-                    BrowsePhotoTile(path: path, destination: destination, isSelected: selection.contains(path))
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) {
-                            selection = [path]
-                            openQuickLook(startingAt: path)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 2)], spacing: 2, pinnedViews: [.sectionHeaders]) {
+                if let sections {
+                    ForEach(sections) { section in
+                        Section {
+                            ForEach(section.paths, id: \.self) { path in
+                                tile(for: path)
+                            }
+                        } header: {
+                            BrowseSectionHeader(title: section.title, subtitle: section.subtitle)
                         }
-                        .onTapGesture {
-                            if NSEvent.modifierFlags.contains(.command) {
-                                if selection.contains(path) {
-                                    selection.remove(path)
-                                } else {
-                                    selection.insert(path)
-                                }
-                            } else {
-                                selection = [path]
-                            }
-                        }
-                        .contextMenu {
-                            Button("Open") {
-                                if let url = url(for: path) { NSWorkspace.shared.open(url) }
-                            }
-                            Button("Show in Finder") {
-                                if let url = url(for: path) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                            }
-                            Divider()
-                            Button("Copy Location") {
-                                if let text = locationText(path) {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(text, forType: .string)
-                                }
-                            }
-                            .disabled(locationText(path) == nil)
-                        }
+                    }
+                } else {
+                    ForEach(paths, id: \.self) { path in
+                        tile(for: path)
+                    }
                 }
             }
         }
@@ -134,6 +125,42 @@ struct BrowsePhotoGrid: View {
         .accessibilityLabel("Photos, \(paths.count)")
     }
 
+    private func tile(for path: String) -> some View {
+        BrowsePhotoTile(path: path, destination: destination, isSelected: selection.contains(path))
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                selection = [path]
+                openQuickLook(startingAt: path)
+            }
+            .onTapGesture {
+                if NSEvent.modifierFlags.contains(.command) {
+                    if selection.contains(path) {
+                        selection.remove(path)
+                    } else {
+                        selection.insert(path)
+                    }
+                } else {
+                    selection = [path]
+                }
+            }
+            .contextMenu {
+                Button("Open") {
+                    if let url = url(for: path) { NSWorkspace.shared.open(url) }
+                }
+                Button("Show in Finder") {
+                    if let url = url(for: path) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                }
+                Divider()
+                Button("Copy Location") {
+                    if let text = locationText(path) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                }
+                .disabled(locationText(path) == nil)
+            }
+    }
+
     private func url(for path: String) -> URL? {
         BackupFiles.containedURL(for: path, in: destination)
     }
@@ -142,6 +169,40 @@ struct BrowsePhotoGrid: View {
         let urls = paths.compactMap { url(for: $0) }
         let index = paths.firstIndex(of: path) ?? 0
         BrowseQuickLook.shared.show(urls, startingAt: index)
+    }
+}
+
+/// The header of a grid section: its title in headline type, then its subtitle in secondary text. It sits on the bar
+/// material, so it reads over the thumbnails as they scroll under it.
+struct BrowseSectionHeader: View {
+    let title: String
+    let subtitle: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
+            Text(title)
+                .font(.headline)
+                .lineLimit(1)
+            if let subtitle {
+                Text("·")
+                    .font(Tokens.Font.help)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(subtitle)
+                    .font(Tokens.Font.help)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Tokens.Space.m)
+        .padding(.vertical, Tokens.Space.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(subtitle.map { "\(title), \($0)" } ?? title)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 

@@ -73,6 +73,19 @@ struct ExportCommands: Commands {
             .keyboardShortcut("4")
 
             Divider()
+
+            // The same setting as the Browse Backup toolbar. Only Browse Backup has dates and photos to sort.
+            Menu("Sort") {
+                Picker("Sort", selection: browseSortSelection) {
+                    ForEach(BrowseSortOrder.allCases) { order in
+                        Text(order.title).tag(order)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+            .disabled(model.pane != .browse)
+
+            Divider()
         }
 
         CommandMenu("Backup") {
@@ -165,6 +178,13 @@ struct ExportCommands: Commands {
     }
 
     /// Source changes are disabled while an export runs, so the picker can't revert under the user.
+    private var browseSortSelection: Binding<BrowseSortOrder> {
+        Binding(
+            get: { tools.browse.sortOrder },
+            set: { tools.browse.sortOrder = $0 }
+        )
+    }
+
     private var sourceSelection: Binding<LibrarySource> {
         Binding(
             get: { model.source },

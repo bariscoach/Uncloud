@@ -21,10 +21,13 @@ struct BrowseBackupView: View {
             }
         }
         .navigationSubtitle(browse.destinationName)
-        .searchable(text: Bindable(browse).query, placement: .toolbar, prompt: "Search places")
+        .searchable(text: Bindable(browse).query, placement: .toolbar, prompt: browse.mode == .dates ? "Search months" : "Search places")
         .toolbar {
             ToolbarItem(placement: .principal) {
                 modePicker(browse)
+            }
+            ToolbarItem {
+                sortMenu(browse)
             }
         }
         .onAppear { sync() }
@@ -53,8 +56,25 @@ struct BrowseBackupView: View {
             }
         }
         .pickerStyle(.segmented)
-        .help("Show the photos on a map or as a list of places")
+        .help("Show the photos by date, on a map, or as a list of places")
         .accessibilityLabel("View")
+    }
+
+    private func sortMenu(_ browse: BrowseBackup) -> some View {
+        Menu {
+            Picker("Sort", selection: Bindable(browse).sortOrder) {
+                ForEach(BrowseSortOrder.allCases) { order in
+                    Text(order.title).tag(order)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label("Sort", systemImage: "arrow.up.arrow.down")
+        }
+        .labelStyle(.iconOnly)
+        .help("Sort photos by date")
+        .accessibilityLabel("Sort")
+        .accessibilityValue(browse.sortOrder.title)
     }
 
     // MARK: - States
@@ -63,7 +83,7 @@ struct BrowseBackupView: View {
         ContentUnavailableView {
             Label("No Backup Folder", systemImage: "externaldrive")
         } description: {
-            Text("Choose a backup folder to see your photos on a map.")
+            Text("Choose a backup folder to browse your photos by date and place.")
         } actions: {
             Button("Choose Backup Folder…") {
                 model.beginChoosingDestination()
@@ -82,7 +102,7 @@ struct BrowseBackupView: View {
 
     private var nothingToBrowse: some View {
         ContentUnavailableView {
-            Label("Nothing to Browse Yet", systemImage: "map")
+            Label("Nothing to Browse Yet", systemImage: "photo.on.rectangle.angled")
         } description: {
             Text("Export some photos, then see where they were taken.")
         } actions: {
@@ -99,6 +119,8 @@ struct BrowseBackupView: View {
     private func loaded(_ browse: BrowseBackup, destination: URL) -> some View {
         Group {
             switch browse.mode {
+            case .dates:
+                datesLayout(browse, destination: destination)
             case .map:
                 mapLayout(browse, destination: destination)
             case .places:
@@ -110,20 +132,29 @@ struct BrowseBackupView: View {
                 IndexingBanner(progress: browse.progress, isPaused: browse.isPaused)
             }
         }
-        .onChange(of: browse.mode) { _, mode in
-            if mode == .places {
-                browse.requestNames(for: Set(browse.cells.map(\.key)))
-            }
+        .onChange(of: browse.mode) { _, _ in
+            requestNames(browse)
         }
         .onChange(of: browse.cells.count) { _, _ in
-            if browse.mode == .places {
-                browse.requestNames(for: Set(browse.cells.map(\.key)))
-            }
+            requestNames(browse)
+        }
+        .onChange(of: browse.selectedDateID) { _, _ in
+            requestNames(browse)
         }
         .onAppear {
-            if browse.mode == .places {
-                browse.requestNames(for: Set(browse.cells.map(\.key)))
-            }
+            requestNames(browse)
+        }
+    }
+
+    /// Looks up the place names the visible view shows: every cell in Places, or the selected month's for the day headers.
+    private func requestNames(_ browse: BrowseBackup) {
+        switch browse.mode {
+        case .places:
+            browse.requestNames(for: Set(browse.cells.map(\.key)))
+        case .dates:
+            browse.requestNamesForSelectedMonth()
+        case .map:
+            break
         }
     }
 
@@ -227,6 +258,78 @@ struct BrowseBackupView: View {
         }
     }
 
+    // MARK: - Dates
+
+    private func datesLayout(_ browse: BrowseBackup, destination: URL) -> some View {
+        HStack(spacing: 0) {
+            datesList(browse)
+                .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
+            Divider()
+            photos(browse, destination: destination)
+        }
+    }
+
+    /// The years, each expandable into its months, then No Date. The selected row is scrolled to when the pane opens
+    /// and when the order changes.
+    private func datesList(_ browse: BrowseBackup) -> some View {
+        let timeline = browse.visibleTimeline
+        let years = timeline.years(browse.sortOrder)
+        let locale = Locale.autoupdatingCurrent
+        return ScrollViewReader { proxy in
+            List(selection: Bindable(browse).selectedDateID) {
+                ForEach(years) { year in
+                    DisclosureGroup(isExpanded: expansion(ofYear: year.id, in: browse)) {
+                        ForEach(year.months) { month in
+                            DateRow(
+                                title: BrowseDates.monthTitle(month, calendar: browse.calendar, locale: locale),
+                                count: month.count,
+                                accessibilityTitle: BrowseDates.fullMonthTitle(month, calendar: browse.calendar, locale: locale)
+                            )
+                            .tag(month.id)
+                        }
+                    } label: {
+                        DateRow(title: BrowseDates.yearTitle(year.year), count: year.count)
+                            .tag(year.id)
+                    }
+                }
+                if !timeline.noDate.isEmpty {
+                    DateRow(title: "No Date", count: timeline.noDate.count, symbol: "calendar.badge.exclamationmark")
+                        .tag(BrowseTimeline.noDateID)
+                }
+            }
+            .listStyle(.sidebar)
+            .overlay {
+                // Only while there's nothing to show yet: a rebuild during indexing keeps the list up.
+                if browse.timeline.isEmpty && (browse.isBuildingTimeline || browse.isIndexing) {
+                    readingPlaceholder(browse)
+                } else if years.isEmpty && timeline.noDate.isEmpty && !browse.query.isEmpty {
+                    ContentUnavailableView.search(text: browse.query)
+                }
+            }
+            .onAppear { reveal(browse.selectedDateID, with: proxy) }
+            .onChange(of: browse.sortOrder) { _, _ in reveal(browse.selectedDateID, with: proxy) }
+        }
+    }
+
+    /// A search shows every matching year expanded. Otherwise the year's disclosure is the user's, for the session.
+    private func expansion(ofYear yearID: String, in browse: BrowseBackup) -> Binding<Bool> {
+        Binding(
+            get: { !browse.query.isEmpty || browse.expandedYears.contains(yearID) },
+            set: { expanded in
+                if expanded {
+                    browse.expandedYears.insert(yearID)
+                } else {
+                    browse.expandedYears.remove(yearID)
+                }
+            }
+        )
+    }
+
+    private func reveal(_ rowID: String?, with proxy: ScrollViewProxy) {
+        guard let rowID else { return }
+        proxy.scrollTo(rowID, anchor: .center)
+    }
+
     // MARK: - Photos
 
     /// The grid of the selected photos, with the detail pane under it when one photo is selected.
@@ -235,20 +338,55 @@ struct BrowseBackupView: View {
         let paths = browse.gridPaths
         if paths.isEmpty {
             ContentUnavailableView {
-                Label("Select a Place", systemImage: "photo.on.rectangle")
+                Label(browse.mode == .dates ? "Select a Month" : "Select a Place", systemImage: "photo.on.rectangle")
             } description: {
-                Text(browse.mode == .map ? "Click a pin to see its photos." : "Select a place to see its photos.")
+                Text(placeholderText(for: browse.mode))
             }
         } else {
             BrowsePhotoGrid(
                 paths: paths,
                 destination: destination,
                 selection: Bindable(browse).selectedPaths,
-                locationText: { browse.locationText(forPath: $0) }
+                locationText: { browse.locationText(forPath: $0) },
+                sections: dateSections(browse)
             )
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 detail(browse)
             }
+        }
+    }
+
+    /// The headers of the grid in Dates: the days of a selected month, or the months of a selected year. Nil for a flat
+    /// grid (No Date, and Places and Map).
+    private func dateSections(_ browse: BrowseBackup) -> [BrowsePhotoSection]? {
+        guard browse.mode == .dates, let id = browse.selectedDateID, id != BrowseTimeline.noDateID else { return nil }
+        let locale = Locale.autoupdatingCurrent
+        if id.hasPrefix("month:") {
+            return browse.daySections.map { section in
+                BrowsePhotoSection(
+                    id: section.id,
+                    title: BrowseDates.dayTitle(section, calendar: browse.calendar, locale: locale),
+                    subtitle: section.placeSummary,
+                    paths: section.paths
+                )
+            }
+        }
+        guard let year = browse.timeline.years.first(where: { $0.id == id }) else { return nil }
+        return BrowseDates.monthSections(of: year, order: browse.sortOrder).map { month in
+            BrowsePhotoSection(
+                id: month.id,
+                title: BrowseDates.monthTitle(month, calendar: browse.calendar, locale: locale),
+                subtitle: Plural.photos(month.count),
+                paths: month.paths
+            )
+        }
+    }
+
+    private func placeholderText(for mode: BrowseBackup.Mode) -> String {
+        switch mode {
+        case .dates: "Select a month to see its photos."
+        case .map: "Click a pin to see its photos."
+        case .places: "Select a place to see its photos."
         }
     }
 
@@ -262,9 +400,20 @@ struct BrowseBackupView: View {
         }
     }
 
+    /// The spinner while the dates are built or the index is first read, in place of the list.
+    private func readingPlaceholder(_ browse: BrowseBackup) -> some View {
+        ContentUnavailableView {
+            ProgressView()
+        } description: {
+            Text(readingText(browse))
+                .monospacedDigit()
+        }
+        .background(.background)
+    }
+
     private func readingText(_ browse: BrowseBackup) -> String {
         guard let progress = browse.progress else { return "Opening your backup…" }
-        return "Reading locations… \(progress.done.formatted()) of \(progress.total.formatted())"
+        return "Reading photos… \(progress.done.formatted()) of \(progress.total.formatted())"
     }
 }
 
@@ -294,7 +443,33 @@ struct IndexingBanner: View {
             return "Paused while an export runs"
         }
         guard let progress else { return "Opening your backup…" }
-        return "Reading locations… \(progress.done.formatted()) of \(progress.total.formatted())"
+        return "Reading photos… \(progress.done.formatted()) of \(progress.total.formatted())"
+    }
+}
+
+/// A row of the Dates list: a year, a month or No Date, with its photo count.
+private struct DateRow: View {
+    let title: String
+    let count: Int
+    var accessibilityTitle: String?
+    var symbol: String?
+
+    var body: some View {
+        HStack(spacing: Tokens.Space.s) {
+            if let symbol {
+                Label(title, systemImage: symbol)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(title)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: Tokens.Space.s)
+            Text(count.formatted())
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(accessibilityTitle ?? title), \(Plural.photos(count))")
     }
 }
 

@@ -160,12 +160,14 @@ enum BrowsePlaces {
 @Observable
 final class BrowseBackup {
     enum Mode: String, CaseIterable, Identifiable, Sendable {
+        case dates
         case map
         case places
 
         var id: Self { self }
         var title: String {
             switch self {
+            case .dates: "Dates"
             case .map: "Map"
             case .places: "Places"
             }
@@ -201,29 +203,79 @@ final class BrowseBackup {
     /// Cells whose lookup failed (offline, usually). They show coordinates until a later request succeeds.
     private(set) var unnamedKeys: Set<String> = []
 
-    var mode: Mode = .map
+    /// Dates, Map or Places. Not saved: Browse Backup always opens on Dates.
+    var mode: Mode = .dates
+    /// Newest or oldest first, for the dates, the places' photos and the map's. Saved across launches.
+    var sortOrder: BrowseSortOrder {
+        didSet { defaults.set(sortOrder.rawValue, forKey: BrowseSortOrder.defaultsKey) }
+    }
     var query = ""
     var selectedGroupID: String?
+    /// The Dates row picked: a year, a month, or `BrowseTimeline.noDateID`.
+    var selectedDateID: String? {
+        didSet {
+            if oldValue != selectedDateID { selectedPaths = [] }
+            // A choice the user makes sticks. The automatic choice sets the flag back itself.
+            dateSelectionIsAutomatic = false
+        }
+    }
+    /// The years whose months are listed. Kept for the session, not saved.
+    var expandedYears: Set<String> = []
     /// The map cells picked for the inspector.
     var mapSelection: Set<String> = []
     /// The photos selected in the grid. The detail pane shows the one when exactly one is selected.
     var selectedPaths: Set<String> = []
+    /// The dates in the sort order, built off the main actor after each index change.
+    private(set) var timeline = BrowseTimeline()
+    private(set) var isBuildingTimeline = false
 
+    @ObservationIgnored let calendar: Calendar
     @ObservationIgnored private let store: BrowseIndexStore
     @ObservationIgnored private let isExportRunning: @MainActor () -> Bool
     @ObservationIgnored private let namer: any PlaceNaming
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var indexTask: Task<Void, Never>?
     @ObservationIgnored private var nameTask: Task<Void, Never>?
     @ObservationIgnored private var pendingNames: Set<String> = []
+    @ObservationIgnored private var timelineTask: Task<Void, Never>?
+    @ObservationIgnored private var timelineGeneration = 0
+    /// True while the selection is the automatic one (the first row of the list), so it follows the index.
+    @ObservationIgnored private var dateSelectionIsAutomatic = true
+    /// Changes whenever the cells, groups or timeline change, so the grid's memo is dropped.
+    @ObservationIgnored private var contentVersion = 0
+    @ObservationIgnored private var gridCache: (key: GridKey, paths: [String])?
+    @ObservationIgnored private var filterCache: (query: String, version: Int, timeline: BrowseTimeline)?
+    @ObservationIgnored private var daySectionCache: (key: SectionKey, sections: [BrowseDaySection])?
+
+    private struct SectionKey: Equatable {
+        let monthID: String
+        let order: BrowseSortOrder
+        let version: Int
+    }
+
+    /// What the grid's paths depend on, besides the data itself (which `contentVersion` covers).
+    private struct GridKey: Equatable {
+        let mode: Mode
+        let dateID: String?
+        let groupID: String?
+        let mapSelection: Set<String>
+        let order: BrowseSortOrder
+        let version: Int
+    }
 
     init(
         store: BrowseIndexStore = .standard(),
         namer: any PlaceNaming = PlaceResolver(),
-        isExportRunning: @escaping @MainActor () -> Bool
+        isExportRunning: @escaping @MainActor () -> Bool,
+        calendar: Calendar = .autoupdatingCurrent,
+        defaults: UserDefaults = .standard
     ) {
         self.store = store
         self.namer = namer
         self.isExportRunning = isExportRunning
+        self.calendar = calendar
+        self.defaults = defaults
+        sortOrder = BrowseSortOrder(rawValue: defaults.string(forKey: BrowseSortOrder.defaultsKey) ?? "") ?? .newestFirst
     }
 
     // MARK: - Derived state
@@ -245,16 +297,78 @@ final class BrowseBackup {
         return cells.filter { keys.contains($0.key) }
     }
 
-    /// The photos in the grid: the selected row in Places, or the cells picked on the map.
+    /// The timeline the Dates list shows: all of it, or the months that match the search.
+    var visibleTimeline: BrowseTimeline {
+        guard !query.isEmpty else { return timeline }
+        if let filterCache, filterCache.query == query, filterCache.version == contentVersion {
+            return filterCache.timeline
+        }
+        let filtered = timeline.filtered(query, calendar: calendar, locale: .autoupdatingCurrent)
+        filterCache = (query, contentVersion, filtered)
+        return filtered
+    }
+
+    /// The photos in the grid, in the sort order: the selected row in Dates, the selected place in Places, or the
+    /// cells picked on the map. Memoized, because the view reads it on every update.
     var gridPaths: [String] {
+        let key = GridKey(
+            mode: mode, dateID: selectedDateID, groupID: selectedGroupID, mapSelection: mapSelection,
+            order: sortOrder, version: contentVersion
+        )
+        if let gridCache, gridCache.key == key { return gridCache.paths }
+        let paths = computeGridPaths()
+        gridCache = (key, paths)
+        return paths
+    }
+
+    private func computeGridPaths() -> [String] {
         switch mode {
+        case .dates:
+            guard let id = selectedDateID else { return [] }
+            return timeline.paths(forRowID: id, order: sortOrder)
         case .places:
             guard let id = selectedGroupID, let group = groups.first(where: { $0.id == id }) else { return [] }
-            return group.paths
+            return BrowseDates.sorted(group.paths, rank: timeline.rank, order: sortOrder)
         case .map:
             let keys = mapSelection
-            return cells.filter { keys.contains($0.key) }.flatMap(\.paths).sorted()
+            let paths = cells.filter { keys.contains($0.key) }.flatMap(\.paths)
+            return BrowseDates.sorted(paths, rank: timeline.rank, order: sortOrder)
         }
+    }
+
+    /// The month selected in Dates, if one is.
+    var selectedMonth: BrowseMonth? {
+        guard let id = selectedDateID else { return nil }
+        return timeline.month(withID: id)
+    }
+
+    /// The selected month's photos split by day, in the sort order, each with its named places. Empty unless a month is
+    /// selected in Dates. Memoized, because a month can hold thousands of photos.
+    var daySections: [BrowseDaySection] {
+        guard mode == .dates, let month = selectedMonth else { return [] }
+        let key = SectionKey(monthID: month.id, order: sortOrder, version: contentVersion)
+        if let daySectionCache, daySectionCache.key == key { return daySectionCache.sections }
+        let sections = BrowseDates.days(of: month, entries: entries, calendar: calendar, order: sortOrder).map { section in
+            var section = section
+            section.placeSummary = namedPlaceSummary(for: section.paths)
+            return section
+        }
+        daySectionCache = (key, sections)
+        return sections
+    }
+
+    /// The named places of some photos, distinct, in photo order. Unnamed places are left out: a header shows names only.
+    private func namedPlaceSummary(for paths: [String]) -> String? {
+        var titles: [String] = []
+        for path in paths {
+            guard let entry = entries[path], let latitude = entry.latitude, let longitude = entry.longitude,
+                  let place = names[PlaceResolver.cellKey(latitude: latitude, longitude: longitude)] else { continue }
+            let title = BrowsePlaces.title(for: place)
+            if title != "Unknown Place", !titles.contains(title) {
+                titles.append(title)
+            }
+        }
+        return BrowseDates.placeSummary(titles)
     }
 
     /// The name shown for a cell: its place, or its coordinates until a name is known.
@@ -299,6 +413,10 @@ final class BrowseBackup {
             isPaused = false
             isIndexing = false
             selectedGroupID = nil
+            selectedDateID = nil
+            dateSelectionIsAutomatic = true
+            expandedYears = []
+            timeline = BrowseTimeline()
             mapSelection = []
             selectedPaths = []
             entries = url.map { store.load(key: NewPhotosContext.destinationKey(for: $0)) } ?? [:]
@@ -399,12 +517,32 @@ final class BrowseBackup {
         indexTask = nil
     }
 
-    private func rebuild() {
+    /// Rebuilds the places and the dates from `entries`. The dates are built in the background, unless `synchronously`.
+    private func rebuild(synchronously: Bool = false) {
         let hadLocated = !cells.isEmpty
         let entryList = Array(entries.values)
         cells = BrowsePlaces.cells(from: entryList)
         noLocationPaths = entryList.filter { !$0.hasLocation }.map(\.path).sorted()
         rebuildGroups()
+        timelineGeneration += 1
+        let generation = timelineGeneration
+        timelineTask?.cancel()
+        if synchronously {
+            timelineTask = nil
+            isBuildingTimeline = false
+            applyTimeline(BrowseDates.timeline(from: entryList, calendar: calendar))
+        } else {
+            isBuildingTimeline = true
+            let calendar = calendar
+            timelineTask = Task { [weak self] in
+                let built = await Task.detached(priority: .userInitiated) {
+                    BrowseDates.timeline(from: entryList, calendar: calendar)
+                }.value
+                // A newer build has started since, so this one is stale.
+                guard let self, generation == self.timelineGeneration else { return }
+                self.applyTimeline(built)
+            }
+        }
         if !hadLocated && !cells.isEmpty {
             fitGeneration += 1
         }
@@ -412,6 +550,22 @@ final class BrowseBackup {
 
     private func rebuildGroups() {
         groups = BrowsePlaces.groups(cells: cells, names: names, noLocation: noLocationPaths)
+        contentVersion += 1
+    }
+
+    /// Sets the built dates. While the user hasn't picked a row, the selection is the first row, so it follows the index.
+    private func applyTimeline(_ built: BrowseTimeline) {
+        timeline = built
+        isBuildingTimeline = false
+        contentVersion += 1
+        let stillThere = selectedDateID.map { timeline.hasRow($0) } ?? false
+        if dateSelectionIsAutomatic || !stillThere {
+            selectedDateID = timeline.firstRowID(sortOrder)
+            dateSelectionIsAutomatic = true
+            if let id = selectedDateID, let year = timeline.yearID(containing: id) {
+                expandedYears.insert(year)
+            }
+        }
     }
 
     // MARK: - Names
@@ -439,6 +593,18 @@ final class BrowseBackup {
         }
     }
 
+    /// Names the places of the selected month's photos, so its day headers can show them. Only that month's cells are
+    /// looked up, as the map does for the cells on screen.
+    func requestNamesForSelectedMonth() {
+        guard let month = selectedMonth else { return }
+        var keys: Set<String> = []
+        for path in month.paths {
+            guard let entry = entries[path], let latitude = entry.latitude, let longitude = entry.longitude else { continue }
+            keys.insert(PlaceResolver.cellKey(latitude: latitude, longitude: longitude))
+        }
+        requestNames(for: keys)
+    }
+
     // MARK: - Preview and tests
 
     /// Replaces the index with these entries, without reading the drive. Used by previews and tests.
@@ -453,7 +619,7 @@ final class BrowseBackup {
         self.names = names
         self.destinationName = destinationName
         self.isConnected = true
-        rebuild()
+        rebuild(synchronously: true)
         fitGeneration += 1
     }
 

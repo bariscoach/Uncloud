@@ -414,6 +414,188 @@ struct BrowseBackupTests {
         }
     }
 
+    // MARK: - Dates and sort order
+
+    private func isolatedDefaults() -> (defaults: UserDefaults, suite: String) {
+        let suite = "BrowseBackupTests-\(UUID().uuidString)"
+        return (UserDefaults(suiteName: suite) ?? .standard, suite)
+    }
+
+    private func dated(_ path: String, _ date: Date?, latitude: Double? = nil, longitude: Double? = nil) -> BrowseEntry {
+        BrowseDateFixtures.dated(path, date, latitude: latitude, longitude: longitude)
+    }
+
+    @MainActor
+    @Test func newModelOpensOnDatesWithTheMostRecentMonthSelectedAndItsYearExpanded() {
+        let (defaults, suite) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let browse = BrowseBackup(
+            store: BrowseIndexStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)),
+            namer: FakeNamer(answers: [:]), isExportRunning: { false },
+            calendar: BrowseDateFixtures.calendar("Europe/Rome"), defaults: defaults
+        )
+        #expect(browse.mode == .dates)
+        browse.load(entries: [
+            dated("2024/07/a.jpg", BrowseDateFixtures.instant(2024, 7, 4)),
+            dated("2026/10/b.jpg", BrowseDateFixtures.instant(2026, 10, 2)),
+        ], destination: URL(filePath: "/tmp/drive"))
+        #expect(browse.selectedDateID == "month:2026-10")
+        #expect(browse.expandedYears == ["year:2026"])
+        #expect(browse.gridPaths == ["2026/10/b.jpg"])
+    }
+
+    @MainActor
+    @Test func oldestFirstSelectsTheOldestMonth() {
+        let (defaults, suite) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let browse = BrowseBackup(
+            store: BrowseIndexStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)),
+            namer: FakeNamer(answers: [:]), isExportRunning: { false },
+            calendar: BrowseDateFixtures.calendar("Europe/Rome"), defaults: defaults
+        )
+        browse.sortOrder = .oldestFirst
+        browse.load(entries: [
+            dated("2024/07/a.jpg", BrowseDateFixtures.instant(2024, 7, 4)),
+            dated("2026/10/b.jpg", BrowseDateFixtures.instant(2026, 10, 2)),
+        ], destination: URL(filePath: "/tmp/drive"))
+        #expect(browse.selectedDateID == "month:2024-07")
+    }
+
+    @MainActor
+    @Test func automaticSelectionFollowsTheIndexUntilTheUserPicksARow() {
+        let (defaults, suite) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = BrowseIndexStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+        let drive = URL(filePath: "/tmp/drive")
+        let browse = BrowseBackup(store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false },
+                                  calendar: BrowseDateFixtures.calendar("Europe/Rome"), defaults: defaults)
+        let old = dated("2024/07/a.jpg", BrowseDateFixtures.instant(2024, 7, 4))
+        let newer = dated("2026/10/b.jpg", BrowseDateFixtures.instant(2026, 10, 2))
+        let newest = dated("2027/01/c.jpg", BrowseDateFixtures.instant(2027, 1, 9))
+
+        browse.load(entries: [old], destination: drive)
+        #expect(browse.selectedDateID == "month:2024-07")
+        browse.load(entries: [old, newer], destination: drive)
+        #expect(browse.selectedDateID == "month:2026-10")
+
+        browse.selectedDateID = "month:2024-07"
+        browse.load(entries: [old, newer, newest], destination: drive)
+        #expect(browse.selectedDateID == "month:2024-07")
+    }
+
+    @MainActor
+    @Test func aSelectedMonthThatDisappearsFallsBackToTheAutomaticChoice() {
+        let (defaults, suite) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let browse = BrowseBackup(store: BrowseIndexStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)),
+                                  namer: FakeNamer(answers: [:]), isExportRunning: { false },
+                                  calendar: BrowseDateFixtures.calendar("Europe/Rome"), defaults: defaults)
+        let drive = URL(filePath: "/tmp/drive")
+        browse.load(entries: [
+            dated("2024/07/a.jpg", BrowseDateFixtures.instant(2024, 7, 4)),
+            dated("2026/10/b.jpg", BrowseDateFixtures.instant(2026, 10, 2)),
+        ], destination: drive)
+        browse.selectedDateID = "month:2024-07"
+        browse.load(entries: [dated("2026/10/b.jpg", BrowseDateFixtures.instant(2026, 10, 2))], destination: drive)
+        #expect(browse.selectedDateID == "month:2026-10")
+    }
+
+    @MainActor
+    @Test func changingTheSelectedRowClearsThePhotoSelection() {
+        let (defaults, suite) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let browse = BrowseBackup(store: BrowseIndexStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)),
+                                  namer: FakeNamer(answers: [:]), isExportRunning: { false },
+                                  calendar: BrowseDateFixtures.calendar("Europe/Rome"), defaults: defaults)
+        browse.load(entries: [
+            dated("2024/07/a.jpg", BrowseDateFixtures.instant(2024, 7, 4)),
+            dated("2026/10/b.jpg", BrowseDateFixtures.instant(2026, 10, 2)),
+        ], destination: URL(filePath: "/tmp/drive"))
+        browse.selectedPaths = ["2026/10/b.jpg"]
+        browse.selectedDateID = "year:2024"
+        #expect(browse.selectedPaths.isEmpty)
+        #expect(browse.gridPaths == ["2024/07/a.jpg"])
+    }
+
+    @MainActor
+    @Test func placesAndMapGridsFollowTheSortOrderWithUndatedLast() {
+        let (defaults, suite) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let browse = BrowseBackup(store: BrowseIndexStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)),
+                                  namer: FakeNamer(answers: [:]), isExportRunning: { false },
+                                  calendar: BrowseDateFixtures.calendar("Europe/Rome"), defaults: defaults)
+        let rome = PlaceResolver.cellKey(latitude: 41.9028, longitude: 12.4964)
+        browse.load(
+            entries: [
+                dated("2024/07/a.jpg", BrowseDateFixtures.instant(2024, 7, 4), latitude: 41.9028, longitude: 12.4964),
+                dated("2026/10/b.jpg", BrowseDateFixtures.instant(2026, 10, 2), latitude: 41.9028, longitude: 12.4964),
+                dated("undated/c.jpg", nil, latitude: 41.9028, longitude: 12.4964),
+            ],
+            names: [rome: PlaceResolver.Place(country: "Italy", city: "Rome")],
+            destination: URL(filePath: "/tmp/drive")
+        )
+        browse.mode = .places
+        browse.selectedGroupID = "place:Italy › Rome"
+        #expect(browse.gridPaths == ["2026/10/b.jpg", "2024/07/a.jpg", "undated/c.jpg"])
+        browse.sortOrder = .oldestFirst
+        #expect(browse.gridPaths == ["2024/07/a.jpg", "2026/10/b.jpg", "undated/c.jpg"])
+
+        browse.mode = .map
+        browse.mapSelection = [rome]
+        #expect(browse.gridPaths == ["2024/07/a.jpg", "2026/10/b.jpg", "undated/c.jpg"])
+        browse.sortOrder = .newestFirst
+        #expect(browse.gridPaths == ["2026/10/b.jpg", "2024/07/a.jpg", "undated/c.jpg"])
+    }
+
+    @MainActor
+    @Test func sortOrderIsSavedAndAnUnknownValueFallsBackToNewestFirst() {
+        let (defaults, suite) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = BrowseIndexStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+        let first = BrowseBackup(store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false }, defaults: defaults)
+        #expect(first.sortOrder == .newestFirst)
+        first.sortOrder = .oldestFirst
+        let second = BrowseBackup(store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false }, defaults: defaults)
+        #expect(second.sortOrder == .oldestFirst)
+
+        defaults.set("sideways", forKey: BrowseSortOrder.defaultsKey)
+        let third = BrowseBackup(store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false }, defaults: defaults)
+        #expect(third.sortOrder == .newestFirst)
+    }
+
+    @MainActor
+    @Test func changingTheDestinationResetsTheDateSelectionAndExpansion() {
+        let (defaults, suite) = isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let browse = BrowseBackup(store: BrowseIndexStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)),
+                                  namer: FakeNamer(answers: [:]), isExportRunning: { false },
+                                  calendar: BrowseDateFixtures.calendar("Europe/Rome"), defaults: defaults)
+        browse.load(entries: [dated("2026/10/b.jpg", BrowseDateFixtures.instant(2026, 10, 2))], destination: URL(filePath: "/tmp/drive"))
+        #expect(browse.selectedDateID != nil)
+        browse.update(destination: URL(filePath: "/tmp/other"), name: "Other", isConnected: false)
+        #expect(browse.selectedDateID == nil)
+        #expect(browse.expandedYears.isEmpty)
+    }
+
+    @MainActor
+    @Test func indexingBuildsTheDatesInTheBackground() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let drive = root.appending(path: "Drive", directoryHint: .isDirectory)
+            let store = BrowseIndexStore(directory: root.appending(path: "Index", directoryHint: .isDirectory))
+            try FileManager.default.createDirectory(at: drive, withIntermediateDirectories: true)
+            try writeImage(at: drive.appending(path: "2024/07/IMG_1.jpg"), type: UTType.jpeg.identifier, dateTimeOriginal: "2024:07:04 18:30:00")
+            try ExportManifest.appendRecords([(key: "icloud-id:1", paths: ["2024/07/IMG_1.jpg"])], in: drive)
+
+            let browse = BrowseBackup(store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false })
+            browse.update(destination: drive, name: "Drive", isConnected: true)
+            for _ in 0..<200 where browse.isIndexing || browse.isBuildingTimeline {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            #expect(browse.timeline.years.first?.year == 2024)
+            #expect(browse.selectedDateID == "month:2024-07")
+        }
+    }
+
     // MARK: - Helpers
 
     private func located(_ path: String, _ latitude: Double, _ longitude: Double) -> BrowseEntry {

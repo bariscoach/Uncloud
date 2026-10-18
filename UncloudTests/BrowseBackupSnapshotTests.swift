@@ -21,11 +21,7 @@ struct BrowseBackupSnapshotTests {
 
         let fixture = try Fixture.make(in: drive)
         let model = ExportModel()
-        let browse = BrowseBackup(
-            store: BrowseIndexStore(directory: root.appending(path: "Index", directoryHint: .isDirectory)),
-            namer: FakeNamer(answers: [:]),
-            isExportRunning: { false }
-        )
+        let browse = Self.browseModel("screens", in: root)
         browse.load(entries: fixture.entries, names: fixture.names, destination: drive, destinationName: "Travel Drive")
 
         var images: [(String, NSImage)] = []
@@ -111,6 +107,55 @@ struct BrowseBackupSnapshotTests {
             images.append(("map-badges-\(Self.name(scheme))", try #require(await Self.render(badges, size: NSSize(width: 320, height: 60), scheme: scheme))))
         }
 
+        // Dates: the automatic choice (the newest month, its year expanded), the oldest first, a year row, No Date with a
+        // photo open, a search with no match, and a month with its day headers. Each state is its own model, so one state's choices don't leak into another.
+        for scheme in [ColorScheme.light, .dark] {
+            let name = Self.name(scheme)
+            let size = NSSize(width: 1_000, height: 700)
+            let newest = Self.browseModel("dates-\(name)", in: root)
+            newest.load(entries: fixture.entries, names: fixture.names, destination: drive, destinationName: "Travel Drive")
+            images.append(("dates-\(name)", try #require(await Self.render(
+                BrowseBackupView(browse: newest, syncsDestination: false).environment(model), size: size, scheme: scheme
+            ))))
+
+            let oldest = Self.browseModel("dates-oldest-\(name)", in: root)
+            oldest.sortOrder = .oldestFirst
+            oldest.load(entries: fixture.entries, names: fixture.names, destination: drive, destinationName: "Travel Drive")
+            images.append(("dates-oldest-\(name)", try #require(await Self.render(
+                BrowseBackupView(browse: oldest, syncsDestination: false).environment(model), size: size, scheme: scheme
+            ))))
+
+            let year = Self.browseModel("dates-year-\(name)", in: root)
+            year.load(entries: fixture.entries, names: fixture.names, destination: drive, destinationName: "Travel Drive")
+            year.selectedDateID = "year:2026"
+            images.append(("dates-year-\(name)", try #require(await Self.render(
+                BrowseBackupView(browse: year, syncsDestination: false).environment(model), size: size, scheme: scheme
+            ))))
+
+            let noDate = Self.browseModel("dates-nodate-\(name)", in: root)
+            noDate.load(entries: fixture.entries, names: fixture.names, destination: drive, destinationName: "Travel Drive")
+            noDate.selectedDateID = BrowseTimeline.noDateID
+            noDate.selectedPaths = [fixture.screenshotPath]
+            images.append(("dates-nodate-\(name)", try #require(await Self.render(
+                BrowseBackupView(browse: noDate, syncsDestination: false).environment(model), size: size, scheme: scheme
+            ))))
+
+            let search = Self.browseModel("dates-search-\(name)", in: root)
+            search.load(entries: fixture.entries, names: fixture.names, destination: drive, destinationName: "Travel Drive")
+            search.query = "zzz"
+            images.append(("dates-search-\(name)", try #require(await Self.render(
+                BrowseBackupView(browse: search, syncsDestination: false).environment(model), size: size, scheme: scheme
+            ))))
+
+            // October 2026 with its day headers, and the places named on each day.
+            let days = Self.browseModel("dates-days-\(name)", in: root)
+            days.load(entries: fixture.entries, names: fixture.names, destination: drive, destinationName: "Travel Drive")
+            days.selectedDateID = "month:2026-10"
+            images.append(("dates-days-\(name)", try #require(await Self.render(
+                BrowseBackupView(browse: days, syncsDestination: false).environment(model), size: size, scheme: scheme
+            ))))
+        }
+
         for (name, image) in images {
             Attachment.record(try Self.png(image), named: "\(name).png")
         }
@@ -120,6 +165,19 @@ struct BrowseBackupSnapshotTests {
 
     private static func name(_ scheme: ColorScheme) -> String {
         scheme == .dark ? "dark" : "light"
+    }
+
+    /// A model with its own saved settings, so the snapshots don't depend on the sort order the app last used.
+    private static func browseModel(_ key: String, in root: URL) -> BrowseBackup {
+        let suite = "uncloud-browse-snapshots-\(key)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        defaults.removePersistentDomain(forName: suite)
+        return BrowseBackup(
+            store: BrowseIndexStore(directory: root.appending(path: key, directoryHint: .isDirectory)),
+            namer: FakeNamer(answers: [:]),
+            isExportRunning: { false },
+            defaults: defaults
+        )
     }
 
     private static func png(_ image: NSImage) throws -> Data {
@@ -193,7 +251,8 @@ struct BrowseBackupSnapshotTests {
         return nil
     }
 
-    /// Sample photos on a drive: pictures with GPS in Rome, Sydney and Kyoto, and a few without a location.
+    /// Sample photos on a drive: pictures with GPS in Rome, Sydney and Kyoto, on different dates, and a few without a
+    /// location. Two screenshots have no date and no month folder (No Date); one has no date but a month folder.
     private struct Fixture {
         let entries: [BrowseEntry]
         let noLocationEntries: [BrowseEntry]
@@ -201,12 +260,17 @@ struct BrowseBackupSnapshotTests {
         let romePaths: [String]
         let romeKey: String
         let romeGroupID: String
+        let screenshotPath: String
 
         static func make(in drive: URL) throws -> Fixture {
-            let places: [(name: String, latitude: Double, longitude: Double, count: Int, place: PlaceResolver.Place)] = [
-                ("Rome", 41.9028, 12.4964, 5, PlaceResolver.Place(country: "Italy", city: "Rome")),
-                ("Sydney", -33.8688, 151.2093, 3, PlaceResolver.Place(country: "Australia", city: "Sydney")),
-                ("Kyoto", 35.0116, 135.7681, 2, PlaceResolver.Place(country: "Japan", city: "Kyoto")),
+            let places: [(name: String, folder: String, latitude: Double, longitude: Double, count: Int, place: PlaceResolver.Place, date: (Int) -> Date)] = [
+                // Two days in October 2026.
+                ("Rome", "2026/10", 41.9028, 12.4964, 5, PlaceResolver.Place(country: "Italy", city: "Rome"),
+                 { index in BrowseDateFixtures.instant(2026, 10, index < 3 ? 17 : 18, 10 + index) }),
+                ("Sydney", "2026/09", -33.8688, 151.2093, 3, PlaceResolver.Place(country: "Australia", city: "Sydney"),
+                 { index in BrowseDateFixtures.instant(2026, 9, 12 + index, 14, zone: "Australia/Sydney") }),
+                ("Kyoto", "2025/03", 35.0116, 135.7681, 2, PlaceResolver.Place(country: "Japan", city: "Kyoto"),
+                 { index in BrowseDateFixtures.instant(2025, 3, 28 + index, 9, zone: "Asia/Tokyo") }),
             ]
             var entries: [BrowseEntry] = []
             var names: [String: PlaceResolver.Place] = [:]
@@ -214,28 +278,28 @@ struct BrowseBackupSnapshotTests {
             for place in places {
                 names[PlaceResolver.cellKey(latitude: place.latitude, longitude: place.longitude)] = place.place
                 for index in 0..<place.count {
-                    let path = "2024/07/\(place.name)-\(index).jpg"
-                    try writeFixtureImage(
-                        at: drive.appending(path: path),
-                        latitude: place.latitude + Double(index) * 0.002,
-                        longitude: place.longitude + Double(index) * 0.002
-                    )
+                    let path = "\(place.folder)/\(place.name)-\(index).jpg"
+                    let latitude = place.latitude + Double(index) * 0.002
+                    let longitude = place.longitude + Double(index) * 0.002
+                    try writeFixtureImage(at: drive.appending(path: path), latitude: latitude, longitude: longitude)
                     if place.name == "Rome" { romePaths.append(path) }
                     entries.append(BrowseEntry(
                         path: path, size: 2_400_000, modified: 1,
-                        latitude: place.latitude + Double(index) * 0.002,
-                        longitude: place.longitude + Double(index) * 0.002,
-                        date: Date(timeIntervalSince1970: 1_720_000_000 + Double(index) * 3_600),
+                        latitude: latitude, longitude: longitude,
+                        date: place.date(index),
                         camera: "Apple iPhone 15"
                     ))
                 }
             }
             var noLocation: [BrowseEntry] = []
             for index in 0..<2 {
-                let path = "2023/12/Screenshot-\(index).png"
+                let path = "Screenshots/Screenshot-\(index).png"
                 try writeFixtureImage(at: drive.appending(path: path), latitude: nil, longitude: nil)
                 noLocation.append(BrowseEntry(path: path, size: 180_000, modified: 1, latitude: nil, longitude: nil, date: nil, camera: nil))
             }
+            let undatedPath = "2024/07/Undated-Folder.jpg"
+            try writeFixtureImage(at: drive.appending(path: undatedPath), latitude: nil, longitude: nil)
+            noLocation.append(BrowseEntry(path: undatedPath, size: 180_000, modified: 1, latitude: nil, longitude: nil, date: nil, camera: nil))
             let romeKey = PlaceResolver.cellKey(latitude: 41.9028, longitude: 12.4964)
             return Fixture(
                 entries: entries + noLocation,
@@ -243,7 +307,8 @@ struct BrowseBackupSnapshotTests {
                 names: names,
                 romePaths: romePaths.sorted(),
                 romeKey: romeKey,
-                romeGroupID: "place:Italy › Rome"
+                romeGroupID: "place:Italy › Rome",
+                screenshotPath: "Screenshots/Screenshot-0.png"
             )
         }
 
