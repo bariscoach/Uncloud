@@ -27,7 +27,7 @@ struct ExportHistoryChain: Identifiable, Equatable, Sendable {
     /// When the latest attempt ended; nil while it runs.
     var endedAt: Date? { latest.endedAt }
 
-    /// Items downloaded from iCloud or exported from the Photos library, over every attempt.
+    /// Photos exported over every run in the chain.
     var exported: Int { attempts.reduce(0) { $0 + $1.counts.exported } }
     var failed: Int { latest.counts.failed }
     var bytesWritten: Int { attempts.reduce(0) { $0 + $1.counts.bytesWritten } }
@@ -40,30 +40,29 @@ struct ExportHistoryChain: Identifiable, Equatable, Sendable {
     /// True when a newer Uncloud wrote an attempt; it's shown, never changed.
     var isReadOnly: Bool { attempts.contains(where: \.isReadOnly) }
 
-    /// "Completed", "Completed with 12 failures", "Cancelled", "Stopped: Apple is limiting downloads",
-    /// "Interrupted", "Resuming at 15:10".
+    /// "Completed", "Completed, 12 not exported", "Cancelled", "Stopped: Apple is limiting downloads",
+    /// "Didn’t finish", "Resuming at 15:10".
     var badgeText: String {
         switch badge {
         case .running: "Running"
         case .completed: "Completed"
-        case .completedWithFailures(let count): "Completed with \(count.formatted()) \(count == 1 ? "failure" : "failures")"
+        case .completedWithFailures(let count): "Completed, \(count.formatted()) not exported"
         case .cancelled: "Cancelled"
         case .stopped(let reason?): "Stopped: \(reason)"
         case .stopped(nil): "Stopped"
-        case .interrupted: "Interrupted"
+        case .interrupted: "Didn’t finish"
         case .resuming(let date): "Resuming at \(ExportModel.resumeTimeText(date))"
         }
     }
 
-    /// "1,204 downloaded · 9,207 already there · 3 failed · 4.1 GB", leaving out what's zero or unknown.
-    /// Photos library exports read "exported"; iCloud downloads read "downloaded".
+    /// "1,204 exported · 9,207 already backed up · 3 not exported · 4.1 GB", leaving out what's zero or unknown.
     var countsText: String {
-        var parts = ["\(exported.formatted()) \(latest.source == .photosLibrary ? "exported" : "downloaded")"]
+        var parts = ["\(exported.formatted()) exported"]
         if let alreadyThere, alreadyThere > 0 {
-            parts.append("\(alreadyThere.formatted()) already there")
+            parts.append("\(alreadyThere.formatted()) already backed up")
         }
         if failed > 0 {
-            parts.append("\(failed.formatted()) failed")
+            parts.append("\(failed.formatted()) not exported")
         }
         if bytesWritten > 0 {
             parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytesWritten), countStyle: .file))
@@ -73,7 +72,7 @@ struct ExportHistoryChain: Identifiable, Equatable, Sendable {
 
     /// "3 attempts", or nil for one.
     var attemptsText: String? {
-        attempts.count > 1 ? "\(attempts.count) attempts" : nil
+        attempts.count > 1 ? "\(attempts.count) runs" : nil
     }
 }
 

@@ -57,7 +57,7 @@ struct ResumeExportTests {
         model.selection = .everything
         #expect(model.exportTitle(total: 10) == "Export All Photos")
         model.selection = .only(["a", "b"])
-        #expect(model.exportTitle(total: 10) == "Export 2 Items")
+        #expect(model.exportTitle(total: 10) == "Export 2 Photos")
     }
 }
 

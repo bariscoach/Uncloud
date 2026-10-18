@@ -91,7 +91,7 @@ extension ExportCancellationTests {
         #expect(model.layout == .month)
         let question = try #require(model.pendingLayoutChange)
         #expect(question.itemsSaved == 2)
-        #expect(question.message.contains("“Other Backup” already has 2 items saved by month"))
+        #expect(question.message.contains("“Other Backup” already has 2 photos organized by month"))
         model.resolveLayoutChange(.downloadAgainHere)
         #expect(model.layout == .flat)
         model.requestLayoutChange(to: .month)
@@ -112,7 +112,7 @@ extension ExportCancellationTests {
         #expect(model.layout == .flat)
         #expect(await Self.wait(timeout: .seconds(10)) { model.flatFolderWarning != nil } != nil)
         #expect(model.lastDriveCheck == nil)
-        #expect(model.flatFolderWarning?.hasSuffix("A file of yours with the same name and size as a photo counts as already downloaded.") == true)
+        #expect(model.flatFolderWarning?.hasSuffix("A file with the same name and size as a photo counts as backed up.") == true)
         defaults.set(FolderLayout.month.rawValue, forKey: "folderLayout")
         defaults.removeObject(forKey: ExportModel.bookmarkKey)
         fixture.tearDown()
@@ -123,7 +123,7 @@ extension ExportCancellationTests {
 struct SessionDetailWordingTests {
     @Test func aSelectionRunUsesTheSourcesVerb() {
         let selection = ExportSession.Continuation(strategy: .selection, startRank: nil, fallbackReason: nil)
-        #expect(ExportSessionDetailView.continuationText(selection, source: .iCloud) == "Downloaded only the selected items")
-        #expect(ExportSessionDetailView.continuationText(selection, source: .photosLibrary) == "Exported only the selected items")
+        #expect(ExportSessionDetailView.continuationText(selection, source: .iCloud) == "Exported only the selected photos")
+        #expect(ExportSessionDetailView.continuationText(selection, source: .photosLibrary) == "Exported only the selected photos")
     }
 }

@@ -69,7 +69,7 @@ struct ICloudExportEngine: Sendable {
                     try await bridge.ready()
                 } catch {
                     guard Self.isStartFailure(error) else { throw error }
-                    fallbackReason = "The iCloud bridge couldn’t start, so icloudpd checked the whole library"
+                    fallbackReason = "A faster resume wasn’t possible, so Uncloud checked the whole library"
                 }
                 if fallbackReason == nil {
                     try await runEverythingWithBridge(bridge, manifest: manifest, scanner: scanner, emit: emit)
@@ -547,8 +547,8 @@ extension ICloudExportEngine {
             coverage = ICloudCoverage(libraryCount: libraryCount, base: nil)
         case .fromRank(let from):
             emit(.continuation(.init(strategy: .fromRank, startRank: from.startRank, fallbackReason: nil)))
-            let newText = from.newItems == 0 ? "" : ", after \(from.newItems.formatted()) new \(from.newItems == 1 ? "item" : "items")"
-            emit(.note("Continuing from item \(min(from.startRank + 1, libraryCount).formatted()) of \(libraryCount.formatted())\(newText)."))
+            let newText = from.newItems == 0 ? "" : ", after \(from.newItems.formatted()) new \(from.newItems == 1 ? "photo" : "photos")"
+            emit(.note("Continuing from photo \(min(from.startRank + 1, libraryCount).formatted()) of \(libraryCount.formatted())\(newText)."))
             coverage = ICloudCoverage(libraryCount: libraryCount, base: .init(id: from.anchorID, rank: from.anchorRank))
             only = from.only
             startRank = from.startRank

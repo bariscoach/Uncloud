@@ -185,10 +185,10 @@ struct NewPhotosTests {
         // An interrupted run keeps the fallback too, so resuming wins.
         #expect(title(interrupted: true, fallback: "Resume Export") == "Resume Export")
         // No folder beats new photos.
-        #expect(title(folder: false) == "Choose Folder…")
+        #expect(title(folder: false) == "Choose Backup Folder…")
         // New photos apply to everything only.
         #expect(title() == "Export New Photos")
-        #expect(title(everything: false, fallback: "Export 3 Items") == "Export 3 Items")
+        #expect(title(everything: false, fallback: "Export 3 Photos") == "Export 3 Photos")
         // No complete export yet: the default.
         #expect(title(status: false) == fallback)
     }
@@ -249,12 +249,12 @@ struct NewPhotosTests {
 
     @Test func reminderWhenDriveIsNotConnected() {
         let decision = NewPhotosReminder.decide(Self.input())
-        #expect(decision == .remind(body: "1,243 new photos since your last export. Connect your backup drive to save them."))
+        #expect(decision == .remind(body: "1,243 new photos since your last export. Connect your backup drive to export them."))
     }
 
     @Test func reminderWhenConnectedWithAutomaticBackupOffSaysToOpenUncloud() {
         let decision = NewPhotosReminder.decide(Self.input(connected: true, automatic: false))
-        #expect(decision == .remind(body: "1,243 new photos since your last export. Open Uncloud to back them up."))
+        #expect(decision == .remind(body: "1,243 new photos since your last export. Open Uncloud to export them."))
     }
 
     @Test func connectedWithAutomaticBackupOnJustBacksUp() {

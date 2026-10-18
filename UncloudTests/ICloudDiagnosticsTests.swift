@@ -121,7 +121,7 @@ struct ICloudDiagnosticsTests {
     @Test func exitWithoutClassifiedFailureCarriesTheSummary() {
         let error = ICloudDiagnostics.exitError(status: 1, failure: nil, summary: "KeyError: 'photo'")
         #expect(error == .exited(1, lastMessage: "KeyError: 'photo'"))
-        #expect(error.localizedDescription == "The iCloud download stopped: KeyError: 'photo'. Choose Resume to try again.")
+        #expect(error.localizedDescription == "The export stopped because of an iCloud error (KeyError: 'photo'). Resume to try again.")
     }
 
     @Test func exitWithClassifiedFailureIsThatFailure() {

@@ -351,7 +351,7 @@ enum PhotoKitBrowserError: LocalizedError {
     case noAccess
 
     var errorDescription: String? {
-        "Uncloud doesn’t have access to your Photos library."
+        "Uncloud doesn’t have access to Photos."
     }
 }
 

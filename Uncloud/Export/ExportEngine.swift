@@ -23,9 +23,9 @@ enum ExportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .destinationFull:
-            "The destination is full. Free up space or choose another folder, then choose Resume."
+            "Your backup drive is full. Make room or choose another backup folder, then resume."
         case .destinationUnavailable:
-            "The destination folder is no longer available. Reconnect the drive or choose another folder, then choose Resume."
+            "Your backup folder isn’t available. Reconnect the drive, then resume."
         case .noExportableFiles:
             "It has no files that can be exported."
         }
@@ -66,7 +66,7 @@ struct ExportEngine: Sendable {
         let total = library.count - excluded
         emit(.prepared(total: total, alreadyExported: total - pending.count))
         if excluded > 0 {
-            let noun = excluded == 1 ? "item that isn’t" : "items that aren’t"
+            let noun = excluded == 1 ? "photo that isn’t" : "photos that aren’t"
             emit(.note("Leaving out \(excluded.formatted()) \(noun) selected."))
         }
 

@@ -150,7 +150,7 @@ final class LibraryCleanup {
                 state = .ready
             } catch {
                 guard run == self.run else { return }
-                state = .failed("Items couldn’t be checked. \(error.localizedDescription)")
+                state = .failed("Photos couldn’t be checked. \(error.localizedDescription)")
             }
         }
     }
@@ -250,7 +250,7 @@ final class LibraryCleanup {
                 return
             }
             guard !stillEligible.isEmpty else {
-                finish(message: "Nothing was removed. The items changed since they were checked. Choose Find Items again.", removedAny: false)
+                finish(message: "Nothing was removed. The photos changed since they were checked. Click Find Photos again.", removedAny: false)
                 return
             }
 
@@ -272,9 +272,9 @@ final class LibraryCleanup {
 
             var message: String
             if removed > 0 {
-                message = "Removed \(countText(removed, "item")) from your photo library. They’re in Recently Deleted in Photos for 30 days."
+                message = "Removed \(countText(removed, "photo")) from this Mac. They’re in Recently Deleted for 30 days."
                 if remaining > 0 {
-                    message += " \(countText(remaining, "item")) couldn’t be removed."
+                    message += " \(countText(remaining, "photo")) couldn’t be removed."
                 }
             } else if let failure, Self.isUserCancellation(failure) {
                 message = "Nothing was removed."
@@ -284,7 +284,7 @@ final class LibraryCleanup {
                 message = "Nothing was removed."
             }
             if changed > 0 {
-                message += " \(countText(changed, "item")) changed since they were checked, so they were kept."
+                message += " \(countText(changed, "photo")) changed since they were checked, so they were kept."
             }
             finish(message: message, removedAny: removed > 0)
         }

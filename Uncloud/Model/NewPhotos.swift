@@ -168,7 +168,7 @@ enum NewPhotosCounter {
 /// The primary button's title. `fallback` is the title the rest of the Library uses (for example, "Export All Photos").
 enum NewPhotosTitle {
     static let exportNewPhotos = "Export New Photos"
-    static let chooseFolder = "Choose Folder…"
+    static let chooseFolder = "Choose Backup Folder…"
 
     /// An interrupted or paused run keeps the fallback, which is the resume title, so resuming wins over new photos.
     static func primary(
@@ -245,7 +245,7 @@ enum NewPhotosReminderFrequency: String, CaseIterable, Sendable {
 
 enum NewPhotosReminder {
     static let notificationIdentifier = "new-photos-reminder"
-    static let title = "New photos to back up"
+    static let title = "New Photos to Export"
 
     struct Input: Sendable {
         var isEnabled: Bool
@@ -287,12 +287,12 @@ enum NewPhotosReminder {
         return .remind(body: body(count: input.count, isAtLeast: input.isAtLeast, connected: input.destinationConnected))
     }
 
-    /// "1,243 new photos since your last export. Connect your backup drive to save them." When the drive is connected
+    /// "1,243 new photos since your last export. Connect your backup drive to export them." When the drive is connected
     /// (and automatic backup is off), the body says to open Uncloud instead.
     static func body(count: Int, isAtLeast: Bool, connected: Bool) -> String {
         let status = NewPhotosStatus(count: count, isAtLeast: isAtLeast, since: .distantPast)
         let photos = NewPhotosText.countPhrase(status)
-        let next = connected ? "Open Uncloud to back them up." : "Connect your backup drive to save them."
+        let next = connected ? "Open Uncloud to export them." : "Connect your backup drive to export them."
         return "\(photos.prefix(1).uppercased() + photos.dropFirst()) since your last export. \(next)"
     }
 }

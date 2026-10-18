@@ -12,17 +12,17 @@ enum ICloudError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .helperMissing:
-            "The iCloud downloader is missing from Uncloud. Reinstall the app, then try again."
+            "Part of Uncloud is missing. Reinstall the app, then try again."
         case .signInRequired:
             "Sign in to iCloud again to continue."
         case .failed(let failure):
             failure.message
         case .exited(_, let detail?):
-            "The iCloud download stopped: \(detail)\(detail.hasSuffix(".") ? "" : ".") Choose Resume to try again."
+            "The export stopped because of an iCloud error (\(detail.hasSuffix(".") ? String(detail.dropLast()) : detail)). Resume to try again."
         case .exited(let status, nil):
-            "The iCloud download stopped unexpectedly (code \(status))."
+            "The export stopped unexpectedly (error \(status))."
         case .interrupted:
-            "The connection to iCloud was interrupted. Choose Resume to continue."
+            "The connection to iCloud was interrupted. Resume to continue."
         }
     }
 }

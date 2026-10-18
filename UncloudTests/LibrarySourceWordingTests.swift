@@ -1,11 +1,11 @@
 import Testing
 @testable import Uncloud
 
-@Suite("Copied-item wording")
+@Suite("Copied-photo wording")
 struct LibrarySourceWordingTests {
-    /// iCloud items are downloaded; Photos library items are exported. Every drive-facing message uses this.
-    @Test func iCloudItemsAreDownloadedAndPhotosItemsExported() {
-        #expect(LibrarySource.iCloud.copiedVerb == "downloaded")
+    /// Both sources say "exported": nothing in the UI says "downloaded". Every drive-facing message uses this.
+    @Test func bothSourcesSayExported() {
+        #expect(LibrarySource.iCloud.copiedVerb == "exported")
         #expect(LibrarySource.photosLibrary.copiedVerb == "exported")
     }
 }

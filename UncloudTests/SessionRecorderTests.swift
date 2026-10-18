@@ -241,7 +241,7 @@ struct SessionRecorderTests {
             recorder.finish(status: .completed)
 
             await recorder.flush()
-            #expect(messages == ["Couldn't save the export history on this drive"])
+            #expect(messages == ["Couldn’t save the export history on this drive."])
             #expect(recorder.session.counts.exported == 2)
             #expect(recorder.session.counts.skipped == 1)
             #expect(recorder.session.result.status == .completed)

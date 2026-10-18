@@ -63,11 +63,11 @@ struct AutoResumePolicyTests {
         let resumeAt = now.addingTimeInterval(14 * 60 - 20)
         let pending = AutoResume(attempt: 2, resumeAt: resumeAt, reason: "Apple is limiting downloads", selection: nil, automatic: false)
         let text = AutoResumeStatus.text(for: pending, destinationName: "Drive", now: now)
-        #expect(text.hasPrefix("Apple is limiting downloads. Resuming automatically at \(ExportModel.resumeTimeText(resumeAt)) (in 14"))
+        #expect(text.hasPrefix("Apple is limiting downloads. Resumes at \(ExportModel.resumeTimeText(resumeAt)) (in 14"))
         var waiting = pending
         waiting.isWaitingForDestination = true
         #expect(AutoResumeStatus.text(for: waiting, destinationName: "Drive", now: now)
-            == "Apple is limiting downloads. Uncloud resumes automatically when “Drive” is connected.")
+            == "Apple is limiting downloads. Resumes when “Drive” is connected.")
     }
 }
 
@@ -155,7 +155,7 @@ extension ExportCancellationTests {
         #expect(pending.selection == .everything)
         #expect(!pending.automatic)
         #expect(model.phase == .failed(ICloudFailure.serviceUnavailable.message))
-        #expect(model.activity.contains { $0.message.hasPrefix("Paused because Apple is limiting downloads. Resuming at ") && $0.message.hasSuffix("(attempt 1).") })
+        #expect(model.activity.contains { $0.message.hasPrefix("Paused: Apple is limiting downloads. Resumes at ") && $0.message.hasSuffix("(try 1).") })
         #expect(harness.storageQuestions == 1)
 
         var sawResumedRun = false
@@ -186,7 +186,7 @@ extension ExportCancellationTests {
         #expect(await harness.waitFor { model.phase == .failed(AutoResumePolicy.gaveUpMessage) })
         #expect(model.autoResume == nil)
         #expect(harness.icloudpdLaunches == 3)
-        #expect(model.activity.contains { $0.message.hasSuffix("(attempt 2).") })
+        #expect(model.activity.contains { $0.message.hasSuffix("(try 2).") })
         await harness.tearDown()
     }
 

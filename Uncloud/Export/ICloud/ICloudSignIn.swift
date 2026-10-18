@@ -152,7 +152,7 @@ import Observation
         } else if let detail = helper.diagnosticSummary {
             finish(helper, with: .failed("Sign-in stopped: \(detail)"))
         } else {
-            finish(helper, with: .failed("Sign-in stopped unexpectedly (code \(status))."))
+            finish(helper, with: .failed("Sign-in stopped unexpectedly (error \(status))."))
         }
     }
 

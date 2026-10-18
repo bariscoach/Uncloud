@@ -74,7 +74,7 @@ enum AutoResumePolicy {
         return next <= timing.maxAttempts ? next : nil
     }
 
-    static let gaveUpMessage = "Uncloud stopped retrying after several hours. Start the export again to continue; photos already on your drive are skipped."
+    static let gaveUpMessage = "Uncloud stopped trying after several hours. Export again to continue. Photos already backed up are skipped."
 }
 
 extension Duration {

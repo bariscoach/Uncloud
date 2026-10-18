@@ -158,7 +158,7 @@ final class BackupVerification {
             // Back on the main actor, no export can start until this finishes.
             guard !model.isExporting, !model.isEngineRunning, model.destination?.url == destination else {
                 state = .reexported(
-                    message: "An export started while old files were being removed, so the backup records weren’t changed. When it finishes, choose Verify Backup again.",
+                    message: "An export started, so nothing was changed. Verify again when it finishes.",
                     isProblem: true
                 )
                 return
@@ -167,7 +167,7 @@ final class BackupVerification {
                 try ExportManifest.forget(removal.clearedIDs, in: destination)
             } catch {
                 state = .reexported(
-                    message: "Old files were removed, but the backup records couldn’t be updated. \(error.localizedDescription)",
+                    message: "The damaged files were removed, but Uncloud couldn’t update its records. \(error.localizedDescription)",
                     isProblem: true
                 )
                 return
@@ -176,16 +176,16 @@ final class BackupVerification {
 
             var message: String
             if removal.clearedIDs.isEmpty {
-                message = "No items were prepared for re-export."
+                message = "Nothing needed exporting again."
             } else if model.canStart {
                 model.startOrResume()
-                message = "Exporting \(countText(removal.clearedIDs.count, "item")) again."
+                message = "Exporting \(countText(removal.clearedIDs.count, "photo")) again."
             } else {
-                message = "\(countText(removal.clearedIDs.count, "item")) will be exported again. Choose Export or Resume in the Backup pane to copy them."
+                message = "\(countText(removal.clearedIDs.count, "photo")) \(removal.clearedIDs.count == 1 ? "is" : "are") ready to export again. Click Export in Backup."
             }
             let skipped = requestedIDs.count - removal.clearedIDs.count
             if skipped > 0 {
-                message += " \(countText(skipped, "item")) couldn’t be prepared and were left as they are."
+                message += " \(countText(skipped, "photo")) couldn’t be prepared and were left as they are."
             }
             state = .reexported(message: message, isProblem: skipped > 0 || removal.clearedIDs.isEmpty)
         }
