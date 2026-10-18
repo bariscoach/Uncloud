@@ -6,15 +6,15 @@ struct PhotosAccessView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("Photo Library Access Needed", systemImage: "exclamationmark.triangle")
+            Label("Allow Access to Photos", systemImage: "exclamationmark.triangle")
         } description: {
             if model.authorization == .restricted {
-                Text("Access to the photo library is restricted on this Mac, possibly by a configuration profile. Contact your administrator.")
+                Text("Access to Photos is restricted on this Mac, possibly by your organization. Contact your administrator.")
             } else {
-                Text("Uncloud needs permission to read your photo library. Turn it on in System Settings under Privacy & Security.")
+                Text("Uncloud needs access to Photos to export your library. Turn it on in System Settings › Privacy & Security › Photos.")
             }
         } actions: {
-            Button("Open Settings") {
+            Button("Open System Settings") {
                 model.openPhotosPrivacySettings()
             }
             .buttonStyle(.borderedProminent)
@@ -22,29 +22,26 @@ struct PhotosAccessView: View {
     }
 }
 
-/// Shown above the progress card when only part of the library is accessible.
+/// Shown above the progress card when only part of the library is accessible. A plain row, not a box.
 struct LimitedAccessNotice: View {
     @Environment(ExportModel.self) private var model
 
     var body: some View {
-        GroupBox {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Limited Access")
-                        .font(.headline)
-                    Text("Only the items you’ve allowed will be exported. To export your whole library, allow full access in System Settings.")
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Button("Open Settings") {
-                    model.openPhotosPrivacySettings()
-                }
+        HStack(alignment: .top, spacing: Tokens.Space.m) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                Text("Limited Access")
+                    .font(.headline)
+                Text("Only the photos you’ve allowed are exported. To export everything, allow full access in System Settings.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(4)
+            Spacer(minLength: Tokens.Space.m)
+            Button("Open System Settings") {
+                model.openPhotosPrivacySettings()
+            }
         }
     }
 }

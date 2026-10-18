@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The landing page: shown whenever no source is ready, including the first launch. One centred
-/// column: the icon, the headline, the iCloud promise, the two ways to connect, then the benefits strip.
+/// column: the icon, the headline, the two ways to connect, three static benefit lines, then the privacy line.
 struct LandingView: View {
     @Environment(ExportModel.self) private var model
 
@@ -14,8 +14,8 @@ struct LandingView: View {
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 32)
+                .padding(.horizontal, Tokens.Space.l)
+                .padding(.vertical, Tokens.Space.xxxl)
             }
             // Only scrolls when the window is too short for the column, so it stays still at the default size.
             .scrollBounceBehavior(.basedOnSize)
@@ -23,13 +23,13 @@ struct LandingView: View {
     }
 
     private var column: some View {
-        VStack(spacing: 40) {
-            VStack(spacing: 28) {
-                VStack(spacing: 20) {
+        VStack(spacing: Tokens.Space.xxxl) {
+            VStack(spacing: Tokens.Space.xxl) {
+                VStack(spacing: Tokens.Space.xl) {
                     hero
                     actions
                 }
-                BenefitsCarousel()
+                highlights
             }
             footer
         }
@@ -37,14 +37,14 @@ struct LandingView: View {
     }
 
     private var hero: some View {
-        VStack(spacing: 8) {
-            AppLogo(size: 112)
-                .padding(.bottom, 12)
+        VStack(spacing: Tokens.Space.s) {
+            AppLogo(size: 96)
+                .padding(.bottom, Tokens.Space.m)
                 .accessibilityHidden(true)
-            Text("iCloud Photos, Straight to Your Drive")
+            Text("Your Photos, on Your Own Drive")
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
-            Text("Full-size originals stream from iCloud onto your external drive. Nothing is saved on your Mac first.")
+            Text("Full-size originals go from iCloud straight to your external drive, without filling up your Mac.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -55,8 +55,8 @@ struct LandingView: View {
 
     /// Sign In is the one primary action and the default button. The Photos library is a quiet link beneath it.
     private var actions: some View {
-        VStack(spacing: 12) {
-            Button("Sign In with Apple ID…") {
+        VStack(spacing: Tokens.Space.m) {
+            Button("Sign In to iCloud…") {
                 model.source = .iCloud
                 model.isShowingICloudSignIn = true
             }
@@ -64,15 +64,15 @@ struct LandingView: View {
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
 
-            VStack(spacing: 4) {
-                Button("Use the Photos Library on This Mac") {
+            VStack(spacing: Tokens.Space.xs) {
+                Button("Use Photos on This Mac") {
                     model.source = .photosLibrary
                     model.connectPhotoLibrary()
                 }
                 .buttonStyle(.link)
 
                 // Downloads in this mode can pass through the Photos library, unlike the iCloud sign-in above.
-                Text("Downloads may pass through the Photos library on this Mac first.")
+                Text("Photos may download to this Mac first.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -81,14 +81,27 @@ struct LandingView: View {
         }
     }
 
+    /// Three static lines, in place of the old auto-advancing carousel. Nothing on this page moves on its own.
+    private var highlights: some View {
+        VStack(spacing: Tokens.Space.s) {
+            Label("Full-quality originals", systemImage: "camera.aperture")
+            Label("Organized by month or album", systemImage: "rectangle.3.group")
+            Label("Verified, and automatic when your drive connects", systemImage: "checkmark.shield")
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .contain)
+    }
+
     /// One quiet line on privacy, with a way into Getting Started for the full story.
     private var footer: some View {
         HStack(spacing: 6) {
             Image(systemName: "lock.shield")
                 .accessibilityHidden(true)
-            Text("Your Apple ID password goes only to Apple.")
+            Text("Your password goes only to Apple.")
                 .foregroundStyle(.secondary)
-            Button("Learn More…") {
+            Button("How It Works") {
                 model.introSheet = .gettingStarted
             }
             .buttonStyle(.link)

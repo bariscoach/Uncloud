@@ -14,7 +14,7 @@ struct HowItWorksStep: Identifiable {
             symbol: "person.crop.circle",
             tint: .blue,
             title: "Sign In",
-            caption: "Use your Apple ID, or the Photos library on this Mac."
+            caption: "Use your Apple Account, or Photos on this Mac."
         ),
         HowItWorksStep(
             id: 1,
@@ -27,7 +27,7 @@ struct HowItWorksStep: Identifiable {
             id: 2,
             symbol: "folder",
             tint: .teal,
-            title: "Pick a Drive",
+            title: "Choose a Drive",
             caption: "Choose an external drive or folder, then export."
         ),
     ]

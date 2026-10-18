@@ -1,21 +1,16 @@
 import SwiftUI
 
-/// Help > Getting Started: the same three steps, benefits and privacy note as the landing page.
-/// The benefits are a plain list here; the landing page shows them as a carousel.
+/// Help › Getting Started: the same three steps, benefits and privacy note as the landing page.
+/// The benefits are a plain list here.
 struct GettingStartedView: View {
     @Environment(ExportModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Getting Started")
-                .font(.title2.weight(.semibold))
-                .padding([.horizontal, .top], 24)
-                .padding(.bottom, 16)
-
+        SheetScaffold("Getting Started", width: 460) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: Tokens.Space.section) {
                     HowItWorksSteps()
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: Tokens.Space.l) {
                         Text("Why Uncloud")
                             .font(.headline)
                         ForEach(Benefit.all) { benefit in
@@ -23,24 +18,22 @@ struct GettingStartedView: View {
                         }
                     }
                     PrivacyNote(showsLearnMore: false)
-                    Text("Diagnostic logs stay on this Mac. When you report a problem, you can share them from Help > Show Diagnostic Logs.")
+                    Text("Diagnostic logs stay on this Mac. When you report a problem, you can share them from Help › Show Diagnostic Logs in Finder.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 8)
+                // The sheet already pads by Tokens.Sheet.padding (20); this brings the reading column to 24.
+                .padding(.horizontal, Tokens.Space.xs)
+                .padding(.bottom, Tokens.Space.s)
             }
-
-            HStack {
-                Spacer()
-                Button("Done") {
-                    model.introSheet = nil
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+            .frame(maxHeight: .infinity)
+        } buttons: {
+            Button("Done") {
+                model.introSheet = nil
             }
-            .padding(24)
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
         }
-        .frame(width: 460, height: 560)
+        .frame(height: 560)
     }
 }

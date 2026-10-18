@@ -5,48 +5,31 @@ import SwiftUI
 struct LibraryWindow: View {
     @Environment(ExportModel.self) private var model
     @Environment(BackupTools.self) private var backupTools
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// True while the "Export started" banner is up over the Library.
-    @State private var showsExportStarted = false
 
     var body: some View {
         @Bindable var model = model
 
         NavigationSplitView {
             List(selection: paneSelection) {
-                Label {
-                    Text("Library")
-                } icon: {
-                    IconTile(symbol: "photo.stack", tint: Tokens.Tint.library, size: Tokens.Tile.sidebar)
-                }
-                .tag(ExportModel.Pane.library)
+                Label("Library", systemImage: "photo.on.rectangle")
+                    .tag(ExportModel.Pane.library)
 
-                Label {
-                    Text("Backup")
-                } icon: {
-                    IconTile(symbol: "externaldrive", tint: Tokens.Tint.drive, size: Tokens.Tile.sidebar)
-                }
-                .badge(progressBadge ?? model.newPhotosBadgeText)
-                // Increased prominence makes the percentage a coloured capsule while an export runs.
-                .badgeProminence(model.isExporting ? .increased : .standard)
-                // Badges may not be spoken, so the value carries the same news for VoiceOver.
-                .accessibilityValue(backupAccessibilityValue)
-                .tag(ExportModel.Pane.backup)
+                Label("Backup", systemImage: "externaldrive")
+                    .badge(progressBadge ?? model.newPhotosBadgeText)
+                    // Increased prominence makes the percentage a coloured capsule while an export runs.
+                    .badgeProminence(model.isExporting ? .increased : .standard)
+                    // Badges may not be spoken, so the value carries the same news for VoiceOver.
+                    .accessibilityValue(backupAccessibilityValue)
+                    .tag(ExportModel.Pane.backup)
 
-                Label {
-                    Text("Clean Up iCloud")
-                } icon: {
-                    // The pane is about iCloud. The red trash belongs to the Delete action, not to the place.
-                    IconTile(symbol: "icloud", tint: Tokens.Tint.iCloud, size: Tokens.Tile.sidebar)
-                }
-                .tag(ExportModel.Pane.cleanup)
+                Label("Browse Backup", systemImage: "map")
+                    .tag(ExportModel.Pane.browse)
 
-                Label {
-                    Text("Browse Backup")
-                } icon: {
-                    IconTile(symbol: "map", tint: Tokens.Tint.places, size: Tokens.Tile.sidebar)
+                // The one destructive pane sits apart from the two backup panes.
+                Section("iCloud") {
+                    Label("Clean Up iCloud", systemImage: "icloud")
+                        .tag(ExportModel.Pane.cleanup)
                 }
-                .tag(ExportModel.Pane.browse)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             .safeAreaInset(edge: .bottom) {
@@ -57,16 +40,6 @@ struct LibraryWindow: View {
             case .library:
                 LibraryView()
                     .navigationTitle("Library")
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        if showsExportStarted {
-                            ExportStartedBanner(
-                                onShowBackup: { model.pane = .backup },
-                                onClose: { showsExportStarted = false }
-                            )
-                            .transition(.opacity)
-                        }
-                    }
-                    .animation(reduceMotion ? nil : .smooth, value: showsExportStarted)
             case .backup:
                 BackupPane()
                     .navigationTitle("Backup")
@@ -97,29 +70,15 @@ struct LibraryWindow: View {
                 model.signIn.signOut()
             }
         } message: {
-            Text("Uncloud forgets this Apple ID and its saved password. Files already in your folder aren’t changed.")
+            Text("Uncloud forgets this Apple Account and its saved password. Your backup isn’t changed.")
         }
         .onAppear {
             model.refreshAuthorization()
         }
         .onChange(of: model.isExporting) { _, isExporting in
-            // Only exports the user starts from the Library get the banner. Backup runs and automatic backups don't.
+            // Only exports the user starts from the Library are announced. Backup runs and automatic backups aren't.
             guard isExporting, model.pane == .library, !startedAutomatically else { return }
-            showsExportStarted = true
-            AccessibilityNotification.Announcement("Export started. Track its progress in Backup.").post()
-        }
-        .onChange(of: model.pane) { _, pane in
-            if pane == .backup {
-                showsExportStarted = false
-            }
-        }
-        .task(id: showsExportStarted) {
-            // Goes away on its own after a few seconds. Restarting the task when it's shown again resets the timer.
-            guard showsExportStarted else { return }
-            try? await Task.sleep(for: .seconds(6))
-            if !Task.isCancelled {
-                showsExportStarted = false
-            }
+            AccessibilityNotification.Announcement("Export started. Progress is in Backup.").post()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // The user may have changed Photos access in System Settings, or accepted Apple's updated iCloud terms.
@@ -163,10 +122,10 @@ struct LibraryWindow: View {
         return NewPhotosText.countPhrase(status)
     }
 
-    /// The source and account: switch source, and sign in or out of iCloud. This is the only place for them.
+    /// The source and account: switch source, and sign in or out of iCloud. This is also in the File menu.
     private var accountFooter: some View {
         Menu {
-            Picker("Source", selection: sourceSelection) {
+            Picker("Photos From", selection: sourceSelection) {
                 ForEach(LibrarySource.allCases) { source in
                     Text(source.title).tag(source)
                 }
@@ -177,23 +136,23 @@ struct LibraryWindow: View {
             if model.source == .iCloud {
                 Divider()
                 if model.iCloudAppleID != nil {
-                    Button("Sign Out…") {
+                    Button("Sign Out of iCloud…") {
                         model.isConfirmingICloudSignOut = true
                     }
                     .disabled(!model.canSignOutICloud)
                 } else {
-                    Button("Sign In…") {
+                    Button("Sign In to iCloud…") {
                         model.isShowingICloudSignIn = true
                     }
                 }
             }
         } label: {
-            HStack(spacing: 8) {
-                IconTile(
-                    symbol: model.source == .iCloud ? "icloud" : "photo.on.rectangle",
-                    tint: model.source == .iCloud ? Tokens.Tint.iCloud : Tokens.Tint.library,
-                    size: Tokens.Tile.sidebar
-                )
+            HStack(spacing: Tokens.Space.s) {
+                Image(systemName: model.source == .iCloud ? "icloud" : "photo.on.rectangle")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(accountTitle)
                         .lineLimit(1)
@@ -208,9 +167,9 @@ struct LibraryWindow: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.visible)
-        .padding(12)
-        .accessibilityLabel("Source and account, \(accountTitle), \(accountSubtitle)")
-        .help("Switch source or change the iCloud account")
+        .padding(Tokens.Space.m)
+        .accessibilityLabel("Photos from \(accountTitle), \(accountSubtitle)")
+        .help("Choose where photos come from, or change the iCloud account")
     }
 
     /// Source changes are disabled while an export runs, so the picker can't revert under the user.
@@ -235,61 +194,7 @@ struct LibraryWindow: View {
         case .iCloud:
             model.iCloudAppleID == nil ? "Not signed in" : LibrarySource.iCloud.title
         case .photosLibrary:
-            model.isSourceReady ? "Ready" : "Access needed"
-        }
-    }
-}
-
-/// A non-modal note across the top of the Library that an export has started. It doesn't take focus or
-/// block the grid, and VoiceOver hears it through an announcement when it appears.
-private struct ExportStartedBanner: View {
-    let onShowBackup: () -> Void
-    let onClose: () -> Void
-    @Environment(\.uncloudAccent) private var accent
-
-    var body: some View {
-        let content = banner
-            .padding(.horizontal, Tokens.Space.l)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity)
-        // On macOS 26 the banner is a glass control floating over the grid, inset from the edges. Older systems keep
-        // the material strip with a divider along its bottom edge.
-        if #available(macOS 26, *) {
-            content
-                .glassEffect(.regular, in: .rect(cornerRadius: Tokens.Radius.l))
-                .padding(Tokens.Space.s)
-        } else {
-            content
-                .background(.regularMaterial)
-                .overlay(alignment: .bottom) {
-                    Divider()
-                }
-        }
-    }
-
-    private var banner: some View {
-        HStack(spacing: 12) {
-            IconTile(symbol: "arrow.down.circle", tint: accent ?? .accentColor, size: Tokens.Tile.section)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Export started")
-                    .font(.headline)
-                Text("Track its progress in Backup.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 12)
-            Button("Show Backup", action: onShowBackup)
-                .buttonStyle(.bordered)
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 24, minHeight: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .help("Dismiss")
-            .accessibilityLabel("Dismiss")
+            model.isSourceReady ? "Ready" : "Needs access"
         }
     }
 }

@@ -6,22 +6,49 @@ struct ExportCommands: Commands {
     let tools: BackupTools
     /// Set only while the library grid has keyboard focus, so text fields keep their own shortcuts.
     @FocusedValue(\.gridSelection) private var grid
+    /// Published by Clean Up iCloud while its grid has focus. Nil elsewhere, which disables Delete and Recover.
+    @FocusedValue(\.cleanupCommand) private var cleanup
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("Choose Export Folder…") {
+            Button("Choose Backup Folder…") {
                 model.beginChoosingDestination()
             }
             .keyboardShortcut("o")
             .disabled(model.isExporting)
 
+            Button("Show Backup Folder in Finder") {
+                model.revealDestination()
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(model.destination == nil)
+
             Divider()
 
-            // Opens the same confirmation as the sidebar footer.
-            Button("Sign Out of iCloud…") {
-                model.isConfirmingICloudSignOut = true
+            Menu("Photos From") {
+                Picker("Photos From", selection: sourceSelection) {
+                    ForEach(LibrarySource.allCases) { source in
+                        Text(source.title).tag(source)
+                    }
+                }
+                .pickerStyle(.inline)
             }
-            .disabled(!model.canSignOutICloud)
+            .disabled(model.isExporting)
+
+            // One slot for both. Each opens the same confirmation or sheet as the sidebar footer.
+            if model.source == .iCloud {
+                Divider()
+                if model.iCloudAppleID != nil {
+                    Button("Sign Out of iCloud…") {
+                        model.isConfirmingICloudSignOut = true
+                    }
+                    .disabled(!model.canSignOutICloud)
+                } else {
+                    Button("Sign In to iCloud…") {
+                        model.isShowingICloudSignIn = true
+                    }
+                }
+            }
         }
 
         CommandGroup(before: .sidebar) {
@@ -35,20 +62,20 @@ struct ExportCommands: Commands {
             }
             .keyboardShortcut("2")
 
-            Button("Clean Up iCloud") {
-                model.pane = .cleanup
+            Button("Browse Backup") {
+                model.pane = .browse
             }
             .keyboardShortcut("3")
 
-            Button("Browse Backup") {
-                model.pane = .browse
+            Button("Clean Up iCloud") {
+                model.pane = .cleanup
             }
             .keyboardShortcut("4")
 
             Divider()
         }
 
-        CommandMenu("Export") {
+        CommandMenu("Backup") {
             // The same title and action as the primary button: the selection, or a folder first.
             Button(model.primaryExportTitle(total: model.browser?.count)) {
                 model.performPrimaryAction()
@@ -65,7 +92,7 @@ struct ExportCommands: Commands {
 
             Divider()
 
-            Button(model.phase == .paused ? "Resume" : "Pause") {
+            Button(model.phase == .paused ? "Resume Export" : "Pause Export") {
                 if model.phase == .paused {
                     model.startOrResume()
                 } else {
@@ -83,6 +110,11 @@ struct ExportCommands: Commands {
 
             Divider()
 
+            Button("Check Now") {
+                model.checkDrive(full: true)
+            }
+            .disabled(!model.canCheckDrive)
+
             Button("Verify Backup…") {
                 tools.showVerify()
             }
@@ -93,13 +125,11 @@ struct ExportCommands: Commands {
             }
             .disabled(!tools.canOpenDuplicates)
 
-            // Only the Photos library can free up space; the item is hidden for iCloud.
-            if model.source == .photosLibrary {
-                Button("Free Up Space…") {
-                    tools.showFreeUpSpace()
-                }
-                .disabled(!tools.canOpenFreeUpSpace)
+            // Always listed. Only Photos on This Mac can free up space, so it is disabled for iCloud.
+            Button("Free Up Space…") {
+                tools.showFreeUpSpace()
             }
+            .disabled(!tools.canOpenFreeUpSpace)
         }
 
         CommandGroup(after: .pasteboard) {
@@ -109,19 +139,36 @@ struct ExportCommands: Commands {
             }
             .keyboardShortcut("a", modifiers: [.command, .shift])
             .disabled(grid == nil)
+
+            Divider()
+
+            // Only opens the typed confirmation of the focused pane. Return never triggers it.
+            Button(cleanup?.title ?? "Delete from iCloud…") {
+                cleanup?.perform()
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+            .disabled(!(cleanup?.isEnabled ?? false))
         }
 
         CommandGroup(replacing: .help) {
-            Button("Getting Started…") {
+            Button("Getting Started") {
                 model.introSheet = .gettingStarted
             }
 
             Divider()
 
             // Redacted transcripts of the last iCloud helper runs; they stay on this Mac.
-            Button("Show Diagnostic Logs") {
+            Button("Show Diagnostic Logs in Finder") {
                 HelperTranscript.revealFolder()
             }
         }
+    }
+
+    /// Source changes are disabled while an export runs, so the picker can't revert under the user.
+    private var sourceSelection: Binding<LibrarySource> {
+        Binding(
+            get: { model.source },
+            set: { model.source = $0 }
+        )
     }
 }
