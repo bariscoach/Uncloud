@@ -25,10 +25,8 @@ enum Tokens {
         static let section: CGFloat = 24
     }
 
-    /// IconTile side lengths. Use only the three that remain: `sidebar` is retiring.
+    /// IconTile side lengths.
     enum Tile {
-        @available(*, deprecated, message: "Retiring: sidebar rows use plain SF Symbols. Use Tile.section.")
-        static let sidebar: CGFloat = 20
         static let section: CGFloat = 24
         static let feature: CGFloat = 32   // benefit rows, How It Works steps
         static let hero: CGFloat = 44
@@ -74,16 +72,6 @@ enum Tokens {
         static let library = Color.pink        // photos (also "Photos on This Mac" in the footer)
         static let iCloud = Color.blue         // anything iCloud: footer, Clean Up iCloud row
         static let drive = Color.teal          // Backup row, Save To
-        @available(*, deprecated, message: "Retiring: sections don't take colour. Use a plain SF Symbol.")
-        static let folders = Color.mint        // Folders and Files
-        @available(*, deprecated, message: "Retiring: sections don't take colour. Use a plain SF Symbol.")
-        static let tools = Color.green         // Backup Tools
-        @available(*, deprecated, message: "Retiring: sections don't take colour. Use a plain SF Symbol.")
-        static let history = Color.indigo      // Export History
-        @available(*, deprecated, message: "Retiring: sections don't take colour. Use a plain SF Symbol.")
-        static let neutral = Color.gray        // Activity
-        @available(*, deprecated, message: "Retiring: places don't take colour. Use a plain SF Symbol.")
-        static let places = Color.purple       // Browse Backup: the map and places
     }
 
     /// Status colours. Always paired with a symbol, never colour alone.

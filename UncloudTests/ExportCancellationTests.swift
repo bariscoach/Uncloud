@@ -616,7 +616,7 @@ struct ExportCancellationTests {
         #expect(batch.skipped == 2)
         #expect(batch.sawSkip)
         #expect(batch.finishedSinceSkip == 1)
-        #expect(batch.entries.map(\.message) == ["Skipping 4 items that were already exported.", "Exported a (2 files)"])
+        #expect(batch.entries.map(\.message) == ["Skipping 4 photos that are already backed up.", "Exported a (2 files)"])
     }
 
     // MARK: - Pause gate

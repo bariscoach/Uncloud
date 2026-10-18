@@ -437,7 +437,7 @@ final class ICloudCleanup {
         guard activity == nil else { return }
         activity = ProcessInfo.processInfo.beginActivity(
             options: .idleSystemSleepDisabled,
-            reason: "Deleting items from iCloud Photos"
+            reason: "Deleting photos from iCloud Photos"
         )
     }
 

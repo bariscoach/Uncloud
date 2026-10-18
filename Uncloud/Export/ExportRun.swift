@@ -64,7 +64,7 @@ struct ExportBatch: Sendable {
             totalIncrease = 0
             processed = 0
             if alreadyExported > 0 {
-                log(.info, "Skipping \(alreadyExported.formatted()) items that were already exported.")
+                log(.info, "Skipping \(alreadyExported.formatted()) photos that are already backed up.")
             }
         case let .totalIncreased(by: count):
             totalIncrease += count

@@ -281,7 +281,11 @@ struct IndexingBanner: View {
             title: text,
             progress: progress.map { min(1, Double($0.done) / Double(max($0.total, 1))) }
         ) {
-            EmptyView()
+            // No count yet: a spinner says it's still working.
+            if progress == nil && !isPaused {
+                ProgressView()
+                    .controlSize(.small)
+            }
         }
     }
 

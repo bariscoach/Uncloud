@@ -542,7 +542,7 @@ extension ICloudExportEngine {
         case .fullWalk(let reason):
             emit(.continuation(.init(strategy: .fullWalk, startRank: 0, fallbackReason: reason)))
             if reason != nil {
-                emit(.note("Your library changed since the last export, so Uncloud is checking all of it. Items already on the drive are skipped."))
+                emit(.note("Your library changed since the last export, so Uncloud is checking all of it. Photos already in your backup are skipped."))
             }
             coverage = ICloudCoverage(libraryCount: libraryCount, base: nil)
         case .fromRank(let from):
