@@ -69,6 +69,14 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
          confirmedCount is how many items the user confirmed: if the targets resolved are more, nothing is sent
          and the run ends as "changed".
          Cancel and pause act between batches; a batch already sent can't be recalled.
+  {"cmd":"restore","mode":"only"|"allExcept","ids":[...],"hints":{id: rank},"batchSize":N,"confirmedCount":C}
+      recovers items from iCloud's Recently Deleted album (isDeleted = 0). The same run as delete, with the same
+      replies and events (deleteProgress, deleteTargets, deleted, deleteFailed, deleteDone), the same guards and
+      stops. The targets are resolved in Recently Deleted: "only" finds the IDs there, "allExcept" walks every item
+      there that isn't in ids. A changed album stops the run as "changed" with a message that says nothing was recovered.
+  {"cmd":"page","offset":N,"limit":N,"album":"recentlyDeleted"}  and {"cmd":"count","album":"recentlyDeleted"} read
+      Recently Deleted instead of the library when album says so. Without album, or with "library", they read the library.
+      Any other album is a badRequest. Recently Deleted items carry no days-left value: the bridge doesn't report one.
   {"cmd":"cancel","target":ID}        stops that download (between chunks) or stats walk (after its page).
   {"cmd":"pause","target":ID}         holds that download between chunks or items; browsing requests are
   {"cmd":"resume","target":ID}        still answered while it's held. Neither has a reply.
@@ -129,6 +137,15 @@ DELETE_FAILURE_STREAK = 3
 DELETE_CHANGED_MESSAGE = (
     "Your iCloud library changed since you confirmed, so nothing was deleted. Review your selection and try again."
 )
+RESTORE_CHANGED_MESSAGE = (
+    "Your iCloud library changed since you confirmed, so nothing was recovered. Review your selection and try again."
+)
+# What each command does: the album its targets come from (the same names page and count take), the isDeleted
+# value its batches set, and the message when the album changed since the user confirmed.
+DELETE_ACTIONS = {
+    "delete": {"album": "library", "isDeleted": 1, "changed": DELETE_CHANGED_MESSAGE},
+    "restore": {"album": "recentlyDeleted", "isDeleted": 0, "changed": RESTORE_CHANGED_MESSAGE},
+}
 # Session errors that mean Apple is limiting requests, whatever class they come as.
 THROTTLE_MARKERS = ("ACCESS_DENIED", "429", "503")
 
@@ -832,13 +849,15 @@ class Bridge:
             if command == "page":
                 offset = int(request.get("offset", 0))
                 limit = max(0, min(int(request.get("limit", 200)), MAX_PAGE_LIMIT))
+                album = self._album(request.get("album"))
                 items = [
                     {**describe(a), "rank": max(0, offset) + i}
-                    for i, a in enumerate(fetch_assets(self.library.all, offset, limit))
+                    for i, a in enumerate(fetch_assets(album, offset, limit))
                 ]
                 self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
             elif command == "count":
-                self.channel.send({"id": request_id, "event": "count", "count": len(self.library.all)})
+                album = self._album(request.get("album"))
+                self.channel.send({"id": request_id, "event": "count", "count": len(album)})
             elif command == "ping":
                 self.channel.answer_pings()
             elif command == "albums":
@@ -846,15 +865,15 @@ class Bridge:
 
                 names = [n for n in self.albums(refresh=True) if n not in PhotoLibrary.SMART_FOLDERS]
                 self.channel.send({"id": request_id, "event": "albums", "albums": names})
-            elif command in ("download", "stats", "delete"):
+            elif command in ("download", "stats", "delete", "restore"):
                 if downloading:
                     self._deferred.append(request)
                 elif command == "download":
                     self.download(request)
-                elif command == "delete":
-                    self.delete(request)
-                else:
+                elif command == "stats":
                     self.stats(request)
+                else:
+                    self.delete(request, action=command)
             else:
                 raise RequestError("badRequest", f"Unknown command {command!r}.")
         except RequestError as error:
@@ -870,6 +889,14 @@ class Bridge:
             if request is None:
                 return
             self.handle(request, downloading=True)
+
+    def _album(self, name: Any) -> Any:
+        """The album a request names: Recently Deleted for "recentlyDeleted", the library otherwise."""
+        if name is None or name == "library":
+            return self.library.all
+        if name == "recentlyDeleted":
+            return self.library.recently_deleted
+        raise RequestError("badRequest", "album must be library or recentlyDeleted.")
 
     def albums(self, refresh: bool = False) -> Dict[str, Any]:
         if self._albums is None or refresh:
@@ -1058,9 +1085,11 @@ class Bridge:
 
     # Deleting
 
-    def delete(self, request: Dict[str, Any]) -> None:
-        """Deletes items from iCloud Photos: resolves every target first (never deleting while walking, which
-        would shift the offsets), then sends CloudKit modify requests of `batchSize` items. See the protocol notes."""
+    def delete(self, request: Dict[str, Any], action: str = "delete") -> None:
+        """Deletes items from iCloud Photos (action "delete"), or recovers them from Recently Deleted ("restore").
+        Resolves every target first (never changing the album while walking, which would shift the offsets), then
+        sends CloudKit modify requests of `batchSize` items. See the protocol notes."""
+        spec = DELETE_ACTIONS[action]
         request_id = request.get("id")
         mode = request.get("mode")
         if mode not in ("only", "allExcept"):
@@ -1077,15 +1106,15 @@ class Bridge:
         missing = 0
         stopped = message = None
         try:
-            targets = self._delete_targets(mode, ids, hints, run)
+            targets = self._delete_targets(self._album(spec["album"]), mode, ids, hints, run)
             if not run.should_stop():
                 if len(targets) > confirmed:
-                    # The library grew since the user confirmed: delete nothing, not even the confirmed part.
-                    stopped, message = "changed", DELETE_CHANGED_MESSAGE
+                    # The album changed since the user confirmed: change nothing, not even the confirmed part.
+                    stopped, message = "changed", spec["changed"]
                 else:
                     run.targets([target.id for target in targets])
                     missing = len(ids) - len(targets) if mode == "only" else 0
-                    run.deleting(targets, batch_size)
+                    run.deleting(targets, batch_size, spec["isDeleted"])
         except DeleteStopped as stop:
             stopped, message = stop.kind, stop.message
         except DownloadStopped as error:
@@ -1097,8 +1126,7 @@ class Bridge:
             stopped, message = "throttled", str(error)
         run.finish(missing=missing, stopped=stopped, message=message)
 
-    def _delete_targets(self, mode: str, ids: set, hints: Dict[str, Any], run: "_DeleteRun") -> List["_DeleteTarget"]:
-        album = self.library.all
+    def _delete_targets(self, album: Any, mode: str, ids: set, hints: Dict[str, Any], run: "_DeleteRun") -> List["_DeleteTarget"]:
         targets: List[_DeleteTarget] = []
         if mode == "allExcept":
             total = len(album)
@@ -1130,8 +1158,8 @@ class Bridge:
                     run.tick("finding", len(targets), len(ids))
         return targets
 
-    def _delete_batch(self, batch: List["_DeleteTarget"]) -> tuple:
-        """One CloudKit modify request. Returns (deleted IDs, [(id, reason)] for the items that failed)."""
+    def _modify_batch(self, batch: List["_DeleteTarget"], is_deleted: int) -> tuple:
+        """One CloudKit modify request setting isDeleted. Returns (changed IDs, [(id, reason)] for the items that failed)."""
         library = self.library
         url = f"{library.service_endpoint}/records/modify?{urllib.parse.urlencode(library.params)}"
         body = {
@@ -1141,7 +1169,7 @@ class Bridge:
                 {
                     "operationType": "update",
                     "record": {
-                        "fields": {"isDeleted": {"value": 1}},
+                        "fields": {"isDeleted": {"value": is_deleted}},
                         "recordChangeTag": target.change_tag,
                         "recordName": target.record_name,
                         "recordType": "CPLAsset",
@@ -1244,7 +1272,7 @@ class _DeleteRun(_RequestRun):
     def targets(self, ids: List[str]) -> None:
         self.channel.send({"id": self.request_id, "event": "deleteTargets", "ids": ids})
 
-    def deleting(self, targets: List["_DeleteTarget"], batch_size: int) -> None:
+    def deleting(self, targets: List["_DeleteTarget"], batch_size: int, is_deleted: int) -> None:
         total = len(targets)
         self.progress("deleting", 0, total)
         streak = 0
@@ -1255,7 +1283,7 @@ class _DeleteRun(_RequestRun):
                 break
             batch = targets[start:start + batch_size]
             try:
-                deleted, failures = self.bridge._delete_batch(batch)
+                deleted, failures = self.bridge._modify_batch(batch, is_deleted)
             except DeleteStopped:
                 raise
             except Exception as error:  # noqa: BLE001

@@ -64,9 +64,9 @@ final class LibraryBrowser {
         self.init(source: .photosLibrary, backend: PhotoKitBrowserBackend())
     }
 
-    /// A browser of an iCloud Photos library, through the account's bridge.
-    convenience init(appleID: String) {
-        self.init(source: .iCloud, backend: ICloudBrowserBackend(appleID: appleID))
+    /// A browser of an iCloud Photos library, through the account's bridge: the library itself, or Recently Deleted.
+    convenience init(appleID: String, album: ICloudBridgeAlbum = .library) {
+        self.init(source: .iCloud, backend: ICloudBrowserBackend(appleID: appleID, album: album))
     }
 
     init(source: LibrarySource, backend: any LibraryBrowserBackend) {
@@ -355,21 +355,24 @@ enum PhotoKitBrowserError: LocalizedError {
     }
 }
 
-/// The iCloud Photos library, through the account's bridge and a page cache.
+/// The iCloud Photos library (or its Recently Deleted album), through the account's bridge and a page cache of its
+/// own. Thumbnails are shared between the two albums, since an item's thumbnail is the same in both.
 @MainActor
 final class ICloudBrowserBackend: LibraryBrowserBackend {
     private let cache: ICloudPageCache
 
-    init(appleID: String) {
+    init(appleID: String, album: ICloudBridgeAlbum = .library) {
         let directory = ICloudLibrary.browserThumbnailDirectory
         cache = ICloudPageCache(
-            fetcher: ICloudBridgeFetcher(bridge: .shared(appleID: appleID)),
+            fetcher: ICloudBridgeFetcher(bridge: .shared(appleID: appleID), album: album),
             thumbnailDirectory: directory,
             pageSize: LibraryBrowser.pageSize,
             maxPages: LibraryBrowser.maxPages
         )
-        Task.detached(priority: .background) {
-            ICloudPageCache.trimDiskCache(at: directory, limit: 500 * 1024 * 1024)
+        if album == .library {
+            Task.detached(priority: .background) {
+                ICloudPageCache.trimDiskCache(at: directory, limit: 500 * 1024 * 1024)
+            }
         }
     }
 

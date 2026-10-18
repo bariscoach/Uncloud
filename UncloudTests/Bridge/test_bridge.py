@@ -155,8 +155,9 @@ class FakeAlbum(PhotoAlbum):
 
 
 class FakeLibrary:
-    def __init__(self, samples, session):
+    def __init__(self, samples, session, trash=None):
         self._samples = samples
+        self._trash = [] if trash is None else trash
         self.session = session
         self.service_endpoint = "https://fake"
         self.params = {"clientId": "fake"}
@@ -168,6 +169,10 @@ class FakeLibrary:
     @property
     def all(self):
         return FakeAlbum(self._samples, self.session)
+
+    @property
+    def recently_deleted(self):
+        return FakeAlbum(self._trash, self.session, "Recently Deleted")
 
     @property
     def albums(self):
@@ -1153,11 +1158,14 @@ class ModifySession(FakeSession):
     """CloudKit's records/modify. Each CPLAsset named in the body is removed from `samples` in place, so the
     library reads back smaller, unless `fail` gives it a serverErrorCode reason or `omit` leaves it out of the
     answer. `status` maps a request's number (from 0) to an HTTP status, `raise_at` to an exception raised
-    instead, and `on_post(number)` runs before each answer. Every request is kept in `posts` as (url, body)."""
+    instead, and `on_post(number)` runs before each answer. Every request is kept in `posts` as (url, body).
+    A batch that sets isDeleted to 1 moves its records from `samples` to `trash`, and one that sets it to 0 moves
+    them back, sorted by added date as the library lists them."""
 
-    def __init__(self, samples, fail=None, omit=(), status=None, raise_at=None, on_post=None):
+    def __init__(self, samples, fail=None, omit=(), status=None, raise_at=None, on_post=None, trash=None):
         super().__init__(samples)
         self.samples = samples
+        self.trash = [] if trash is None else trash
         self.fail = fail or {}
         self.omit = set(omit)
         self.status = status or {}
@@ -1178,27 +1186,39 @@ class ModifySession(FakeSession):
             response.ok = False
             response.status_code = self.status[number]
             return response
-        records, removed = [], set()
+        records, changed = [], set()
+        is_deleted = None
         for operation in body["operations"]:
             name = operation["record"]["recordName"]
+            is_deleted = operation["record"]["fields"]["isDeleted"]["value"]
             if name in self.omit:
                 continue
             if name in self.fail:
                 records.append({"recordName": name, "serverErrorCode": "CAS_FAILED", "reason": self.fail[name]})
             else:
-                records.append({"recordName": name, "recordType": "CPLAsset", "fields": {"isDeleted": {"value": 1}}})
-                removed.add(name)
-        self.samples[:] = [sample for sample in self.samples if sample[1]["recordName"] not in removed]
+                records.append({"recordName": name, "recordType": "CPLAsset", "fields": {"isDeleted": {"value": is_deleted}}})
+                changed.add(name)
+        if is_deleted == 1:
+            source, target = self.samples, self.trash
+        else:
+            source, target = self.trash, self.samples
+        moving = [sample for sample in source if sample[1]["recordName"] in changed]
+        source[:] = [sample for sample in source if sample[1]["recordName"] not in changed]
+        target.extend(moving)
+        if is_deleted == 0:
+            target.sort(key=lambda sample: sample[1]["fields"]["addedDate"]["value"])
         response = FakeResponse({"records": records})
         response.status_code = 200
         return response
 
 
-def delete_bridge(samples=None, **options):
-    """A bridge over a copy of `samples` (the library's own list is changed by deletes), with a ModifySession."""
+def delete_bridge(samples=None, trash=None, **options):
+    """A bridge over a copy of `samples` (the library's own list is changed by deletes), with a ModifySession.
+    `trash` is Recently Deleted, the same kind of list."""
     samples = list(SAMPLES if samples is None else samples)
-    session = ModifySession(samples, **options)
-    library = FakeLibrary(samples, session)
+    trash = [] if trash is None else trash
+    session = ModifySession(samples, trash=trash, **options)
+    library = FakeLibrary(samples, session, trash)
     channel = Collector()
     bridge = pb.Bridge(channel, FakeICloud(library), library, "user@example.com", "/nonexistent-cookies")
     return bridge, channel, session
@@ -1465,6 +1485,161 @@ class DeleteTests(unittest.TestCase):
         self.delete(bridge, mode="only", ids=["ID01"], batchSize=0)
         self.assertEqual(channel.messages[-1]["kind"], "badRequest")
         self.delete(bridge, mode="only", ids=["ID01"], batchSize=201)
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+        self.assertEqual(session.posts, [])
+
+
+class RestoreTests(unittest.TestCase):
+    """Restore moves items from Recently Deleted back into the library, with the same guards and stops as delete."""
+    REQUEST_ID = 70
+
+    def setUp(self):
+        self.original_pace = pb.DELETE_PACE
+        pb.DELETE_PACE = 0.0
+
+    def tearDown(self):
+        pb.DELETE_PACE = self.original_pace
+
+    @staticmethod
+    def trashed(count):
+        """`count` items in Recently Deleted, added in order, none in the library."""
+        return [records(f"T{i:04d}", f"TRASH_{i:04d}.JPG", "public.jpeg", ms(2021, 1, 1) + i) for i in range(count)]
+
+    @staticmethod
+    def events(messages, name):
+        return [m for m in messages if m["event"] == name]
+
+    @staticmethod
+    def names(session):
+        return [op["record"]["recordName"] for _, body in session.posts for op in body["operations"]]
+
+    def restore(self, bridge, **request):
+        confirmed = len(bridge.library._trash)
+        request = {"id": self.REQUEST_ID, "cmd": "restore", "confirmedCount": confirmed, **request}
+        bridge.handle(request, downloading=False)
+        return [m for m in bridge.channel.messages if m.get("id") == self.REQUEST_ID]
+
+    def test_restore_moves_recently_deleted_items_back_into_the_library(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(3))
+        events = self.restore(bridge, mode="allExcept", ids=[])
+        self.assertEqual(events[-1]["event"], "deleteDone")
+        self.assertEqual((events[-1]["deleted"], events[-1]["failed"], events[-1]["stopped"]), (3, 0, None))
+        self.assertEqual(bridge.library._trash, [])
+        self.assertEqual(len(bridge.library._samples), 9)
+
+    def test_restore_request_body_sets_isDeleted_to_zero(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(1))
+        self.restore(bridge, mode="only", ids=["T0000"])
+        url, body = session.posts[0]
+        self.assertEqual(url.split("?")[0], "https://fake/records/modify")
+        self.assertEqual(body, {
+            "atomic": False,
+            "desiredKeys": ["isDeleted"],
+            "operations": [{
+                "operationType": "update",
+                "record": {
+                    "fields": {"isDeleted": {"value": 0}},
+                    "recordChangeTag": "x",
+                    "recordName": "A-T0000",
+                    "recordType": "CPLAsset",
+                },
+            }],
+            "zoneID": {"zoneName": "PrimarySync"},
+        })
+
+    def test_restore_walks_recently_deleted_and_never_touches_the_library(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(2))
+        events = self.restore(bridge, mode="allExcept", ids=["T0001"])
+        self.assertEqual(self.events(events, "deleteTargets")[0]["ids"], ["T0000"])
+        self.assertEqual(self.names(session), ["A-T0000"])
+        # The six library items stay; the restored one joins them, and the excluded one stays in Recently Deleted.
+        self.assertEqual(len(bridge.library._samples), 7)
+        self.assertEqual([s[0]["recordName"] for s in bridge.library._trash], ["T0001"])
+
+    def test_restore_only_mode_counts_items_not_in_recently_deleted_as_missing(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(1))
+        events = self.restore(bridge, mode="only", ids=["T0000", "ID01"])
+        self.assertEqual(self.names(session), ["A-T0000"])
+        self.assertEqual((events[-1]["deleted"], events[-1]["missing"]), (1, 1))
+
+    def test_restore_refuses_more_items_than_confirmed(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(3))
+        events = self.restore(bridge, mode="allExcept", ids=[], confirmedCount=2)
+        self.assertEqual(session.posts, [])
+        done = events[-1]
+        self.assertEqual((done["stopped"], done["deleted"]), ("changed", 0))
+        self.assertIn("nothing was recovered", done["message"])
+        self.assertEqual(len(bridge.library._trash), 3)
+
+    def test_restore_throttle_stops_with_the_items_it_did_not_reach(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(250), status={1: 503})
+        events = self.restore(bridge, mode="allExcept", ids=[])
+        done = events[-1]
+        self.assertEqual((done["stopped"], done["deleted"], done["failed"]), ("throttled", 100, 0))
+        self.assertEqual(len(session.posts), 2)
+        self.assertEqual(len(bridge.library._trash), 150, "the items not reached stay in Recently Deleted")
+
+    def test_restore_partial_failures_stay_in_recently_deleted(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(3), fail={"A-T0001": "Not allowed to restore this item."})
+        events = self.restore(bridge, mode="allExcept", ids=[])
+        failed = self.events(events, "deleteFailed")
+        self.assertEqual(failed[0]["failures"], [{"id": "T0001", "reason": "Not allowed to restore this item."}])
+        self.assertEqual(events[-1]["deleted"], 2)
+        self.assertEqual([s[0]["recordName"] for s in bridge.library._trash], ["T0001"])
+
+    def test_three_fully_failed_restore_batches_stop_as_error(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(400), status={0: 400, 1: 400, 2: 400})
+        events = self.restore(bridge, mode="allExcept", ids=[])
+        self.assertEqual(len(session.posts), 3)
+        self.assertEqual((events[-1]["stopped"], events[-1]["failed"]), ("error", 300))
+
+    def test_restore_cancel_stops_before_the_next_batch(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(250))
+
+        def cancel(number):
+            if number == 0:
+                channel.feed(f'{{"cmd":"cancel","target":{self.REQUEST_ID}}}')
+
+        session.on_post = cancel
+        events = self.restore(bridge, mode="allExcept", ids=[])
+        self.assertEqual(len(session.posts), 1)
+        self.assertTrue(events[-1]["cancelled"])
+        self.assertEqual(events[-1]["deleted"], 100)
+
+    def test_a_restore_during_a_download_waits_its_turn(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(1))
+        bridge.handle({"id": 71, "cmd": "restore", "mode": "allExcept", "ids": [], "confirmedCount": 1}, downloading=True)
+        self.assertEqual(len(bridge._deferred), 1)
+        self.assertEqual(session.posts, [])
+
+    def test_delete_then_restore_round_trips_the_library(self):
+        bridge, channel, session = delete_bridge()
+        DeleteTests.delete(self, bridge, mode="only", ids=["ID02", "ID05"])
+        self.assertEqual(len(bridge.library._trash), 2)
+        restored = self.restore(bridge, mode="allExcept", ids=[])
+        self.assertEqual(restored[-1]["deleted"], 2)
+        self.assertEqual(bridge.library._trash, [])
+        self.assertEqual([s[0]["recordName"] for s in bridge.library._samples], [s[0]["recordName"] for s in SAMPLES])
+
+    def test_page_and_count_read_recently_deleted(self):
+        bridge, channel, session = delete_bridge(trash=self.trashed(3))
+        bridge.handle({"id": 72, "cmd": "count", "album": "recentlyDeleted"}, downloading=False)
+        self.assertEqual(channel.messages[-1]["count"], 3)
+        bridge.handle({"id": 73, "cmd": "page", "album": "recentlyDeleted", "offset": 1, "limit": 5}, downloading=False)
+        page = channel.messages[-1]
+        self.assertEqual([item["id"] for item in page["items"]], ["T0001", "T0002"])
+        self.assertEqual([item["rank"] for item in page["items"]], [1, 2])
+        self.assertNotIn("daysLeft", page["items"][0], "the bridge reports no days left")
+        bridge.handle({"id": 74, "cmd": "count"}, downloading=False)
+        self.assertEqual(channel.messages[-1]["count"], 6, "without an album, the library")
+        bridge.handle({"id": 75, "cmd": "count", "album": "library"}, downloading=False)
+        self.assertEqual(channel.messages[-1]["count"], 6)
+
+    def test_an_unknown_album_is_refused(self):
+        bridge, channel, session = delete_bridge()
+        bridge.handle({"id": 76, "cmd": "page", "album": "bogus", "offset": 0, "limit": 5}, downloading=False)
+        self.assertEqual((channel.messages[-1]["event"], channel.messages[-1]["kind"]), ("error", "badRequest"))
+        bridge.handle({"id": 77, "cmd": "count", "album": "bogus"}, downloading=False)
         self.assertEqual(channel.messages[-1]["kind"], "badRequest")
         self.assertEqual(session.posts, [])
 

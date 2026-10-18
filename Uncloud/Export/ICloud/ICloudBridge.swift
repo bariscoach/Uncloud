@@ -211,23 +211,43 @@ enum ICloudBridgeDownloadEvent: Sendable, Equatable {
     }
 }
 
+/// The album a browse or count reads: the library, or Recently Deleted (the items deleted from iCloud Photos).
+enum ICloudBridgeAlbum: Sendable, Equatable {
+    case library
+    case recentlyDeleted
+
+    /// The `album` field of a request. Nil for the library, which requests leave out.
+    var requestName: String? {
+        self == .library ? nil : "recentlyDeleted"
+    }
+}
+
 /// What to delete from iCloud Photos, for `ICloudBridge.delete(_:)`. Deleted items move to Recently Deleted.
+/// The same options with `.restore` recover items from Recently Deleted instead.
 ///
-/// The bridge resolves every target before it deletes anything, so the walk never sees the library change.
+/// The bridge resolves every target before it changes anything, so the walk never sees the album change.
 struct ICloudBridgeDeleteOptions: Sendable, Equatable {
     enum Mode: String, Sendable {
-        /// Only the items in `ids`. Items no longer in the library count as missing.
+        /// Only the items in `ids`. Items no longer in the album count as missing.
         case only
         /// Every item except the items in `ids`.
         case allExcept
+    }
+
+    enum Action: Sendable, Equatable {
+        /// Moves items from the library to Recently Deleted.
+        case delete
+        /// Moves items from Recently Deleted back into the library.
+        case restore
     }
 
     /// The largest batch the bridge accepts.
     static let maxBatchSize = 200
 
     var mode: Mode
-    /// How many items the user confirmed. Required: a run never deletes more than this many.
+    /// How many items the user confirmed. Required: a run never changes more than this many.
     var confirmedCount: Int
+    var action: Action = .delete
     var ids: [String] = []
     /// Where each ID was last seen, so `.only` fetches those pages instead of walking the library.
     var rankHints: [String: Int]?
@@ -236,7 +256,7 @@ struct ICloudBridgeDeleteOptions: Sendable, Equatable {
 
     var request: ICloudBridgeRequest {
         ICloudBridgeRequest(
-            cmd: "delete",
+            cmd: action == .delete ? "delete" : "restore",
             mode: mode.rawValue,
             ids: ids,
             hints: rankHints,
@@ -382,7 +402,7 @@ final class ICloudBridge: Sendable {
     private static let terminateGrace = DispatchTimeInterval.seconds(5)
     private static let readChunk = 64 * 1024
     /// Requests the bridge stops by itself, between chunks or pages, when they're cancelled.
-    private static let longCommands: Set<String> = ["download", "stats", "delete"]
+    private static let longCommands: Set<String> = ["download", "stats", "delete", "restore"]
     /// Events that end a request.
     private static let finalEvents: Set<String> = ["error", "page", "count", "albums", "done", "stats", "pong", "deleteDone"]
 
@@ -470,9 +490,10 @@ final class ICloudBridge: Sendable {
         }
     }
 
-    /// Items `offset..<offset + limit` in icloudpd's order (oldest first).
-    func page(offset: Int, limit: Int) async throws -> [ICloudBridgeMessage.Item] {
-        for try await message in try await send(ICloudBridgeRequest(cmd: "page", offset: offset, limit: limit)) {
+    /// Items `offset..<offset + limit` in icloudpd's order (oldest first), of the library or Recently Deleted.
+    func page(offset: Int, limit: Int, album: ICloudBridgeAlbum = .library) async throws -> [ICloudBridgeMessage.Item] {
+        let request = ICloudBridgeRequest(cmd: "page", offset: offset, limit: limit, album: album.requestName)
+        for try await message in try await send(request) {
             if message.event == "page" {
                 return message.items ?? []
             }
@@ -480,12 +501,14 @@ final class ICloudBridge: Sendable {
         throw CancellationError()
     }
 
-    /// The library's current size.
-    func count() async throws -> Int {
-        for try await message in try await send(ICloudBridgeRequest(cmd: "count")) {
+    /// The size of the library, or of Recently Deleted. Only the library's size is kept for `ready()` and the app.
+    func count(album: ICloudBridgeAlbum = .library) async throws -> Int {
+        for try await message in try await send(ICloudBridgeRequest(cmd: "count", album: album.requestName)) {
             if message.event == "count", let count = message.count {
-                state.withLock { $0.count = count }
-                ICloudLibrary.cacheLibraryCount(count)
+                if album == .library {
+                    state.withLock { $0.count = count }
+                    ICloudLibrary.cacheLibraryCount(count)
+                }
                 return count
             }
         }
@@ -578,8 +601,9 @@ final class ICloudBridge: Sendable {
         write(ICloudBridgeRequest(cmd: "cancel", target: id))
     }
 
-    /// Starts deleting items from iCloud Photos and streams its events through `deleteDone`. Ending the stream
-    /// early asks the bridge to stop before its next batch (see `cancelRequest(_:)`).
+    /// Starts deleting items from iCloud Photos, or recovering them from Recently Deleted when `options.action` is
+    /// `.restore`, and streams its events through `deleteDone`. Ending the stream early asks the bridge to stop
+    /// before its next batch (see `cancelRequest(_:)`). Both actions send the same events.
     func delete(_ options: ICloudBridgeDeleteOptions) async throws -> ICloudBridgeDeletion {
         let (id, messages) = try await start(options.request)
         return ICloudBridgeDeletion(id: id, messages: messages)
@@ -1106,13 +1130,15 @@ extension ICloudBridgeMessage.Item {
 /// Feeds the page cache from the bridge.
 struct ICloudBridgeFetcher: ICloudPageFetching {
     let bridge: ICloudBridge
+    /// The album this fetcher pages: the library, or Recently Deleted.
+    var album: ICloudBridgeAlbum = .library
 
     func count() async throws -> Int {
         try await bridge.ready()
-        return try await bridge.count()
+        return try await bridge.count(album: album)
     }
 
     func assets(offset: Int, limit: Int) async throws -> [ICloudAsset] {
-        try await bridge.page(offset: offset, limit: limit).map(\.asset)
+        try await bridge.page(offset: offset, limit: limit, album: album).map(\.asset)
     }
 }

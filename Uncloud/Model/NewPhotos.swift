@@ -42,6 +42,39 @@ struct NewPhotosWatermark: Codable, Equatable, Sendable {
     var newestAddedDate: Date?
 }
 
+/// The watermark a run would save if it completes, captured when the run starts, before its walk. Anything added to
+/// the library after this point is then new afterwards, even if the run walks past it. Saved only under
+/// `NewPhotosWatermarkPolicy`.
+struct NewPhotosCandidate: Equatable, Sendable {
+    let context: NewPhotosContext
+    let watermark: NewPhotosWatermark
+    /// The Photos library's identifiers at the start. Nil for iCloud.
+    let libraryIDs: Set<String>?
+
+    /// iCloud: `newest` is rank 0 when the run starts.
+    static func iCloud(context: NewPhotosContext, newest: ICloudAsset?, exportedAt: Date, libraryCount: Int?) -> NewPhotosCandidate {
+        NewPhotosCandidate(
+            context: context,
+            watermark: NewPhotosWatermark(
+                exportedAt: exportedAt,
+                libraryCount: libraryCount,
+                newestAssetID: newest?.id,
+                newestAddedDate: newest?.added
+            ),
+            libraryIDs: nil
+        )
+    }
+
+    /// Photos library: `ids` are the identifiers in the library when the run starts.
+    static func library(context: NewPhotosContext, ids: Set<String>, exportedAt: Date) -> NewPhotosCandidate {
+        NewPhotosCandidate(
+            context: context,
+            watermark: NewPhotosWatermark(exportedAt: exportedAt, libraryCount: ids.count),
+            libraryIDs: ids
+        )
+    }
+}
+
 /// What is new since the watermark. `isAtLeast` means the count stopped at the walk's limit.
 struct NewPhotosStatus: Equatable, Sendable {
     let count: Int

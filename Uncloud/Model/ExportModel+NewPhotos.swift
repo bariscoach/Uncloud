@@ -31,8 +31,18 @@ extension ExportModel {
         newPhotos.cancelRefresh()
     }
 
-    /// Saves the watermark when an export of everything finished completely. Called as a run ends.
+    /// Captures the watermark a run of everything would save, as the run starts and before its walk. Called from
+    /// startExport. Returns nil when there's no folder or account, or the run isn't of everything.
+    func captureNewPhotosCandidate(for selection: LibrarySelection) async -> NewPhotosCandidate? {
+        guard selection.isEverything, let context = newPhotosContext else { return nil }
+        return await newPhotos.captureCandidate(context, at: currentDate())
+    }
+
+    /// Saves the watermark captured when the run started, if the run completed an export of everything. Called as a
+    /// run ends. Items added during the run are not in the candidate, so they stay new.
     func recordNewPhotosWatermark(_ result: Phase, selection: LibrarySelection) {
+        let candidate = newPhotosCandidate
+        newPhotosCandidate = nil
         let outcome: RunOutcome
         switch result {
         case .completed: outcome = .completed
@@ -41,8 +51,8 @@ extension ExportModel {
         default: return
         }
         guard NewPhotosWatermarkPolicy.shouldRecord(outcome: outcome, isEverything: selection.isEverything, failedCount: failedCount),
-              let context = newPhotosContext else { return }
-        newPhotos.recordWatermark(context)
+              let candidate else { return }
+        newPhotos.recordWatermark(candidate)
     }
 
     /// The periodic check, every few hours while the app runs: recounts, and posts the reminder when it's due.

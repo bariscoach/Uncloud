@@ -93,7 +93,11 @@ final class ExportModel {
     /// Browses the current source's whole library. Nil while iCloud is signed out.
     /// Replaced when the source or the iCloud account changes.
     private(set) var browser: LibraryBrowser?
-    /// Deletes items from iCloud Photos for the current account; nil while iCloud is signed out. Replaced with `browser`.
+    /// Browses Recently Deleted, the iCloud album of items deleted from iCloud Photos. Nil while iCloud is signed out.
+    /// Replaced with `browser`.
+    private(set) var recentlyDeletedBrowser: LibraryBrowser?
+    /// Deletes items from iCloud Photos, and recovers them from Recently Deleted, for the current account; nil while
+    /// iCloud is signed out. Replaced with `browser`.
     private(set) var iCloudCleanup: ICloudCleanup?
     /// Which items of the current source exports and automatic backups include. Saved per source
     /// and account; replaced along with `browser`.
@@ -183,6 +187,8 @@ final class ExportModel {
     /// The drive check in progress, so Cancel and a starting export can stop it.
     @ObservationIgnored private var driveCheckTask: Task<DriveCheckReport?, Never>?
     @ObservationIgnored private var driveCheckToken = UUID()
+    /// The watermark the running export of everything will save if it completes. Captured before its walk starts.
+    @ObservationIgnored var newPhotosCandidate: NewPhotosCandidate?
 
     static let bookmarkKey = "destinationBookmark"
     private static let layoutKey = "folderLayout"
@@ -291,16 +297,20 @@ final class ExportModel {
         switch source {
         case .photosLibrary:
             browser = LibraryBrowser()
+            recentlyDeletedBrowser = nil
             iCloudCleanup = nil
             selection = selectionStore.load(source: .photosLibrary, account: nil)
         case .iCloud:
             if let account {
                 let newBrowser = LibraryBrowser(appleID: account)
+                let trash = LibraryBrowser(appleID: account, album: .recentlyDeleted)
                 browser = newBrowser
-                iCloudCleanup = makeICloudCleanup(appleID: account, browser: newBrowser)
+                recentlyDeletedBrowser = trash
+                iCloudCleanup = makeICloudCleanup(appleID: account, browser: newBrowser, recentlyDeleted: trash)
                 selection = selectionStore.load(source: .iCloud, account: account)
             } else {
                 browser = nil
+                recentlyDeletedBrowser = nil
                 iCloudCleanup = nil
                 selection = .everything
             }
@@ -308,18 +318,31 @@ final class ExportModel {
         storage.configure(source: source, account: account, browser: browser, selection: selection)
     }
 
-    private func makeICloudCleanup(appleID: String, browser: LibraryBrowser) -> ICloudCleanup {
+    private func makeICloudCleanup(appleID: String, browser: LibraryBrowser, recentlyDeleted: LibraryBrowser) -> ICloudCleanup {
         ICloudCleanup(appleID: appleID, bridge: .shared(appleID: appleID), environment: ICloudCleanup.Environment(
             isExportRunning: { [weak self] in self.map { $0.isExporting || $0.isEngineRunning } ?? false },
             libraryCount: { [weak browser] in browser?.count },
             rankHints: { [weak browser] ids in await browser?.rankHints(for: ids) ?? [:] },
-            libraryDidChange: { [weak self, weak browser] deleted in
-                browser?.reload()
-                // The saved sizes were measured for items that are gone now; measure the library again.
-                AssetSizeStore().removeAll()
+            libraryDidChange: { [weak self, weak browser, weak recentlyDeleted] deleted in
+                Self.iCloudAlbumsDidChange(browser: browser, recentlyDeleted: recentlyDeleted)
                 self?.iCloudItemsDeleted(deleted)
+            },
+            recentlyDeletedCount: { [weak recentlyDeleted] in recentlyDeleted?.count },
+            recentlyDeletedRankHints: { [weak recentlyDeleted] ids in await recentlyDeleted?.rankHints(for: ids) ?? [:] },
+            recoveryDidChange: { [weak self, weak browser, weak recentlyDeleted] _ in
+                Self.iCloudAlbumsDidChange(browser: browser, recentlyDeleted: recentlyDeleted)
+                // Recovered items join the library, but the export selection is left as it is.
+                self?.storage.libraryContentsDidChange()
             }
         ))
+    }
+
+    /// After items moved between the library and Recently Deleted: both albums count again, and the saved sizes,
+    /// which were measured for the library before, are measured again.
+    private static func iCloudAlbumsDidChange(browser: LibraryBrowser?, recentlyDeleted: LibraryBrowser?) {
+        browser?.reload()
+        recentlyDeleted?.reload()
+        AssetSizeStore().removeAll()
     }
 
     /// After items were deleted from iCloud Photos: the export selection forgets them, and the size estimate
@@ -663,6 +686,7 @@ final class ExportModel {
     ) async -> Bool {
         guard !isExporting, !isEngineRunning else { return false }
         cancelNewPhotosRefresh()
+        newPhotosCandidate = nil
         let previousPhase = phase
         phase = .preparing
 
@@ -737,6 +761,14 @@ final class ExportModel {
             }
         }
         // Cancelled while checking: don't start the engine at all.
+        guard number == runNumber, phase == .preparing else {
+            if number == runNumber {
+                finish(.cancelled)
+            }
+            return true
+        }
+        // The watermark is captured before the walk, so items added during the run stay new afterwards.
+        newPhotosCandidate = await captureNewPhotosCandidate(for: selection)
         guard number == runNumber, phase == .preparing else {
             if number == runNumber {
                 finish(.cancelled)

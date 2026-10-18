@@ -2,15 +2,38 @@ import Foundation
 import Observation
 import os
 
-/// Deletes the chosen items from iCloud Photos in batches, through the account's bridge. Deleted items move to
-/// Recently Deleted on every device, where they stay for 30 days. The backup on the destination drive and its
-/// manifest are never touched.
+/// Deletes the chosen items from iCloud Photos in batches, through the account's bridge, or recovers the chosen items
+/// from Recently Deleted. Deleted items move to Recently Deleted on every device, where they stay for 30 days. The
+/// backup on the destination drive and its manifest are never touched.
 ///
-/// A run starts only from `start(typed:)`, after the user has typed the number of items in the confirmation. It ends
-/// when it finishes, when the user cancels it, or when the retries after Apple's throttle run out.
+/// A deletion starts only from `start(typed:)`, after the user has typed the number of items in the confirmation. A
+/// recovery starts from `recover()`, with no number to type, since recovering isn't destructive. Both end when they
+/// finish, when the user cancels them, or when the retries after Apple's throttle run out. Only one runs at a time.
 @MainActor
 @Observable
 final class ICloudCleanup {
+    /// Which items a run works on: the library (delete them) or Recently Deleted (recover them).
+    enum Mode: String, CaseIterable, Identifiable, Sendable {
+        case library
+        case recentlyDeleted
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .library: "Library"
+            case .recentlyDeleted: "Recently Deleted"
+            }
+        }
+
+        var action: ICloudBridgeDeleteOptions.Action {
+            switch self {
+            case .library: .delete
+            case .recentlyDeleted: .restore
+            }
+        }
+    }
+
     enum State: Equatable {
         case idle
         case confirming
@@ -23,12 +46,15 @@ final class ICloudCleanup {
     }
 
     struct Summary: Equatable {
+        /// Items deleted, or recovered when `action` is `.restore`.
         let deleted: Int
         let failures: [ICloudBridgeDeleteFailure]
         let missing: Int
         let cancelled: Bool
         /// Why the run stopped short, when it wasn't cancelled by the user. Nil otherwise.
         let stoppedMessage: String?
+        /// What the run did, so the summary says "Deleted" or "Recovered" whatever the mode is now.
+        var action: ICloudBridgeDeleteOptions.Action = .delete
     }
 
     /// What the cleanup needs from the rest of the app.
@@ -39,8 +65,14 @@ final class ICloudCleanup {
         var libraryCount: @MainActor () -> Int?
         /// Where the given IDs were last seen, so a selection of a few items doesn't walk the whole library.
         var rankHints: @MainActor (Set<String>) async -> [String: Int]
-        /// Called once a run that deleted something has ended. The app reloads what shows the library.
+        /// Called once a deletion that deleted something has ended. The app reloads what shows the library.
         var libraryDidChange: @MainActor (Set<String>) -> Void
+        /// The number of items in Recently Deleted, once known.
+        var recentlyDeletedCount: @MainActor () -> Int? = { nil }
+        /// Where the given IDs were last seen in Recently Deleted, for `.only` recoveries.
+        var recentlyDeletedRankHints: @MainActor (Set<String>) async -> [String: Int] = { _ in [:] }
+        /// Called once a recovery that recovered something has ended. The app reloads both albums.
+        var recoveryDidChange: @MainActor (Set<String>) -> Void = { _ in }
     }
 
     /// Waits before each retry after Apple's throttle: 1, 2, 5, 10, then 15 minutes.
@@ -50,9 +82,13 @@ final class ICloudCleanup {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Uncloud", category: "cleanup")
 
     let appleID: String
-    /// The items a run deletes. Separate from the export selection, and empty to start with.
-    var selection: LibrarySelection = .only([])
     private(set) var state: State = .idle
+    /// The list the toolbar shows: the library, or Recently Deleted. Changes only while nothing runs.
+    private(set) var mode: Mode = .library
+    /// Each mode's own selection, so the items picked in one don't change the other.
+    private(set) var selections: [Mode: LibrarySelection] = [.library: .only([]), .recentlyDeleted: .only([])]
+    /// The mode the current or last run worked on.
+    private(set) var runMode: Mode = .library
     /// The number the user must type to confirm: the items the selection covers when confirmation opened.
     private(set) var pendingCount = 0
     /// True from the user's Stop until the run has ended, after its batch in progress.
@@ -62,6 +98,7 @@ final class ICloudCleanup {
     @ObservationIgnored private let environment: Environment
     @ObservationIgnored private let retryDelays: [TimeInterval]
     @ObservationIgnored private let batchSize: Int
+    /// The IDs the run deleted (or recovered).
     @ObservationIgnored private var deleted: Set<String> = []
     @ObservationIgnored private var failures: [String: String] = [:]
     @ObservationIgnored private var missing = 0
@@ -101,14 +138,36 @@ final class ICloudCleanup {
         }
     }
 
-    /// The items the selection covers, as the toolbar counts them. Zero until the library's count is known.
+    /// The selection of the current mode, which the toolbar and the grid show.
+    var selection: LibrarySelection {
+        get { selections[mode] ?? .only([]) }
+        set { selections[mode] = newValue }
+    }
+
+    /// The items the selection covers, as the toolbar counts them. Zero until the count of the mode's list is known.
     var selectedCount: Int {
-        selection.selectedCount(total: environment.libraryCount() ?? 0)
+        selection.selectedCount(total: count(for: mode) ?? 0)
     }
 
     /// True when Clean Up can ask for confirmation: something is selected, nothing else is running.
     var canRequestConfirmation: Bool {
-        !isRunning && !environment.isExportRunning() && environment.libraryCount() != nil && selectedCount > 0
+        !isRunning && !environment.isExportRunning() && count(for: mode) != nil && selectedCount > 0
+    }
+
+    /// Shows the library or Recently Deleted. Nothing changes while a run is going.
+    func setMode(_ mode: Mode) {
+        guard !isRunning, self.mode != mode else { return }
+        if state == .confirming {
+            cancelConfirmation()
+        }
+        self.mode = mode
+    }
+
+    private func count(for mode: Mode) -> Int? {
+        switch mode {
+        case .library: environment.libraryCount()
+        case .recentlyDeleted: environment.recentlyDeletedCount()
+        }
     }
 
     func requestConfirmation() {
@@ -128,21 +187,36 @@ final class ICloudCleanup {
         return text == String(count) || text == count.formatted()
     }
 
-    /// Starts the deletion once the confirmation is open and `typed` matches it. False when it didn't start.
+    /// Starts deleting the library's selection once the confirmation is open and `typed` matches it. False when it
+    /// didn't start, including in Recently Deleted, which recovers instead (see `recover()`).
     @discardableResult
     func start(typed: String) -> Bool {
-        guard state == .confirming, Self.typedNumberMatches(typed, count: pendingCount),
-              !environment.isExportRunning(), environment.libraryCount() != nil else { return false }
+        guard mode == .library, Self.typedNumberMatches(typed, count: pendingCount) else { return false }
+        return launch()
+    }
+
+    /// Starts recovering the Recently Deleted selection once the confirmation is open. No number is typed: recovering
+    /// isn't destructive. False in the library, or when nothing was confirmed.
+    @discardableResult
+    func recover() -> Bool {
+        guard mode == .recentlyDeleted else { return false }
+        return launch()
+    }
+
+    private func launch() -> Bool {
+        guard state == .confirming, !environment.isExportRunning(), count(for: mode) != nil else { return false }
         let selection = selection
+        let mode = mode
         deleted = []
         failures = [:]
         missing = 0
         retries = 0
         confirmedCount = pendingCount
         isStopping = false
+        runMode = mode
         state = .finding(done: 0, total: pendingCount)
-        Self.logger.info("Clean up started for \(self.pendingCount) items")
-        runTask = Task { await begin(selection) }
+        Self.logger.info("\(mode.action == .delete ? "Clean up" : "Recovery") started for \(self.pendingCount) items")
+        runTask = Task { await begin(selection, mode: mode) }
         return true
     }
 
@@ -203,21 +277,30 @@ final class ICloudCleanup {
 
     // MARK: - Running
 
-    private func begin(_ selection: LibrarySelection) async {
+    private func begin(_ selection: LibrarySelection, mode: Mode) async {
         let options: ICloudBridgeDeleteOptions
         switch selection {
         case .only(let ids):
-            // The bridge walks the library for the ones it has no hint for.
-            let hints = await environment.rankHints(ids)
+            // The bridge walks the album for the ones it has no hint for.
+            let hints = await rankHints(for: mode, ids)
             options = ICloudBridgeDeleteOptions(
-                mode: .only, confirmedCount: confirmedCount, ids: ids.sorted(), rankHints: hints, batchSize: batchSize
+                mode: .only, confirmedCount: confirmedCount, action: mode.action,
+                ids: ids.sorted(), rankHints: hints, batchSize: batchSize
             )
         case .allExcept(let excluded):
             options = ICloudBridgeDeleteOptions(
-                mode: .allExcept, confirmedCount: confirmedCount, ids: excluded.sorted(), batchSize: batchSize
+                mode: .allExcept, confirmedCount: confirmedCount, action: mode.action,
+                ids: excluded.sorted(), batchSize: batchSize
             )
         }
         await attempt(options)
+    }
+
+    private func rankHints(for mode: Mode, _ ids: Set<String>) async -> [String: Int] {
+        switch mode {
+        case .library: await environment.rankHints(ids)
+        case .recentlyDeleted: await environment.recentlyDeletedRankHints(ids)
+        }
     }
 
     private func attempt(_ options: ICloudBridgeDeleteOptions) async {
@@ -287,7 +370,8 @@ final class ICloudCleanup {
                 return
             }
             next = ICloudBridgeDeleteOptions(
-                mode: .only, confirmedCount: remaining.count, ids: remaining, batchSize: current.batchSize
+                mode: .only, confirmedCount: remaining.count, action: current.action,
+                ids: remaining, batchSize: current.batchSize
             )
         } else if current.mode == .only {
             let remaining = current.ids.filter { !deleted.contains($0) }
@@ -296,7 +380,7 @@ final class ICloudCleanup {
                 return
             }
             next = ICloudBridgeDeleteOptions(
-                mode: .only, confirmedCount: remaining.count, ids: remaining,
+                mode: .only, confirmedCount: remaining.count, action: current.action, ids: remaining,
                 rankHints: current.rankHints, batchSize: current.batchSize
             )
         } else {
@@ -320,17 +404,23 @@ final class ICloudCleanup {
         runTask = nil
         deletionID = nil
         pendingRetry = nil
+        let action = runMode.action
         let summary = Summary(
             deleted: deleted.count,
             failures: failures.map { ICloudBridgeDeleteFailure(id: $0.key, reason: $0.value) }.sorted { $0.id < $1.id },
             missing: missing,
             cancelled: cancelled,
-            stoppedMessage: stoppedMessage
+            stoppedMessage: stoppedMessage,
+            action: action
         )
-        Self.logger.info("Clean up ended: \(summary.deleted) deleted, \(summary.failures.count) failed, \(summary.missing) missing")
+        Self.logger.info("Clean up ended: \(summary.deleted) changed, \(summary.failures.count) failed, \(summary.missing) missing")
         if !deleted.isEmpty {
-            selection = selection.forgetting(deleted)
-            environment.libraryDidChange(deleted)
+            // Deleted items leave the library selection; recovered items leave the Recently Deleted one.
+            selections[runMode] = (selections[runMode] ?? .only([])).forgetting(deleted)
+            switch action {
+            case .delete: environment.libraryDidChange(deleted)
+            case .restore: environment.recoveryDidChange(deleted)
+            }
         }
         if summary.deleted == 0, summary.failures.isEmpty, !cancelled, let stoppedMessage {
             state = .failed(stoppedMessage)

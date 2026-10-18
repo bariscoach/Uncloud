@@ -114,6 +114,44 @@ struct NewPhotosTests {
         #expect(result.isAtLeast)
     }
 
+    /// A run's watermark is captured when it starts. A photo added while the run walks is newer than that
+    /// watermark, so it still counts as new afterwards.
+    @Test func photoAddedDuringTheRunStaysNew() async throws {
+        let folder = URL(fileURLWithPath: "/Volumes/Backup/Photos", isDirectory: true)
+        let context = NewPhotosContext(destination: folder, source: .iCloud, appleID: "someone@example.com")
+        let before = Self.library(10)
+        let candidate = NewPhotosCandidate.iCloud(context: context, newest: before[0], exportedAt: Self.base, libraryCount: 10)
+
+        // During the run, a photo is added. It is rank 0 now, with a later added date.
+        let added = ICloudAsset(
+            id: "added-during-run",
+            filename: "IMG_NEW.HEIC",
+            created: nil,
+            isVideo: false,
+            thumbnailURL: nil,
+            added: Self.base.addingTimeInterval(3_600)
+        )
+        let library = [added] + before
+
+        let result = try await NewPhotosCounter.countICloud(since: candidate.watermark, fetcher: FakeWalk(items: library))
+        #expect(result.count == 1)
+        #expect(!result.isAtLeast)
+
+        // The old end-of-run capture would have kept the added photo as the newest, so it would have counted none.
+        let endOfRun = Self.watermark(newestID: added.id, newestAdded: added.added)
+        let lost = try await NewPhotosCounter.countICloud(since: endOfRun, fetcher: FakeWalk(items: library))
+        #expect(lost.count == 0)
+    }
+
+    @Test func libraryPhotoAddedDuringTheRunStaysNew() {
+        let folder = URL(fileURLWithPath: "/Volumes/Backup/Photos", isDirectory: true)
+        let context = NewPhotosContext(destination: folder, source: .photosLibrary, appleID: nil)
+        let candidate = NewPhotosCandidate.library(context: context, ids: ["a", "b"], exportedAt: Self.base)
+        // The walk saw "c" added during the run. The start's identifiers don't have it, so it is new.
+        let current: Set<String> = ["a", "b", "c"]
+        #expect(NewPhotosCounter.countLibrary(current: current, exported: candidate.libraryIDs ?? []) == 1)
+    }
+
     @Test func libraryCountIsSetDifference() {
         let current: Set<String> = ["a", "b", "c", "d"]
         let exported: Set<String> = ["a", "b", "gone"]

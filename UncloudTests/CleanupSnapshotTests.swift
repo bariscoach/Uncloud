@@ -81,6 +81,7 @@ struct CleanupSnapshotTests {
             let browser = LibraryBrowser(source: .iCloud, backend: FakeBrowserBackend(count: 60))
             browser.load()
             try await Self.wait { browser.count != nil }
+            let recentlyDeleted = LibraryBrowser(source: .iCloud, backend: FakeBrowserBackend(count: 0))
 
             let (bridge, _) = try Self.fakeBridge(root: drive, options: ["--total", "60", "--delete-batch-delay", "0.6", "--delete-fail-every", "11"])
             defer { bridge.terminate() }
@@ -91,7 +92,8 @@ struct CleanupSnapshotTests {
                     isExportRunning: { false },
                     libraryCount: { browser.count },
                     rankHints: { _ in [:] },
-                    libraryDidChange: { _ in }
+                    libraryDidChange: { _ in },
+                    recentlyDeletedCount: { recentlyDeleted.count }
                 ),
                 batchSize: 2
             )
@@ -101,7 +103,9 @@ struct CleanupSnapshotTests {
 
             for scheme in [ColorScheme.light, .dark] {
                 let image = try #require(await Self.render(
-                    CleanupGridView(cleanup: cleanup, browser: browser, destination: drive, isExportRunning: false)
+                    CleanupGridView(
+                        cleanup: cleanup, library: browser, recentlyDeleted: recentlyDeleted, destination: drive, isExportRunning: false
+                    )
                         .frame(width: 720, height: 520),
                     size: NSSize(width: 720, height: 520), scheme: scheme
                 ))
@@ -128,7 +132,9 @@ struct CleanupSnapshotTests {
             try await Self.wait { if case let .deleting(done, _, _) = cleanup.state { done >= 4 } else { false } }
             for scheme in [ColorScheme.light, .dark] {
                 let image = try #require(await Self.render(
-                    CleanupGridView(cleanup: cleanup, browser: browser, destination: drive, isExportRunning: false)
+                    CleanupGridView(
+                        cleanup: cleanup, library: browser, recentlyDeleted: recentlyDeleted, destination: drive, isExportRunning: false
+                    )
                         .frame(width: 720, height: 520),
                     size: NSSize(width: 720, height: 520), scheme: scheme
                 ))
@@ -148,6 +154,130 @@ struct CleanupSnapshotTests {
                     size: NSSize(width: 720, height: 260), scheme: scheme
                 ))
                 try Self.save(image, named: "finished-\(Self.name(scheme)).png", in: output)
+            }
+        }
+    }
+
+    /// Recently Deleted: the grid with a selection, the empty state, the recovery sheet, the progress while recovering,
+    /// and the finished summary, in light and dark. The fake starts with twelve items in Recently Deleted, and fails
+    /// the ones numbered 0, 5 and 10 to show the failures in the summary.
+    @Test(.timeLimit(.minutes(3))) func rendersRecentlyDeletedGridRecoverAlertAndFinishedInLightAndDark() async throws {
+        let output = try #require(cleanupSnapshotDirectory)
+        try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+
+        try await withTemporaryDirectoryAsync { drive in
+            // Every third item of Recently Deleted is backed up on the drive.
+            let manifest = try ExportManifest(destination: drive)
+            for number in stride(from: 0, to: 12, by: 3) {
+                let path = "2024/07/IMG_\(number).HEIC"
+                try writeFile("photo", to: path, in: drive)
+                try manifest.recordICloudItem(id: "asset-\(number)", paths: [path])
+            }
+
+            let library = LibraryBrowser(source: .iCloud, backend: FakeBrowserBackend(count: 48))
+            library.load()
+            let trash = LibraryBrowser(source: .iCloud, backend: FakeBrowserBackend(count: 12))
+            trash.load()
+            try await Self.wait { trash.count != nil }
+
+            let (bridge, _) = try Self.fakeBridge(root: drive, options: [
+                "--total", "60", "--trash-first", "12", "--delete-batch-delay", "0.6", "--delete-fail-every", "5",
+            ])
+            defer { bridge.terminate() }
+            let cleanup = ICloudCleanup(
+                appleID: "fake@example.invalid",
+                bridge: bridge,
+                environment: ICloudCleanup.Environment(
+                    isExportRunning: { false },
+                    libraryCount: { library.count },
+                    rankHints: { _ in [:] },
+                    libraryDidChange: { _ in },
+                    recentlyDeletedCount: { trash.count },
+                    recoveryDidChange: { _ in }
+                ),
+                batchSize: 2
+            )
+            cleanup.setMode(.recentlyDeleted)
+            let selected = Set(["asset-0", "asset-1", "asset-3", "asset-4", "asset-5", "asset-7", "asset-8", "asset-10", "asset-11"])
+            cleanup.selection = .only(selected)
+
+            for scheme in [ColorScheme.light, .dark] {
+                let image = try #require(await Self.render(
+                    CleanupGridView(
+                        cleanup: cleanup, library: library, recentlyDeleted: trash, destination: drive, isExportRunning: false
+                    )
+                        .frame(width: 720, height: 520),
+                    size: NSSize(width: 720, height: 520), scheme: scheme
+                ))
+                try Self.save(image, named: "recently-deleted-grid-\(Self.name(scheme)).png", in: output)
+            }
+
+            // The empty state, when Recently Deleted holds nothing.
+            let empty = LibraryBrowser(source: .iCloud, backend: FakeBrowserBackend(count: 0))
+            empty.load()
+            try await Self.wait { empty.count != nil }
+            let emptyCleanup = ICloudCleanup(
+                appleID: "fake@example.invalid",
+                bridge: bridge,
+                environment: ICloudCleanup.Environment(
+                    isExportRunning: { false },
+                    libraryCount: { library.count },
+                    rankHints: { _ in [:] },
+                    libraryDidChange: { _ in },
+                    recentlyDeletedCount: { empty.count }
+                )
+            )
+            emptyCleanup.setMode(.recentlyDeleted)
+            for scheme in [ColorScheme.light, .dark] {
+                let image = try #require(await Self.render(
+                    CleanupGridView(
+                        cleanup: emptyCleanup, library: library, recentlyDeleted: empty, destination: drive, isExportRunning: false
+                    )
+                        .frame(width: 720, height: 520),
+                    size: NSSize(width: 720, height: 520), scheme: scheme
+                ))
+                try Self.save(image, named: "recently-deleted-empty-\(Self.name(scheme)).png", in: output)
+            }
+
+            // The recovery confirmation: no number to type.
+            cleanup.requestConfirmation()
+            let pending = cleanup.pendingCount
+            for scheme in [ColorScheme.light, .dark] {
+                let image = try #require(await Self.render(
+                    CleanupRecoverySheet(count: pending, onCancel: {}, onRecover: {})
+                        .frame(width: 460, height: 200),
+                    size: NSSize(width: 460, height: 200), scheme: scheme
+                ))
+                try Self.save(image, named: "recover-alert-\(Self.name(scheme)).png", in: output)
+            }
+            cleanup.cancelConfirmation()
+
+            // Recovering: start the run and draw it part way through.
+            cleanup.requestConfirmation()
+            #expect(cleanup.recover())
+            try await Self.wait { if case let .deleting(done, _, _) = cleanup.state { done >= 4 } else { false } }
+            for scheme in [ColorScheme.light, .dark] {
+                let image = try #require(await Self.render(
+                    CleanupStatusCard(cleanup: cleanup)
+                        .frame(width: 720, height: 120),
+                    size: NSSize(width: 720, height: 120), scheme: scheme
+                ))
+                try Self.save(image, named: "recovering-\(Self.name(scheme)).png", in: output)
+            }
+
+            // Finished: the summary with the three fake failures.
+            await cleanup.waitUntilEnded()
+            guard case .finished = cleanup.state else {
+                Issue.record("Expected the recovery to finish, got \(cleanup.state)")
+                return
+            }
+            for scheme in [ColorScheme.light, .dark] {
+                let image = try #require(await Self.render(
+                    CleanupStatusCard(cleanup: cleanup)
+                        .frame(width: 720, height: 260),
+                    size: NSSize(width: 720, height: 260), scheme: scheme
+                ))
+                try Self.save(image, named: "recovered-finished-\(Self.name(scheme)).png", in: output)
             }
         }
     }

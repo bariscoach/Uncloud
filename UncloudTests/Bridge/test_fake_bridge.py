@@ -286,6 +286,40 @@ class FakeDeleteTests(unittest.TestCase):
         self.assertEqual(session.call({"cmd": "count", "id": "c"}, {"count"})[-1]["count"], 4)
 
 
+    def test_restore_moves_items_back_and_page_and_count_read_recently_deleted(self):
+        session = self.start("--total", "4", "--state", self.state)
+        self.delete(session, mode="only", ids=["asset-1", "asset-2"])
+        trash = session.call({"cmd": "count", "id": "c", "album": "recentlyDeleted"}, {"count"})
+        self.assertEqual(trash[-1]["count"], 2)
+        page = session.call({"cmd": "page", "id": "p", "album": "recentlyDeleted", "offset": 0, "limit": 10}, {"page"})
+        self.assertEqual([item["id"] for item in page[-1]["items"]], ["asset-1", "asset-2"])
+        self.assertEqual(session.call({"cmd": "count", "id": "c"}, {"count"})[-1]["count"], 2)
+        replies = session.call({"cmd": "restore", "id": "r", "mode": "allExcept", "ids": ["asset-2"],
+                                "confirmedCount": 1}, {"deleteDone", "error"})
+        done = replies[-1]
+        self.assertEqual((done["event"], done["deleted"], done["failed"]), ("deleteDone", 1, 0))
+        self.assertEqual(session.call({"cmd": "count", "id": "c"}, {"count"})[-1]["count"], 3)
+        self.assertEqual(session.call({"cmd": "count", "id": "c", "album": "recentlyDeleted"}, {"count"})[-1]["count"], 1)
+        session.close()
+        self.sessions.remove(session)
+        relaunched = self.start("--state", self.state)
+        self.assertEqual(relaunched.ready["count"], 3, "restores are written to the state file")
+        self.assertEqual(relaunched.call({"cmd": "count", "id": "c", "album": "recentlyDeleted"}, {"count"})[-1]["count"], 1)
+
+    def test_restore_with_more_items_than_confirmed_changes_nothing(self):
+        session = self.start("--total", "4")
+        self.delete(session, mode="only", ids=["asset-0", "asset-1"])
+        replies = session.call({"cmd": "restore", "id": "r", "mode": "allExcept", "ids": [], "confirmedCount": 1},
+                               {"deleteDone", "error"})
+        self.assertEqual(replies[-1]["stopped"], "changed")
+        self.assertIn("nothing was recovered", replies[-1]["message"])
+        self.assertEqual(session.call({"cmd": "count", "id": "c", "album": "recentlyDeleted"}, {"count"})[-1]["count"], 2)
+
+    def test_an_unknown_album_is_a_bad_request(self):
+        session = self.start("--total", "2")
+        replies = session.call({"cmd": "count", "id": "c", "album": "bogus"}, {"count", "error"})
+        self.assertEqual((replies[-1]["event"], replies[-1]["kind"]), ("error", "badRequest"))
+
 
 if __name__ == "__main__":
     unittest.main()

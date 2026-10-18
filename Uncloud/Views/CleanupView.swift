@@ -1,16 +1,19 @@
 import SwiftUI
 
-/// The Clean Up iCloud pane: pick items in the iCloud library and delete them from iCloud Photos. Deleted items
-/// move to Recently Deleted, where they stay for 30 days. The backup on the drive is never changed.
+/// The Clean Up iCloud pane: pick items in the iCloud library and delete them from iCloud Photos, or pick items in
+/// Recently Deleted and recover them. Deleted items move to Recently Deleted, where they stay for 30 days. The backup
+/// on the drive is never changed.
 struct CleanupView: View {
     @Environment(ExportModel.self) private var model
 
     var body: some View {
         Group {
-            if let cleanup = model.iCloudCleanup, let browser = model.browser, model.source == .iCloud {
+            if let cleanup = model.iCloudCleanup, let browser = model.browser, let recentlyDeleted = model.recentlyDeletedBrowser,
+               model.source == .iCloud {
                 CleanupGridView(
                     cleanup: cleanup,
-                    browser: browser,
+                    library: browser,
+                    recentlyDeleted: recentlyDeleted,
                     destination: model.destination?.url,
                     isExportRunning: model.isExporting || model.isEngineRunning
                 )
@@ -46,7 +49,9 @@ struct CleanupView: View {
 /// the typed-number confirmation.
 struct CleanupGridView: View {
     @Bindable var cleanup: ICloudCleanup
-    let browser: LibraryBrowser
+    /// The two lists the picker switches between.
+    let library: LibraryBrowser
+    let recentlyDeleted: LibraryBrowser
     /// The backup folder, whose manifest says what's backed up. Nil when none is chosen.
     let destination: URL?
     /// True while an export runs or its engine is still stopping.
@@ -56,9 +61,16 @@ struct CleanupGridView: View {
     @State private var backedUp: Set<String> = []
     @State private var knownBytes: [String: Int64] = [:]
 
+    /// The list the picker shows.
+    private var browser: LibraryBrowser {
+        cleanup.mode == .library ? library : recentlyDeleted
+    }
+
     var body: some View {
         Group {
-            if browser.count != nil {
+            if cleanup.mode == .recentlyDeleted, browser.count == 0 {
+                ContentUnavailableView("Recently Deleted is empty.", systemImage: "trash")
+            } else if browser.count != nil {
                 LibraryGrid(
                     browser: browser,
                     selection: $cleanup.selection,
@@ -84,19 +96,38 @@ struct CleanupGridView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if showsStatus {
-                CleanupStatusCard(cleanup: cleanup)
-                    .transition(.opacity)
+            VStack(spacing: 0) {
+                modePicker
+                if cleanup.mode == .recentlyDeleted {
+                    Text("Items are permanently removed by iCloud after 30 days.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                }
+                if showsStatus {
+                    CleanupStatusCard(cleanup: cleanup)
+                        .transition(.opacity)
+                }
             }
         }
         .animation(.smooth, value: showsStatus)
         .sheet(isPresented: isConfirming) {
-            CleanupConfirmationSheet(
-                count: cleanup.pendingCount,
-                notBackedUp: notBackedUpCount,
-                onCancel: { cleanup.cancelConfirmation() },
-                onDelete: { typed in cleanup.start(typed: typed) }
-            )
+            if cleanup.mode == .library {
+                CleanupConfirmationSheet(
+                    count: cleanup.pendingCount,
+                    notBackedUp: notBackedUpCount,
+                    onCancel: { cleanup.cancelConfirmation() },
+                    onDelete: { typed in cleanup.start(typed: typed) }
+                )
+            } else {
+                CleanupRecoverySheet(
+                    count: cleanup.pendingCount,
+                    onCancel: { cleanup.cancelConfirmation() },
+                    onRecover: { cleanup.recover() }
+                )
+            }
         }
         .toolbar {
             toolbar
@@ -110,6 +141,27 @@ struct CleanupGridView: View {
         .task(id: cleanup.selection) {
             knownBytes = await browser.knownBytes()
         }
+        .task(id: cleanup.mode) {
+            knownBytes = await browser.knownBytes()
+        }
+    }
+
+    /// Library or Recently Deleted, with the count of Recently Deleted. Locked while a run works on one of them.
+    private var modePicker: some View {
+        Picker("Show", selection: Binding(get: { cleanup.mode }, set: { cleanup.setMode($0) })) {
+            Text("Library").tag(ICloudCleanup.Mode.library)
+            Text(recentlyDeletedTitle).tag(ICloudCleanup.Mode.recentlyDeleted)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .disabled(cleanup.isRunning)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+    }
+
+    private var recentlyDeletedTitle: String {
+        recentlyDeleted.count.map { "Recently Deleted (\($0.formatted()))" } ?? "Recently Deleted"
     }
 
     private var showsStatus: Bool {
@@ -165,13 +217,23 @@ struct CleanupGridView: View {
             .help("Choose which items Select All selects, and which are dimmed")
             .accessibilityLabel("Filter, \(filter.title)")
 
-            Button(deleteTitle) {
-                cleanup.requestConfirmation()
+            if cleanup.mode == .library {
+                Button(deleteTitle) {
+                    cleanup.requestConfirmation()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(!cleanup.canRequestConfirmation)
+                .help(deleteHelp)
+            } else {
+                // Recovering isn't destructive, so this is the prominent button without the red.
+                Button(recoverTitle) {
+                    cleanup.requestConfirmation()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!cleanup.canRequestConfirmation)
+                .help(recoverHelp)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .disabled(!cleanup.canRequestConfirmation)
-            .help(deleteHelp)
         }
     }
 
@@ -206,6 +268,17 @@ struct CleanupGridView: View {
         return "Delete the selected items from iCloud Photos. They stay in Recently Deleted for 30 days."
     }
 
+    private var recoverTitle: String {
+        let count = cleanup.selectedCount
+        return count > 0 ? "Recover \(count.formatted()) \(count == 1 ? "Item" : "Items")" : "Recover Items"
+    }
+
+    private var recoverHelp: String {
+        if cleanup.isRunning { return "A clean up is running." }
+        if isExportRunning { return "Wait for the export to finish." }
+        return "Recover the selected items to your library on all your devices."
+    }
+
     /// The IDs in the destination's manifest with an iCloud record. Empty without a destination.
     private static func backedUpIDs(at url: URL?) async -> Set<String> {
         guard let url else { return [] }
@@ -227,7 +300,8 @@ struct CleanupStatusCard: View {
                 progress(title: "Finding items…", done: done, total: total)
                 controls(canPause: false)
             case let .deleting(done, total, paused):
-                progress(title: paused ? "Paused" : "Deleting…", done: done, total: total)
+                progress(title: paused ? "Paused" : (cleanup.runMode.action == .restore ? "Recovering…" : "Deleting…"),
+                         done: done, total: total)
                 controls(canPause: true, paused: paused)
             case let .waitingAfterThrottle(until, attempt):
                 waiting(until: until, attempt: attempt)
@@ -330,6 +404,7 @@ struct CleanupStatusCard: View {
 
     @ViewBuilder
     private func summaryView(_ summary: ICloudCleanup.Summary) -> some View {
+        let isRecovery = summary.action == .restore
         VStack(alignment: .leading, spacing: 8) {
             Label {
                 Text(headline(summary))
@@ -338,18 +413,19 @@ struct CleanupStatusCard: View {
                 Image(systemName: summary.deleted > 0 ? "checkmark.circle.fill" : "info.circle.fill")
                     .foregroundStyle(summary.deleted > 0 ? .green : .secondary)
             }
-            if summary.deleted > 0 {
+            if summary.deleted > 0, !isRecovery {
                 Text("They’re in Recently Deleted on all your devices for 30 days.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             if summary.missing > 0 {
-                Text("\(summary.missing.formatted()) were no longer in your library.")
+                Text("\(summary.missing.formatted()) were no longer in \(isRecovery ? "Recently Deleted" : "your library").")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             if !summary.failures.isEmpty {
-                Label("\(summary.failures.count.formatted()) couldn’t be deleted.", systemImage: "exclamationmark.triangle.fill")
+                Label("\(summary.failures.count.formatted()) couldn’t be \(isRecovery ? "recovered" : "deleted").",
+                      systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
                     .foregroundStyle(.orange)
                 DisclosureGroup("Show Details", isExpanded: $showsDetails) {
@@ -371,6 +447,12 @@ struct CleanupStatusCard: View {
             }
             HStack {
                 Spacer()
+                if summary.action == .delete, summary.deleted > 0 {
+                    Button("View Recently Deleted") {
+                        cleanup.setMode(.recentlyDeleted)
+                    }
+                    .buttonStyle(.bordered)
+                }
                 Button("Done") {
                     cleanup.dismiss()
                 }
@@ -380,6 +462,17 @@ struct CleanupStatusCard: View {
     }
 
     private func headline(_ summary: ICloudCleanup.Summary) -> String {
+        if summary.action == .restore {
+            if summary.cancelled {
+                return summary.deleted > 0
+                    ? "Stopped. Recovered \(Self.items(summary.deleted))."
+                    : "Stopped. Nothing was recovered."
+            }
+            if summary.deleted == 0 {
+                return "No items were recovered."
+            }
+            return "Recovered \(Self.items(summary.deleted)). They’re back in your library."
+        }
         if summary.cancelled {
             return summary.deleted > 0
                 ? "Stopped. Deleted \(Self.items(summary.deleted)) from iCloud."
@@ -441,6 +534,35 @@ struct CleanupConfirmationSheet: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .disabled(!ICloudCleanup.typedNumberMatches(typed, count: count))
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+    }
+}
+
+/// Asks before recovering. Recovering isn't destructive, so there's no number to type: the prominent button is the default.
+struct CleanupRecoverySheet: View {
+    let count: Int
+    let onCancel: () -> Void
+    let onRecover: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Recover ^[\(count) item](inflect: true)?")
+                .font(.title2.weight(.semibold))
+            Text("They’ll return to your library on all your devices.")
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button(action: onRecover) {
+                    Text("Recover ^[\(count) Item](inflect: true)")
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)

@@ -40,6 +40,7 @@ Fake options:
   --delete-throttle-after N  the Nth delete batch of this launch (counting from 0, throttled ones included) is
                       throttled: the run ends with "stopped":"throttled", as Apple's 503 ends it. Later requests go through.
   --delete-fail-every K  items whose number is divisible by K (K > 0) fail to delete with a server error
+  --trash-first N     without a --state file, the first N items start in Recently Deleted instead of the library
 
 Speaks the bridge's JSON-lines protocol (page, count, albums, download, stats, cancel, pause, resume,
 ping) closely enough for the app: "ready" after signing in, downloads write DEST/YYYY/MM files through
@@ -58,9 +59,12 @@ before that asset), and
 "layout": "none" puts files directly in DEST instead of DEST/YYYY/MM. Item i (by ID number) is
 fake_bytes(i) bytes in page and stats replies, and its file is IMG_NNNNNN.JPG.
 
-Delete requests ("delete", with "mode", "ids", "hints" and "batchSize") remove items from the order, so
-the next count and page reflect them. They reply with the deleteProgress, deleteTargets, deleted, deleteFailed and
-deleteDone events of the real bridge; --state, if given, is rewritten with the new order.
+Delete requests ("delete", with "mode", "ids", "hints" and "batchSize") move items from the library to Recently
+Deleted, so the next count and page reflect them. Restore requests ("restore", the same fields) move items from
+Recently Deleted back into the library, at the top of its order (the fake doesn't keep their old places). Page and
+count take "album": "recentlyDeleted" to read Recently Deleted; any other album other than "library" is a badRequest.
+Both reply with the deleteProgress, deleteTargets, deleted, deleteFailed and deleteDone events of the real bridge;
+--state, if given, is rewritten with the library order and Recently Deleted.
 
 Closing stdin ends it; SIGTERM, SIGSTOP and SIGCONT keep their default meaning.
 """
@@ -84,7 +88,7 @@ def parse(argv):
             "chunks": 1, "chunk_delay": 0.0, "stuck": False, "remove_dest_at": None,
             "state": None, "insert_at": None, "insert_count": 1, "delete_at": None, "throttle_after": None,
             "live_every": 0, "movie_fails_at": None, "same_name_every": 0,
-            "delete_batch_delay": 0.0, "delete_throttle_after": None, "delete_fail_every": 0}
+            "delete_batch_delay": 0.0, "delete_throttle_after": None, "delete_fail_every": 0, "trash_first": 0}
     own = argv[:argv.index("--")] if "--" in argv else []
     index = 0
     while index < len(own):
@@ -127,6 +131,8 @@ def parse(argv):
             fake["delete_batch_delay"] = float(own[index + 1]); index += 2
         elif flag == "--delete-throttle-after":
             fake["delete_throttle_after"] = int(own[index + 1]); index += 2
+        elif flag == "--trash-first":
+            fake["trash_first"] = int(own[index + 1]); index += 2
         elif flag == "--delete-fail-every":
             fake["delete_fail_every"] = int(own[index + 1]); index += 2
         else:
@@ -135,15 +141,19 @@ def parse(argv):
 
 
 def load_library(fake):
-    """The library's order as a list of (asset ID, item number), rank 0 first, after the --state changes."""
+    """The library's order and Recently Deleted, as lists of (asset ID, item number), rank 0 first, after the
+    --state changes. Returns (order, trash)."""
     state = fake["state"]
     if state and os.path.exists(state):
         with open(state, encoding="utf-8") as handle:
             data = json.load(handle)
         order = [(asset_id, number) for asset_id, number in data["order"]]
+        trash = [(asset_id, number) for asset_id, number in data.get("trash", [])]
         next_number = int(data["next"])
     else:
         order = [(f"asset-{i}", i) for i in range(fake["total"])]
+        trash = order[:fake["trash_first"]]
+        order = order[fake["trash_first"]:]
         next_number = fake["total"]
     if fake["delete_at"] is not None:
         if not 0 <= fake["delete_at"] < len(order):
@@ -159,8 +169,9 @@ def load_library(fake):
         next_number += len(added)
     if state and (fake["insert_at"] is not None or fake["delete_at"] is not None or not os.path.exists(state)):
         with open(state, "w", encoding="utf-8") as handle:
-            json.dump({"order": [list(item) for item in order], "next": next_number}, handle)
-    return order
+            json.dump({"order": [list(item) for item in order], "trash": [list(item) for item in trash],
+                       "next": next_number}, handle)
+    return order, trash
 
 
 class Channel:
@@ -262,10 +273,11 @@ def fake_bytes(index):
 
 
 class Bridge:
-    def __init__(self, channel, fake, order):
+    def __init__(self, channel, fake, order, trash):
         self.channel = channel
         self.fake = fake
         self.order = order
+        self.trash = trash
         self.total = len(order)
         self.deferred = []
         self.downloaded = 0
@@ -304,34 +316,53 @@ class Bridge:
         if command == "ping":
             self.channel.answer_pings()
         elif command == "count":
-            self.channel.send({"id": request_id, "event": "count", "count": total})
+            rows = self.album_rows(request.get("album"))
+            if rows is None:
+                self.channel.send({"id": request_id, "event": "error", "kind": "badRequest",
+                                   "message": "album must be library or recentlyDeleted."})
+                return
+            self.channel.send({"id": request_id, "event": "count", "count": len(rows)})
         elif command == "albums":
             self.channel.send({"id": request_id, "event": "albums", "albums": ["Trip"]})
         elif command == "page":
             offset = max(0, int(request.get("offset", 0)))
             limit = int(request.get("limit", 200))
+            rows = self.album_rows(request.get("album"))
+            if rows is None:
+                self.channel.send({"id": request_id, "event": "error", "kind": "badRequest",
+                                   "message": "album must be library or recentlyDeleted."})
+                return
             self.log(f"page offset={offset}")
             items = []
-            for rank in range(offset, min(total, offset + limit)):
-                asset_id, number = self.order[rank]
+            for rank in range(offset, min(len(rows), offset + limit)):
+                asset_id, number = rows[rank]
                 items.append({"id": asset_id, "rank": rank, "filename": display_name(self.fake, number), "created": None,
                               "added": fake_added(number),
                               "type": "image", "size": fake_bytes(number), "bytes": fake_bytes(number),
                               "thumbURL": None})
             self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
-        elif command in ("download", "stats", "delete") and busy:
+        elif command in ("download", "stats", "delete", "restore") and busy:
             self.deferred.append(request)
         elif command == "download":
             self.download(request)
         elif command == "stats":
             self.stats(request)
-        elif command == "delete":
-            self.delete(request)
+        elif command in ("delete", "restore"):
+            self.delete(request, command)
         else:
             self.channel.send({"id": request_id, "event": "error", "kind": "badRequest", "message": "unknown"})
 
-    def delete(self, request):
-        """Resolves the targets from the order (rank by rank), then removes them in batches, as the real bridge does."""
+    def album_rows(self, name):
+        """The rows of the album a request names, or None for a name the fake doesn't have."""
+        if name in (None, "library"):
+            return self.order
+        if name == "recentlyDeleted":
+            return self.trash
+        return None
+
+    def delete(self, request, action="delete"):
+        """Resolves the targets from the album (rank by rank), then moves them in batches, as the real bridge does:
+        a delete moves them from the library to Recently Deleted, a restore back to the top of the library."""
         channel = self.channel
         request_id = request.get("id")
         only = request.get("mode") == "only"
@@ -341,21 +372,23 @@ class Bridge:
         if not isinstance(confirmed, int) or isinstance(confirmed, bool) or confirmed < 0:
             channel.send({"id": request_id, "event": "error", "kind": "badRequest", "message": "confirmedCount"})
             return
-        self.log(f"delete-start {request_id} mode={'only' if only else 'allExcept'} ids={len(ids)} confirmed={confirmed}")
-        channel.send({"id": request_id, "event": "deleteProgress", "phase": "finding", "done": 0, "total": len(self.order)})
-        chosen = [asset_id for asset_id, _ in self.order if (asset_id in ids) == only]
+        self.log(f"delete-start {request_id} action={action} mode={'only' if only else 'allExcept'} ids={len(ids)} confirmed={confirmed}")
+        source = self.order if action == "delete" else self.trash
+        channel.send({"id": request_id, "event": "deleteProgress", "phase": "finding", "done": 0, "total": len(source)})
+        chosen = [asset_id for asset_id, _ in source if (asset_id in ids) == only]
         if len(chosen) > confirmed:
             with channel.lock:
                 channel.cancelled.discard(request_id)
                 channel.paused.discard(request_id)
+            message = ("Your iCloud library changed since you confirmed, so nothing was deleted. Review your selection and try again."
+                       if action == "delete" else
+                       "Your iCloud library changed since you confirmed, so nothing was recovered. Review your selection and try again.")
             channel.send({"id": request_id, "event": "deleteDone", "deleted": 0, "failed": 0, "missing": 0,
-                          "cancelled": False, "stopped": "changed",
-                          "message": "Your iCloud library changed since you confirmed, so nothing was deleted. "
-                                     "Review your selection and try again."})
+                          "cancelled": False, "stopped": "changed", "message": message})
             return
         channel.send({"id": request_id, "event": "deleteTargets", "ids": chosen})
         missing = len(ids) - len(chosen) if only else 0
-        numbers = {asset_id: number for asset_id, number in self.order}
+        numbers = {asset_id: number for asset_id, number in self.order + self.trash}
         deleted = failed = 0
         stopped = message = None
         done = 0
@@ -381,11 +414,19 @@ class Bridge:
                 else:
                     ok.append(asset_id)
             gone = set(ok)
-            self.order = [(asset_id, number) for asset_id, number in self.order if asset_id not in gone]
+            if action == "delete":
+                moved = [(asset_id, number) for asset_id, number in self.order if asset_id in gone]
+                self.order = [(asset_id, number) for asset_id, number in self.order if asset_id not in gone]
+                self.trash = self.trash + moved
+            else:
+                moved = [(asset_id, number) for asset_id, number in self.trash if asset_id in gone]
+                self.trash = [(asset_id, number) for asset_id, number in self.trash if asset_id not in gone]
+                self.order = moved + self.order
             if self.fake["state"]:
                 with open(self.fake["state"], "w", encoding="utf-8") as handle:
-                    next_number = max([number for _, number in self.order] + [self.total]) + 1
-                    json.dump({"order": [list(item) for item in self.order], "next": next_number}, handle)
+                    next_number = max([number for _, number in self.order + self.trash] + [self.total]) + 1
+                    json.dump({"order": [list(item) for item in self.order], "trash": [list(item) for item in self.trash],
+                               "next": next_number}, handle)
             self.total = len(self.order)
             deleted += len(ok)
             failed += len(bad)
@@ -584,7 +625,7 @@ def main(argv):
     if fake["launch_log"]:
         with open(fake["launch_log"], "a") as handle:
             handle.write(f"{os.getpid()} bridge\n")
-    order = load_library(fake)
+    order, trash = load_library(fake)
     protocol = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
     os.dup2(2, 1)
     channel = Channel(protocol)
@@ -594,7 +635,7 @@ def main(argv):
     time.sleep(fake["auth_delay"])
     sys.stderr.write("fake bridge: Authentication completed successfully\n")
     channel.send({"event": "ready", "count": len(order)})
-    return Bridge(channel, fake, order).serve()
+    return Bridge(channel, fake, order, trash).serve()
 
 
 if __name__ == "__main__":

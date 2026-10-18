@@ -64,26 +64,52 @@ final class NewPhotosTracker {
         lastRefreshAt = .distantFuture
     }
 
-    /// Saves the watermark for a complete export of everything: the library's state as the export finished.
-    /// Counts from then on are new since this moment.
-    func recordWatermark(_ context: NewPhotosContext) {
-        // Under the test host, a finished export must not call iCloud or write the user's Application Support.
+    /// Captures what a run of everything would save as its watermark. Called as the run starts, before its walk.
+    /// Nil when there's nothing to save (no account, or the capture failed); the run then saves no watermark.
+    func captureCandidate(_ context: NewPhotosContext, at date: Date) async -> NewPhotosCandidate? {
+        // Under the test host, a run must not call iCloud or read the Photos library.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return nil }
+        do {
+            switch context.source {
+            case .photosLibrary:
+                let ids = await Task.detached(priority: .utility) { BackupFiles.allLibraryIDs() }.value
+                return NewPhotosCandidate.library(context: context, ids: ids, exportedAt: date)
+            case .iCloud:
+                guard let appleID = context.appleID else { return nil }
+                let newest = try await ICloudBridgeFetcher(bridge: .shared(appleID: appleID)).assets(offset: 0, limit: 1).first
+                return NewPhotosCandidate.iCloud(
+                    context: context,
+                    newest: newest,
+                    exportedAt: date,
+                    libraryCount: ICloudLibrary.cachedLibraryCount
+                )
+            }
+        } catch {
+            // The run goes on without a watermark, so the next complete export tries again. Only the fact is logged,
+            // not the error, which can name the folder.
+            NSLog("Uncloud: couldn’t capture the new-photos watermark (%@).", String(describing: type(of: error)))
+            return nil
+        }
+    }
+
+    /// Saves a candidate watermark after its run completed under `NewPhotosWatermarkPolicy`. Counts from then on are
+    /// new since the moment the run started.
+    func recordWatermark(_ candidate: NewPhotosCandidate) {
+        // Under the test host, nothing is written to the user's Application Support.
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         let store = store
-        let date = now()
         Task { [weak self] in
             do {
-                let watermark = try await Self.snapshot(context, at: date)
-                if let ids = watermark.ids {
-                    try store.saveLibraryIDs(ids, for: context)
+                if let ids = candidate.libraryIDs {
+                    try store.saveLibraryIDs(ids, for: candidate.context)
                 }
-                try store.save(watermark.value, for: context)
+                try store.save(candidate.watermark, for: candidate.context)
             } catch {
                 // Nothing is saved, so the next complete export tries again. Only the fact is logged, not the
                 // error, which can name the folder.
                 NSLog("Uncloud: couldn’t save the new-photos watermark (%@).", String(describing: type(of: error)))
             }
-            self?.refresh(context, force: true)
+            self?.refresh(candidate.context, force: true)
         }
     }
 
@@ -168,30 +194,6 @@ final class NewPhotosTracker {
             } catch {
                 return .failed
             }
-        }
-    }
-
-    /// The watermark for the library as it is now. The Photos library also saves its identifiers.
-    private struct Snapshot: Sendable {
-        let value: NewPhotosWatermark
-        let ids: Set<String>?
-    }
-
-    private nonisolated static func snapshot(_ context: NewPhotosContext, at date: Date) async throws -> Snapshot {
-        switch context.source {
-        case .photosLibrary:
-            let ids = await Task.detached(priority: .utility) { BackupFiles.allLibraryIDs() }.value
-            return Snapshot(value: NewPhotosWatermark(exportedAt: date, libraryCount: ids.count), ids: ids)
-        case .iCloud:
-            guard let appleID = context.appleID else { throw ICloudError.signInRequired }
-            let newest = try await ICloudBridgeFetcher(bridge: .shared(appleID: appleID)).assets(offset: 0, limit: 1).first
-            let value = NewPhotosWatermark(
-                exportedAt: date,
-                libraryCount: ICloudLibrary.cachedLibraryCount,
-                newestAssetID: newest?.id,
-                newestAddedDate: newest?.added
-            )
-            return Snapshot(value: value, ids: nil)
         }
     }
 
