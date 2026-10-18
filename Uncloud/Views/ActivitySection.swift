@@ -1,8 +1,11 @@
 import SwiftUI
 
+/// The Activity log, collapsed by default. In the Backup pane it is a disclosure row after the History section
+/// (`asRow: true`), and its label is plain text. Without `asRow` it keeps the section-header label it always had.
 struct ActivitySection: View {
     @Environment(ExportModel.self) private var model
     @AppStorage("activityExpanded") private var isExpanded = false
+    var asRow = false
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -21,7 +24,11 @@ struct ActivitySection: View {
             .frame(minHeight: 120, maxHeight: 240)
             .padding(.top, 8)
         } label: {
-            SectionTitle(title: "Activity", symbol: "list.bullet", tint: Tokens.Tint.neutral)
+            if asRow {
+                Text("Activity")
+            } else {
+                SectionTitle("Activity")
+            }
         }
     }
 }
