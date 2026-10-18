@@ -1,0 +1,50 @@
+import SwiftUI
+
+/// The idle status line of the Backup pane's card: "1,243 new photos since your last export on 17 Sep." or
+/// "Up to date. Last export 17 Sep.". Plain secondary text, like the card's other idle lines.
+struct NewPhotosStatusLabel: View {
+    let status: NewPhotosStatus
+
+    var body: some View {
+        let text = NewPhotosText.statusLine(status, now: .now)
+        Label(text, systemImage: status.count == 0 && !status.isAtLeast ? "checkmark.circle" : "photo.badge.plus")
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(text)
+    }
+}
+
+extension ExportModel {
+    /// The count on the Backup sidebar row while there are new photos. Nil when there are none.
+    var newPhotosBadgeText: Text? {
+        guard let status = newPhotosStatus, status.count > 0 || status.isAtLeast else { return nil }
+        let number = status.count.formatted()
+        return Text(status.isAtLeast ? "\(number)+" : number)
+    }
+
+    /// Help for the primary button when it exports new photos: it still checks the drive for missing ones.
+    var primaryExportHelp: String? {
+        primaryExportTitle(total: browser?.count) == NewPhotosTitle.exportNewPhotos
+            ? "Copies new photos, and any missing from the folder. Photos already there are skipped."
+            : nil
+    }
+}
+
+/// Settings › Automatic Backup: the new-photos reminder and how often it can appear.
+struct NewPhotosReminderSection: View {
+    @Bindable var reminder: NewPhotosReminderSettings
+
+    var body: some View {
+        Section("New Photos") {
+            Toggle("Remind me about new photos", isOn: $reminder.isEnabled)
+            Picker("Remind me", selection: $reminder.frequency) {
+                ForEach(NewPhotosReminderFrequency.allCases, id: \.self) { frequency in
+                    Text(frequency.title).tag(frequency)
+                }
+            }
+            .disabled(!reminder.isEnabled)
+            Text("A notification when photos have been added to your library since your last export and your backup drive isn’t connected. Uncloud checks every six hours while it runs, which automatic backup or the menu bar keeps it doing.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}

@@ -14,6 +14,7 @@
 		05F26E3428DD3FDC8C402567 /* ActivitySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4684CBB84E2FD289A7FFC70 /* ActivitySection.swift */; };
 		0632BCA610969ADBB48D3526 /* AssetFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD6AEDB8709BB238DAF496E /* AssetFiles.swift */; };
 		080188438C3AAE977ADC3FD9 /* AssetMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874540AC2D921C7BEC2C5966 /* AssetMetadata.swift */; };
+		0ACA9781779CEE7BEBBBA994 /* NewPhotosReminderSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9136EC680DD66DC7BD35634B /* NewPhotosReminderSettings.swift */; };
 		0BFD737A8D9177DA323CB23D /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3ED0A36CD11690520DC5A1 /* SessionStore.swift */; };
 		0CA845398FDDACDFABE0DA5C /* SessionRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89738564B882A968009AE992 /* SessionRecorderTests.swift */; };
 		12583BE5C3E344933A0F61E3 /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 655C300B76FB724B130CF7D1 /* MenuBarContent.swift */; };
@@ -22,6 +23,7 @@
 		15CEC2A081834367951CE199 /* ProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF20D22FA931E55EA0D92FC4 /* ProgressCard.swift */; };
 		16D39D3EBEFA1B66351ABCF4 /* ExportSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A63BBA2CCB30F318CDF74D6 /* ExportSession.swift */; };
 		1AA25407C4DE3E0210F847ED /* ExportSessionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F747A5D2BA7C20F0893C90A8 /* ExportSessionDetailView.swift */; };
+		1B5E15FA632E465E7F2DD3EE /* ExportModel+NewPhotos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C0523C128F5624C627DF53 /* ExportModel+NewPhotos.swift */; };
 		1B6C5C5966E8A04515959EB8 /* StorageEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF26CD531FE2C834F788727 /* StorageEstimate.swift */; };
 		1DF044AD2DA5AC0F64631163 /* LibrarySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = E514002B9E7B92DE11926635 /* LibrarySource.swift */; };
 		20CB5FE1B8B8556A8A78132A /* ICloudSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F242D7D8C735C12BFF2E8E /* ICloudSignIn.swift */; };
@@ -31,6 +33,7 @@
 		2465C5CC69C6F7F37627D314 /* test_launcher.py in Resources */ = {isa = PBXBuildFile; fileRef = 9FE2C438DFF93F23FE709749 /* test_launcher.py */; };
 		25CE95878FDD7E11A60B1E6A /* UncloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BB841704199E1A9A83035CB /* UncloudApp.swift */; };
 		26C4E054F2E1A68CFB77F237 /* ICloudProcesses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */; };
+		2899630280B59B6D7A5A4DFF /* NewPhotos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085C022073A31ECF2633F84D /* NewPhotos.swift */; };
 		2A80ED1A29712BF61EE17069 /* ICloudExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BE68EB07867A8CBB3BD1F /* ICloudExportEngine.swift */; };
 		2C74C7DA063286F03A2A6DDC /* ExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D4FFC1BF5BB484D16F27D0 /* ExportModel.swift */; };
 		2C9CC05761B43445BDB14846 /* ActivityEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D976AD3361BC8BA501CFFA21 /* ActivityEntry.swift */; };
@@ -66,7 +69,9 @@
 		515CB107125B694F68470F64 /* ExportHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D466AF04D8C38F7C85D51D7E /* ExportHistoryView.swift */; };
 		52EEF7ED6ACC9AAB90BC11DD /* ICloudHelperProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593CD78B3D2E6A5842C9F9FB /* ICloudHelperProcess.swift */; };
 		55B009DDBEC871C2EBE04A9B /* CheckDriveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05598DB04CA43E141660696 /* CheckDriveViews.swift */; };
+		560D38E8893DB908D2D3D1CF /* ExportModel+NewPhotos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C0523C128F5624C627DF53 /* ExportModel+NewPhotos.swift */; };
 		589BDFE669B0194A94A80295 /* ActivityEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D976AD3361BC8BA501CFFA21 /* ActivityEntry.swift */; };
+		5A2E097F8CEC3FBA14954803 /* NewPhotosTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDB61690ECD92088B4D6D38 /* NewPhotosTracker.swift */; };
 		5A7FCB1F24C4E2AC92753081 /* PauseGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253C79904112A7FD2C8AC7F8 /* PauseGate.swift */; };
 		5FBF69A7FAF543AF1FED52FB /* BackupTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEBA56640980AAD84951366 /* BackupTools.swift */; };
 		6044F273B63930104885F1F4 /* BackupVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF6ADDB21641963A45C3D4B /* BackupVerifier.swift */; };
@@ -103,6 +108,7 @@
 		87AD0E7AEF8D8B897BDC0EFC /* BackupTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEBA56640980AAD84951366 /* BackupTools.swift */; };
 		8934AFAF5D4F45FD34987B85 /* ICloudOutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A62D4FFC9408C3EEF874AA8 /* ICloudOutputParser.swift */; };
 		8974CA3DCD44BE55FC21671E /* LibrarySelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15AF2D1A16CBAD87F2CF6A13 /* LibrarySelection.swift */; };
+		8B01596B38D68AD944D70A5E /* NewPhotosViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8233EC7D249CF21CFED1A011 /* NewPhotosViews.swift */; };
 		8B5F51F2EF7A9403D40E2EFD /* AutoBackupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF828E81D48A8A62ECBF167 /* AutoBackupSettings.swift */; };
 		8C6FADBE434DEFEA65380440 /* PlaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA548814AF18B9549584E9 /* PlaceResolver.swift */; };
 		8C80DEABF6F12CD1B81E0084 /* fake_icloudpd.py in Resources */ = {isa = PBXBuildFile; fileRef = 1DB14758951E131F0E10F3FE /* fake_icloudpd.py */; };
@@ -117,18 +123,22 @@
 		998017548E20F6CBDEA8A09E /* StorageEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF26CD531FE2C834F788727 /* StorageEstimate.swift */; };
 		99843408E7D10D2BD9E6F035 /* ICloudPageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A14EF6C191BC2FD24D44985 /* ICloudPageCache.swift */; };
 		99F9F0613314DC61C21BE2BA /* DriveCheckFileSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE32B19B22486DC9F03F639 /* DriveCheckFileSafetyTests.swift */; };
+		9A2D602A561CEBD9BFBC1E16 /* NewPhotos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085C022073A31ECF2633F84D /* NewPhotos.swift */; };
 		9C1A641C900F4B26C1EE9CE1 /* SessionRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 421C5BE2CE6BB3A1E697C683 /* SessionRecorder.swift */; };
 		9D7BFDF0CACC0459B63B424F /* ICloudSignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EC52053002D4FE98AFE8ED /* ICloudSignInSheet.swift */; };
 		A0446530BAD6A985F678DFA5 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306E893DE47FB41133F84A46 /* TestSupport.swift */; };
 		A343D5362F7F009F13E89AE7 /* AutoResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4BAFE2C3FF2F8ED0AF217D0 /* AutoResume.swift */; };
 		A4163A2D65F2F6C925398BD4 /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE36718CD24BFD5C076C6767 /* PhotoLibrary.swift */; };
+		A4341233956BE25C1C297CAC /* NewPhotosTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDB61690ECD92088B4D6D38 /* NewPhotosTracker.swift */; };
 		A6304E2DF36A2B0B15EB5EF0 /* ExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C963958EE52B95322E7B761 /* ExportEngine.swift */; };
 		A769E609815935E6BD14CD37 /* AssetFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD6AEDB8709BB238DAF496E /* AssetFiles.swift */; };
 		A7E3EA6EEAADDA2A92601558 /* BackupVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11F0FB474F82CFC886EFC56 /* BackupVerification.swift */; };
 		A9B717D7ACBCC4E441A6CFB7 /* CheckDriveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05598DB04CA43E141660696 /* CheckDriveViews.swift */; };
 		AA4AAD8889C512575FD47F25 /* ICloudSignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EC52053002D4FE98AFE8ED /* ICloudSignInSheet.swift */; };
 		AB8D8C744F5397FAB7462B3A /* LibrarySourceWordingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AE57A1D510FA954FCEA436 /* LibrarySourceWordingTests.swift */; };
+		ABC551271B0C6DA71C41362A /* NewPhotosViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8233EC7D249CF21CFED1A011 /* NewPhotosViews.swift */; };
 		ACC2A55AE1A04CA208176481 /* BackupToolSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063AE52551C1E2661DBADD1A /* BackupToolSheets.swift */; };
+		AD872B27159CEB48B3E7C5E5 /* NewPhotosTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A53F7553B85EB4F7EC1ECBF /* NewPhotosTests.swift */; };
 		ADCB4CF6D679D20370A55013 /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906FB271A31124DF5CDF2B2D /* LibraryWindow.swift */; };
 		AE7F1B74ED21FCA380E3AB88 /* test_bridge.py in Resources */ = {isa = PBXBuildFile; fileRef = B3DB43F072227AB1DA2D6016 /* test_bridge.py */; };
 		AEAF312B5B3CC0F0BBA7E838 /* ICloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B998F6805CB94B1AF9AD237 /* ICloudDiagnostics.swift */; };
@@ -142,10 +152,12 @@
 		B8DB4BF3C2C2BEC97EF4ACC8 /* ICloudResumePlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C398B9716C96C50219A753A8 /* ICloudResumePlannerTests.swift */; };
 		B93E3B45D796B47CEDE55AE6 /* LibraryBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C2E3B869C86CD6F4A297A3 /* LibraryBrowser.swift */; };
 		BA7555797B7569C0749E7E2C /* LibraryCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D953270EF95C71DFD3870D9D /* LibraryCleanup.swift */; };
+		BC2BD19753B7A0B168404F37 /* NewPhotosStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6844B832F7BF19F1C62BF7A1 /* NewPhotosStore.swift */; };
 		BF1B6DDA11CEA0690C2AE554 /* ExportCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC06A9B2A29D7B6A2E9DE9A /* ExportCommands.swift */; };
 		C2834C3B7145A0B77118B367 /* PhotosAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */; };
 		C4D4D4FC42ACF95C6C8335F4 /* AutoBackupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF828E81D48A8A62ECBF167 /* AutoBackupSettings.swift */; };
 		C4EC48FFEF48CB35B644ECB5 /* ICloudOutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A62D4FFC9408C3EEF874AA8 /* ICloudOutputParser.swift */; };
+		C4F1F12035B81F4ADB951E0C /* NewPhotosSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CE334F633F8B482F354C36 /* NewPhotosSnapshotTests.swift */; };
 		C5723D373377306BDDB9CF7B /* DriveCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A114CA2BFC125B8205CD464 /* DriveCheckTests.swift */; };
 		C7007AA7DCB8648975AB66C2 /* LibraryCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D953270EF95C71DFD3870D9D /* LibraryCleanup.swift */; };
 		CA4ED0855FBABD0A6DD82097 /* BackupFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D1F1C631F406B5B11DE0A4 /* BackupFiles.swift */; };
@@ -166,6 +178,7 @@
 		E0AAE4233BBAE79C99F2E849 /* ExportHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B38B3E3C528557D39C8EAE /* ExportHistory.swift */; };
 		E0FEA35DF9B1E80C8EE30EF6 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F063C61478BBF7C92184C95 /* AppLogo.swift */; };
 		E192C25A50A0A22DF2B40357 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5893FF275C08AA53373F056D /* Assets.xcassets */; };
+		E38A09620C9D8AFB748324D2 /* NewPhotosReminderSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9136EC680DD66DC7BD35634B /* NewPhotosReminderSettings.swift */; };
 		E5F818EECF7588363E7FCD54 /* FreeUpSpaceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7967553916F0F56BDF9814C6 /* FreeUpSpaceSheet.swift */; };
 		E6D31645B351D8A4D09A8A9D /* ExportManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3485816830987AAD03ECC120 /* ExportManifestTests.swift */; };
 		E7BF3032360F2C2349CFEBEA /* PlaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA548814AF18B9549584E9 /* PlaceResolver.swift */; };
@@ -174,6 +187,7 @@
 		EB0536A1852C408E570389B4 /* BackupFilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82534C8C8A68911C7DAD87D /* BackupFilesTests.swift */; };
 		EBEA659FAAB55D41070329A4 /* ICloudBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D954376B6D12663FE8BF4B5D /* ICloudBridge.swift */; };
 		EBFDF2FE3705EBD42325E4E0 /* VerifyBackupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15336D3C30890C8F72FAA919 /* VerifyBackupSheet.swift */; };
+		EE8EF09CCC66B71A29CAC678 /* NewPhotosStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6844B832F7BF19F1C62BF7A1 /* NewPhotosStore.swift */; };
 		EEFF91FA21D8D149237E9BE8 /* GettingStartedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5772F36E0D0AB6932F4C1F /* GettingStartedView.swift */; };
 		EF4C95D422F4CC8A5F307246 /* ExportManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760AE024957625564089BF6E /* ExportManifest.swift */; };
 		F29BBB9C75EBF7ACBB378339 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F063C61478BBF7C92184C95 /* AppLogo.swift */; };
@@ -204,11 +218,13 @@
 		021DD8E980C244B272F1A046 /* AutoBackupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoBackupController.swift; sourceTree = "<group>"; };
 		05CBE207BE129786DF0F6A69 /* Uncloud.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Uncloud.entitlements; sourceTree = "<group>"; };
 		063AE52551C1E2661DBADD1A /* BackupToolSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupToolSheets.swift; sourceTree = "<group>"; };
+		085C022073A31ECF2633F84D /* NewPhotos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPhotos.swift; sourceTree = "<group>"; };
 		0D04F6760B4A90BD72367DC6 /* HowItWorksSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowItWorksSteps.swift; sourceTree = "<group>"; };
 		0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosAccessView.swift; sourceTree = "<group>"; };
 		15336D3C30890C8F72FAA919 /* VerifyBackupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerifyBackupSheet.swift; sourceTree = "<group>"; };
 		15AF2D1A16CBAD87F2CF6A13 /* LibrarySelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySelection.swift; sourceTree = "<group>"; };
 		15C2E3B869C86CD6F4A297A3 /* LibraryBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryBrowser.swift; sourceTree = "<group>"; };
+		17CE334F633F8B482F354C36 /* NewPhotosSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPhotosSnapshotTests.swift; sourceTree = "<group>"; };
 		1DB14758951E131F0E10F3FE /* fake_icloudpd.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = fake_icloudpd.py; sourceTree = "<group>"; };
 		1DF26CD531FE2C834F788727 /* StorageEstimate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageEstimate.swift; sourceTree = "<group>"; };
 		22113C53D164A922FB8234B0 /* XMPSidecarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPSidecarTests.swift; sourceTree = "<group>"; };
@@ -218,6 +234,7 @@
 		27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudLibrary.swift; sourceTree = "<group>"; };
 		2A114CA2BFC125B8205CD464 /* DriveCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveCheckTests.swift; sourceTree = "<group>"; };
 		2A14EF6C191BC2FD24D44985 /* ICloudPageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudPageCache.swift; sourceTree = "<group>"; };
+		2A53F7553B85EB4F7EC1ECBF /* NewPhotosTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPhotosTests.swift; sourceTree = "<group>"; };
 		306E893DE47FB41133F84A46 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		3485816830987AAD03ECC120 /* ExportManifestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportManifestTests.swift; sourceTree = "<group>"; };
 		38771398C5AAD879239C617E /* Uncloud.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Uncloud.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -236,6 +253,8 @@
 		5DC92839A6433C9E3A2A7894 /* ExportRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRun.swift; sourceTree = "<group>"; };
 		5EB9A26D65807CE3C93CA56E /* HelperProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProbe.swift; sourceTree = "<group>"; };
 		655C300B76FB724B130CF7D1 /* MenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarContent.swift; sourceTree = "<group>"; };
+		66C0523C128F5624C627DF53 /* ExportModel+NewPhotos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportModel+NewPhotos.swift"; sourceTree = "<group>"; };
+		6844B832F7BF19F1C62BF7A1 /* NewPhotosStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPhotosStore.swift; sourceTree = "<group>"; };
 		69CB7F0D69FDCC970F2D5BB6 /* LayoutChangeConfirmationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutChangeConfirmationTests.swift; sourceTree = "<group>"; };
 		6A22FAF47DB25363937CB221 /* PhotoSizeHeuristic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSizeHeuristic.swift; sourceTree = "<group>"; };
 		6B5772F36E0D0AB6932F4C1F /* GettingStartedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GettingStartedView.swift; sourceTree = "<group>"; };
@@ -250,8 +269,10 @@
 		7967553916F0F56BDF9814C6 /* FreeUpSpaceSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeUpSpaceSheet.swift; sourceTree = "<group>"; };
 		7BB841704199E1A9A83035CB /* UncloudApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UncloudApp.swift; sourceTree = "<group>"; };
 		7C0C8614EAB4109DA0E3B572 /* AlbumIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumIndex.swift; sourceTree = "<group>"; };
+		7DDB61690ECD92088B4D6D38 /* NewPhotosTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPhotosTracker.swift; sourceTree = "<group>"; };
 		7EFD5D30F1BECC5483F497EC /* DriveCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveCheck.swift; sourceTree = "<group>"; };
 		821EA74597FF85E3A54C40A4 /* BenefitsCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenefitsCarousel.swift; sourceTree = "<group>"; };
+		8233EC7D249CF21CFED1A011 /* NewPhotosViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPhotosViews.swift; sourceTree = "<group>"; };
 		84BE55036D70666D39350803 /* Helper.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Helper.entitlements; sourceTree = "<group>"; };
 		874540AC2D921C7BEC2C5966 /* AssetMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetMetadata.swift; sourceTree = "<group>"; };
 		878A1648B154D699511DAEF5 /* LandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandingView.swift; sourceTree = "<group>"; };
@@ -263,6 +284,7 @@
 		8F063C61478BBF7C92184C95 /* AppLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogo.swift; sourceTree = "<group>"; };
 		8F79DB331BE406BDDBA688C4 /* IconTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconTile.swift; sourceTree = "<group>"; };
 		906FB271A31124DF5CDF2B2D /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWindow.swift; sourceTree = "<group>"; };
+		9136EC680DD66DC7BD35634B /* NewPhotosReminderSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPhotosReminderSettings.swift; sourceTree = "<group>"; };
 		9A3ED0A36CD11690520DC5A1 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		9A63BBA2CCB30F318CDF74D6 /* ExportSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSession.swift; sourceTree = "<group>"; };
 		9A6AF9958305D6F4037AE0BB /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -335,6 +357,7 @@
 				B4CD281E886432AA76DBC56C /* LibraryView.swift */,
 				906FB271A31124DF5CDF2B2D /* LibraryWindow.swift */,
 				655C300B76FB724B130CF7D1 /* MenuBarContent.swift */,
+				8233EC7D249CF21CFED1A011 /* NewPhotosViews.swift */,
 				0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */,
 				AF20D22FA931E55EA0D92FC4 /* ProgressCard.swift */,
 				9A6AF9958305D6F4037AE0BB /* SettingsView.swift */,
@@ -366,6 +389,8 @@
 				69CB7F0D69FDCC970F2D5BB6 /* LayoutChangeConfirmationTests.swift */,
 				D3AE57A1D510FA954FCEA436 /* LibrarySourceWordingTests.swift */,
 				A442D2C0F3709A6E902B9D3C /* ManifestAdditionsTests.swift */,
+				17CE334F633F8B482F354C36 /* NewPhotosSnapshotTests.swift */,
+				2A53F7553B85EB4F7EC1ECBF /* NewPhotosTests.swift */,
 				89738564B882A968009AE992 /* SessionRecorderTests.swift */,
 				D6D0433ACF883D323723A1B1 /* SessionsAndDriveCheckTests.swift */,
 				B323FF83970C4D84959183E1 /* SessionStoreTests.swift */,
@@ -499,11 +524,16 @@
 				38FE6A956ABFA986425CA1F2 /* Destination.swift */,
 				77B38B3E3C528557D39C8EAE /* ExportHistory.swift */,
 				B9D4FFC1BF5BB484D16F27D0 /* ExportModel.swift */,
+				66C0523C128F5624C627DF53 /* ExportModel+NewPhotos.swift */,
 				277CAE71F450D664252B9C72 /* FolderLayout.swift */,
 				15C2E3B869C86CD6F4A297A3 /* LibraryBrowser.swift */,
 				D953270EF95C71DFD3870D9D /* LibraryCleanup.swift */,
 				15AF2D1A16CBAD87F2CF6A13 /* LibrarySelection.swift */,
 				E514002B9E7B92DE11926635 /* LibrarySource.swift */,
+				085C022073A31ECF2633F84D /* NewPhotos.swift */,
+				9136EC680DD66DC7BD35634B /* NewPhotosReminderSettings.swift */,
+				6844B832F7BF19F1C62BF7A1 /* NewPhotosStore.swift */,
+				7DDB61690ECD92088B4D6D38 /* NewPhotosTracker.swift */,
 				BD6CF0C13EC2FDC49683C04D /* SessionClock.swift */,
 				421C5BE2CE6BB3A1E697C683 /* SessionRecorder.swift */,
 				1DF26CD531FE2C834F788727 /* StorageEstimate.swift */,
@@ -757,6 +787,7 @@
 				E0AAE4233BBAE79C99F2E849 /* ExportHistory.swift in Sources */,
 				515CB107125B694F68470F64 /* ExportHistoryView.swift in Sources */,
 				2E883569F104CC29ACEB67C8 /* ExportManifest.swift in Sources */,
+				560D38E8893DB908D2D3D1CF /* ExportModel+NewPhotos.swift in Sources */,
 				2C74C7DA063286F03A2A6DDC /* ExportModel.swift in Sources */,
 				8F98268929D7412E4B6E813F /* ExportRun.swift in Sources */,
 				16D39D3EBEFA1B66351ABCF4 /* ExportSession.swift in Sources */,
@@ -788,6 +819,11 @@
 				85362011BC377AC627C49879 /* LibraryView.swift in Sources */,
 				ADCB4CF6D679D20370A55013 /* LibraryWindow.swift in Sources */,
 				00E6F5203A5C04B1D23CA606 /* MenuBarContent.swift in Sources */,
+				9A2D602A561CEBD9BFBC1E16 /* NewPhotos.swift in Sources */,
+				E38A09620C9D8AFB748324D2 /* NewPhotosReminderSettings.swift in Sources */,
+				BC2BD19753B7A0B168404F37 /* NewPhotosStore.swift in Sources */,
+				5A2E097F8CEC3FBA14954803 /* NewPhotosTracker.swift in Sources */,
+				8B01596B38D68AD944D70A5E /* NewPhotosViews.swift in Sources */,
 				5A7FCB1F24C4E2AC92753081 /* PauseGate.swift in Sources */,
 				A4163A2D65F2F6C925398BD4 /* PhotoLibrary.swift in Sources */,
 				E05A9092927410FE2592457B /* PhotoSizeHeuristic.swift in Sources */,
@@ -838,6 +874,7 @@
 				E95231010BA41076889A91E3 /* ExportHistory.swift in Sources */,
 				3B736D626B439B50728F2E1E /* ExportHistoryView.swift in Sources */,
 				EF4C95D422F4CC8A5F307246 /* ExportManifest.swift in Sources */,
+				1B5E15FA632E465E7F2DD3EE /* ExportModel+NewPhotos.swift in Sources */,
 				F9E6889A427532BB8B3E10A8 /* ExportModel.swift in Sources */,
 				7973CBA0784D707669426AD1 /* ExportRun.swift in Sources */,
 				33D171A72627B29A7C5C4D95 /* ExportSession.swift in Sources */,
@@ -869,6 +906,11 @@
 				705432DA201570077E0A6B34 /* LibraryView.swift in Sources */,
 				CECE6A2939FA7658B8B80E22 /* LibraryWindow.swift in Sources */,
 				12583BE5C3E344933A0F61E3 /* MenuBarContent.swift in Sources */,
+				2899630280B59B6D7A5A4DFF /* NewPhotos.swift in Sources */,
+				0ACA9781779CEE7BEBBBA994 /* NewPhotosReminderSettings.swift in Sources */,
+				EE8EF09CCC66B71A29CAC678 /* NewPhotosStore.swift in Sources */,
+				A4341233956BE25C1C297CAC /* NewPhotosTracker.swift in Sources */,
+				ABC551271B0C6DA71C41362A /* NewPhotosViews.swift in Sources */,
 				4F85151DC3FBDA5CFE678D4C /* PauseGate.swift in Sources */,
 				F4EB01E97DB23A91141EA0C5 /* PhotoLibrary.swift in Sources */,
 				38867E3737E6F0240BD94F03 /* PhotoSizeHeuristic.swift in Sources */,
@@ -913,6 +955,8 @@
 				91E633E1C1CB948B75B7F959 /* LayoutChangeConfirmationTests.swift in Sources */,
 				AB8D8C744F5397FAB7462B3A /* LibrarySourceWordingTests.swift in Sources */,
 				81A5A8FB58C23898B1D048D8 /* ManifestAdditionsTests.swift in Sources */,
+				C4F1F12035B81F4ADB951E0C /* NewPhotosSnapshotTests.swift in Sources */,
+				AD872B27159CEB48B3E7C5E5 /* NewPhotosTests.swift in Sources */,
 				0CA845398FDDACDFABE0DA5C /* SessionRecorderTests.swift in Sources */,
 				21FA84C3879FA85F375224A8 /* SessionStoreTests.swift in Sources */,
 				FD856B22CB208A73C4ABB6C6 /* SessionsAndDriveCheckTests.swift in Sources */,

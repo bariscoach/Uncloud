@@ -11,6 +11,8 @@ struct ICloudAsset: Sendable, Hashable, Identifiable {
     let thumbnailURL: URL?
     /// What exporting the item writes (the original plus any Live Photo movie), when known.
     var bytes: Int64? = nil
+    /// When the item was added to the library. Nil when the bridge doesn't say.
+    var added: Date? = nil
 }
 
 /// Where pages of the library come from: the bridge in the app, a fake in tests.

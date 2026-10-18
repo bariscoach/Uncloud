@@ -117,6 +117,8 @@ struct ProgressCard: View {
             if model.hasIncompleteRun {
                 Label("A previous export didn’t finish. Resume to continue where it left off.", systemImage: "info.circle")
                     .foregroundStyle(.secondary)
+            } else if let newPhotos = model.newPhotosStatus {
+                NewPhotosStatusLabel(status: newPhotos)
             } else if model.totalCount > 0, model.processedCount == model.totalCount {
                 Label("Everything is already \(model.source.copiedVerb) to this folder.", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.secondary)

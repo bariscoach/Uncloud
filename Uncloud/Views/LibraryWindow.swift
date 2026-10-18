@@ -25,7 +25,7 @@ struct LibraryWindow: View {
                 } icon: {
                     IconTile(symbol: "externaldrive", tint: .teal)
                 }
-                .badge(progressBadge)
+                .badge(progressBadge ?? model.newPhotosBadgeText)
                 // Increased prominence makes the percentage a coloured capsule while an export runs.
                 .badgeProminence(model.isExporting ? .increased : .standard)
                 .tag(ExportModel.Pane.backup)

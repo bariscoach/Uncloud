@@ -261,6 +261,7 @@ class PagingTests(unittest.TestCase):
         self.assertEqual(movie["type"], "movie")
         self.assertEqual(movie["filename"], "MVI_0003.MOV")
         self.assertTrue(movie["created"].endswith("Z"))
+        self.assertTrue(movie["added"].endswith("Z"))
         self.assertEqual(movie["thumbURL"], "https://fake.example/ID03/thumb")
         self.assertEqual(reply["items"][2]["filename"], "Bad_Name_.PNG")
 

@@ -30,6 +30,9 @@ final class AutoBackupSettings {
     }
 
     /// Whether the app should stay running after its window closes.
+    /// The new-photos reminder, saved separately. See NewPhotosReminderSettings.
+    let newPhotosReminder = NewPhotosReminderSettings()
+
     var isEnabled: Bool {
         backUpWhenDriveConnects || backUpDaily
     }

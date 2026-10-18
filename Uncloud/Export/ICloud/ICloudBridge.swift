@@ -31,6 +31,8 @@ struct ICloudBridgeMessage: Decodable, Sendable {
         var rank: Int?
         let filename: String
         let created: String?
+        /// When the item was added to the library, the order the walk uses. Nil from a bridge too old to say.
+        let added: String?
         let type: String
         /// The original's bytes.
         let size: Int64?
@@ -951,7 +953,8 @@ extension ICloudBridgeMessage.Item {
             created: created.flatMap { try? Date($0, strategy: .iso8601) },
             isVideo: type == "movie",
             thumbnailURL: thumbURL.flatMap(URL.init(string:)),
-            bytes: bytes ?? size
+            bytes: bytes ?? size,
+            added: added.flatMap { try? Date($0, strategy: .iso8601) }
         )
     }
 }

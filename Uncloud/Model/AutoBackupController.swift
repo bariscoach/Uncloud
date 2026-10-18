@@ -1,4 +1,5 @@
 import AppKit
+import UserNotifications
 
 /// Starts automatic backups when the destination drive mounts and once a day.
 @MainActor
@@ -9,8 +10,12 @@ final class AutoBackupController {
     private var dailyScheduler: NSBackgroundActivityScheduler?
     private var driveBackupTask: Task<Void, Never>?
     private var startupBackupTask: Task<Void, Never>?
+    private var newPhotosScheduler: NSBackgroundActivityScheduler?
+    private var newPhotosStartupTask: Task<Void, Never>?
 
     private static let day: TimeInterval = 24 * 60 * 60
+    /// How often the new-photos count is refreshed and the reminder checked, while the app runs.
+    private static let newPhotosCheckInterval: TimeInterval = 6 * 60 * 60
 
     init(model: ExportModel, settings: AutoBackupSettings) {
         self.model = model
@@ -43,6 +48,8 @@ final class AutoBackupController {
         }
         dailyScheduler = scheduler
 
+        startNewPhotosChecks()
+
         // Catch up on a day that was missed while the app wasn't running.
         if settings.backUpDaily, isBackupStale(olderThan: Self.day) {
             startupBackupTask = Task { [weak self] in
@@ -51,6 +58,36 @@ final class AutoBackupController {
                 self?.runDailyBackupIfDue(olderThan: Self.day)
             }
         }
+    }
+
+    /// Refreshes the new-photos count every few hours and posts the reminder when it's due. Also refreshes once
+    /// shortly after launch, once the sign-in and the folder have had time to settle.
+    private func startNewPhotosChecks() {
+        UNUserNotificationCenter.current().delegate = NewPhotosNotificationDelegate.shared
+
+        let identifier = "\(Bundle.main.bundleIdentifier ?? "Uncloud").new-photos-check"
+        let scheduler = NSBackgroundActivityScheduler(identifier: identifier)
+        scheduler.interval = Self.newPhotosCheckInterval
+        scheduler.tolerance = 30 * 60
+        scheduler.repeats = true
+        scheduler.qualityOfService = .utility
+        scheduler.schedule { [weak self] completion in
+            Task { @MainActor in
+                await self?.checkForNewPhotos()
+                completion(.finished)
+            }
+        }
+        newPhotosScheduler = scheduler
+
+        newPhotosStartupTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled else { return }
+            self?.model.refreshNewPhotos(force: true)
+        }
+    }
+
+    private func checkForNewPhotos() async {
+        await model.checkForNewPhotos(reminder: settings.newPhotosReminder, automaticBackupOn: settings.isEnabled)
     }
 
     private func volumeDidMount(_ mountedVolume: URL?) {
