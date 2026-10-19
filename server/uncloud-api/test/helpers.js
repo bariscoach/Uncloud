@@ -181,6 +181,7 @@ export function subscription({
   cancel = false,
   cancelAt = null,
   periodEnd = NOW_SECONDS + 365 * DAY,
+  periodStart = periodEnd - 365 * DAY,
   created = NOW_SECONDS - 30 * DAY,
   lookupKey = 'uncloud_plus_yearly',
   product = 'uncloud_plus',
@@ -206,6 +207,7 @@ export function subscription({
       data: [{
         id: `si_${id}`,
         object: 'subscription_item',
+        current_period_start: periodStart,
         current_period_end: periodEnd,
         price: { id: priceId, object: 'price', lookup_key: lookupKey, product },
       }],

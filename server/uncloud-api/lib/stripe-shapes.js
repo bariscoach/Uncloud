@@ -18,6 +18,12 @@ export function periodEnd(subscription) {
   return typeof seconds === 'number' ? new Date(seconds * 1000) : null;
 }
 
+// current_period_start of the subscription item. Returns a Date or null.
+export function periodStart(subscription) {
+  const seconds = firstItem(subscription)?.current_period_start;
+  return typeof seconds === 'number' ? new Date(seconds * 1000) : null;
+}
+
 // invoice.parent.subscription_details.subscription. Returns the id or null.
 export function subscriptionIdOf(invoice) {
   return idOf(invoice?.parent?.subscription_details?.subscription);

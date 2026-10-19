@@ -3,7 +3,10 @@
 // test/fixtures/entitlement-vector.json.
 
 import { createPrivateKey, sign } from 'node:crypto';
-import { idOf, firstItem, periodEnd } from './stripe-shapes.js';
+import { idOf, firstItem, periodEnd, periodStart } from './stripe-shapes.js';
+
+// How long a failing renewal keeps Plus. Matches the app's EntitlementPolicy.
+const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 import { PRODUCT_ID } from './config.js';
 
 export const SIGNATURE_PREFIX = 'uncloud-entitlement-v1';
@@ -45,7 +48,9 @@ export function willNotRenew(subscription, end) {
 export function mapSubscription(subscription, { now, priceLookupKey, livemode }) {
   if (!isOurSubscription(subscription, { priceLookupKey })) return null;
   const mapped = STATUS_MAP[subscription.status] ?? { plan: 'free', status: 'none' };
-  const end = periodEnd(subscription);
+  // While a renewal payment is failing, Stripe has already moved the period forward. The app's 7-day grace
+  // counts from the period end it receives, so send the start of the unpaid period instead (review H4).
+  const end = subscription.status === 'past_due' ? periodStart(subscription) : periodEnd(subscription);
   return {
     plan: mapped.plan,
     status: mapped.status,
@@ -66,6 +71,11 @@ export function toWire(row, now) {
   const end = source.current_period_end ? new Date(source.current_period_end) : null;
   const cancelAtPeriodEnd = source.cancel_at_period_end === true;
   if (status === 'active' && cancelAtPeriodEnd && end && end.getTime() <= now.getTime()) {
+    status = 'expired';
+    plan = 'free';
+  }
+  // A renewal that has been failing for longer than the grace period is over, even before Stripe gives up.
+  if (status === 'pastDue' && end && end.getTime() + PAST_DUE_GRACE_MS <= now.getTime()) {
     status = 'expired';
     plan = 'free';
   }

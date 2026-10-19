@@ -125,3 +125,19 @@ test('signatures match the shared vector fixture (same bytes as the app verifier
   assert.equal(message, v.message);
   assert.equal(verify(null, Buffer.from(v.message, 'utf8'), publicKey, Buffer.from(v.signature, 'base64')), true);
 });
+
+test('past_due sends the start of the unpaid period, so the 7-day grace counts from the failed renewal (review H4)', () => {
+  const start = NOW_SECONDS - 2 * DAY;
+  const row = mapSubscription(subscription({ status: 'past_due', periodStart: start, periodEnd: start + 365 * DAY }), opts);
+  assert.equal(row.current_period_end, isoSeconds(new Date(start * 1000)));
+  assert.equal(toWire(row, NOW).status, 'pastDue');
+  assert.equal(toWire(row, NOW).plan, 'plus');
+});
+
+test('past_due for longer than 7 days reads as expired', () => {
+  const start = NOW_SECONDS - 8 * DAY;
+  const row = mapSubscription(subscription({ status: 'past_due', periodStart: start, periodEnd: start + 365 * DAY }), opts);
+  const wire = toWire(row, NOW);
+  assert.equal(wire.status, 'expired');
+  assert.equal(wire.plan, 'free');
+});
