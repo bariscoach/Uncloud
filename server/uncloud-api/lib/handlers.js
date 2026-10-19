@@ -4,13 +4,17 @@
 import { apiError, errorResponse, json, noContent, readJSON, readText, logEvent } from './http.js';
 import { stripeModeOf } from './config.js';
 import { priceId } from './stripe.js';
-import { RENEWALS, checkoutSessionParams, ensureCustomer } from './checkout.js';
+import { RENEWALS, checkoutSessionParams, ensureCustomer, isMissingCustomer } from './checkout.js';
+import { enforceRateLimit, clientAddress } from './ratelimit.js';
 import { syncCheckoutSession, syncSubscription, handleEvent } from './sync.js';
 import { toWire, signEntitlement } from './entitlement.js';
 
 const CHECKOUT_SESSION_ID = /^cs_(test|live)_[A-Za-z0-9]{10,200}$/;
 const WEBHOOK_BODY_LIMIT = 256 * 1024;
 const ACTIVE_STATUSES = new Set(['active', 'pastDue', 'trialing']);
+// Allowances per window (review M6). Checkout Session creation is per user; the sync endpoint is per address.
+const CHECKOUT_LIMIT = { limit: 10, windowSeconds: 60 * 60 };
+const SYNC_LIMIT = { limit: 30, windowSeconds: 60 };
 
 // GET /v1/health: no auth, no secrets. livemode comes from the key prefix when it is set.
 export function health(env = process.env) {
@@ -55,18 +59,33 @@ export async function checkout(request, deps) {
   if (ACTIVE_STATUSES.has(current.status) && periodOpen) {
     throw apiError('already_subscribed', 409);
   }
+  await enforceRateLimit(deps, `checkout:${auth.userId}`, CHECKOUT_LIMIT);
 
   const price = await priceId(deps.stripe, deps.config.priceLookupKey);
-  const customerId = await ensureCustomer(deps, { userId: auth.userId, email: auth.email });
-  const session = await deps.stripe.checkout.sessions.create(
-    checkoutSessionParams({
-      config: deps.config,
+  const createSession = (customerId) =>
+    deps.stripe.checkout.sessions.create(
+      checkoutSessionParams({
+        config: deps.config,
+        userId: auth.userId,
+        customerId,
+        priceId: price,
+        renewal: body.renewal,
+      }),
+    );
+  let session;
+  try {
+    session = await createSession(await ensureCustomer(deps, { userId: auth.userId, email: auth.email }));
+  } catch (error) {
+    if (!isMissingCustomer(error)) throw error;
+    // The stored Stripe customer was deleted (for example test-data cleanup). Replace it once (review L4).
+    const stale = (await deps.db.select('customers', { user_id: auth.userId }, { service: true }))[0];
+    const replacement = await ensureCustomer(deps, {
       userId: auth.userId,
-      customerId,
-      priceId: price,
-      renewal: body.renewal,
-    }),
-  );
+      email: auth.email,
+      replacing: stale?.stripe_customer_id ?? null,
+    });
+    session = await createSession(replacement);
+  }
   logEvent({ evt: 'checkout_session', user: auth.userId, result: body.renewal });
   return json({ url: session.url, sessionId: session.id });
 }
@@ -77,6 +96,7 @@ export async function checkoutSync(request, deps) {
   const body = await readJSON(request);
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
   if (!CHECKOUT_SESSION_ID.test(sessionId)) return noContent();
+  await enforceRateLimit(deps, `sync:${clientAddress(request)}`, SYNC_LIMIT);
 
   let session;
   try {

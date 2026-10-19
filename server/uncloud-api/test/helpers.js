@@ -88,6 +88,7 @@ export function fakeDb(seed = {}) {
     stripe_events: [...(seed.stripe_events ?? [])],
   };
   const calls = [];
+  const rateCounts = {};
   const matches = (row, filters) =>
     Object.entries(filters).every(([k, v]) => String(row[k]) === String(v));
   const upsertRow = (table, row, key) => {
@@ -119,7 +120,12 @@ export function fakeDb(seed = {}) {
           cancel_at_period_end: row.cancel_at_period_end,
         }];
       }
-      if (name === 'apply_subscription') {
+      if (name === 'consume_rate_limit') {
+      const hits = (rateCounts[args.p_key] ?? 0) + 1;
+      rateCounts[args.p_key] = hits;
+      return hits <= args.p_limit;
+    }
+    if (name === 'apply_subscription') {
         upsertRow('entitlements', {
           user_id: args.p_user_id,
           plan: args.p_plan,
@@ -168,39 +174,74 @@ export function authed(path, { method = 'POST', body, user = USER_A } = {}) {
   });
 }
 
+// A subscription in the pinned API shape: current_period_end is on the item, not on the subscription.
 export function subscription({
   id = 'sub_test_1',
   status = 'active',
   cancel = false,
+  cancelAt = null,
   periodEnd = NOW_SECONDS + 365 * DAY,
   created = NOW_SECONDS - 30 * DAY,
-  basil = true,
   lookupKey = 'uncloud_plus_yearly',
   product = 'uncloud_plus',
   priceId = 'price_test_1',
   customer = 'cus_test_1',
   userId = USER_A,
   latestInvoice = 'in_test_1',
+  metadata = {},
 } = {}) {
-  const item = { id: `si_${id}`, price: { id: priceId, lookup_key: lookupKey, product } };
-  const sub = {
+  return {
     id,
     object: 'subscription',
     status,
     cancel_at_period_end: cancel,
+    cancel_at: cancelAt,
     created,
     customer,
     livemode: false,
-    metadata: userId ? { user_id: userId } : {},
+    metadata: { ...(userId ? { user_id: userId } : {}), ...metadata },
     latest_invoice: latestInvoice,
-    items: { object: 'list', data: [item] },
+    items: {
+      object: 'list',
+      data: [{
+        id: `si_${id}`,
+        object: 'subscription_item',
+        current_period_end: periodEnd,
+        price: { id: priceId, object: 'price', lookup_key: lookupKey, product },
+      }],
+    },
   };
-  if (basil) {
-    item.current_period_end = periodEnd;
-  } else {
-    sub.current_period_end = periodEnd;
-  }
-  return sub;
+}
+
+// A paid invoice in the pinned API shape: the subscription is under parent.subscription_details,
+// and there is no charge field. `paidSecondsAgo` sets status_transitions.paid_at.
+export function invoice({ id = 'in_test_1', subscriptionId = 'sub_test_1', paidSecondsAgo = 60, amountPaid = 999 } = {}) {
+  return {
+    id,
+    object: 'invoice',
+    status: 'paid',
+    amount_paid: amountPaid,
+    parent: { type: 'subscription_details', subscription_details: { subscription: subscriptionId, metadata: {} } },
+    status_transitions: { paid_at: NOW_SECONDS - paidSecondsAgo, finalized_at: NOW_SECONDS - paidSecondsAgo },
+  };
+}
+
+// One Invoice Payment (GET /v1/invoice_payments entry) for an invoice, paid by a PaymentIntent.
+export function invoicePayment({ invoiceId = 'in_test_1', paymentIntent = 'pi_test_1', status = 'paid' } = {}) {
+  return {
+    id: `inpay_${invoiceId}`,
+    object: 'invoice_payment',
+    invoice: invoiceId,
+    status,
+    is_default: true,
+    livemode: false,
+    payment: { type: 'payment_intent', payment_intent: paymentIntent },
+  };
+}
+
+// A refund object (GET /v1/refunds entry).
+export function refund({ id = 're_1', charge = 'ch_test_1', metadata = {} } = {}) {
+  return { id, object: 'refund', charge, metadata, status: 'succeeded' };
 }
 
 export function checkoutSession({

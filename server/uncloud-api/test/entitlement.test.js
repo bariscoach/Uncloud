@@ -37,13 +37,23 @@ test('cancel_at_period_end is carried through', () => {
   assert.equal(mapSubscription(subscription({ cancel: false }), opts).cancel_at_period_end, false);
 });
 
-test('period end is read from the item (basil) and from the subscription (older API)', () => {
+test('period end is read from the subscription item (pinned API shape)', () => {
   const end = NOW_SECONDS + 365 * DAY;
-  const basil = mapSubscription(subscription({ periodEnd: end, basil: true }), opts);
-  const legacy = mapSubscription(subscription({ periodEnd: end, basil: false }), opts);
-  assert.equal(basil.current_period_end, isoSeconds(new Date(end * 1000)));
-  assert.equal(legacy.current_period_end, basil.current_period_end);
-  assert.match(basil.current_period_end, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  const row = mapSubscription(subscription({ periodEnd: end }), opts);
+  assert.equal(row.current_period_end, isoSeconds(new Date(end * 1000)));
+  assert.match(row.current_period_end, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+});
+
+test('a cancel_at on or before the period end means the plan will not renew (review L2)', () => {
+  const end = NOW_SECONDS + 365 * DAY;
+  assert.equal(mapSubscription(subscription({ periodEnd: end, cancelAt: end }), opts).cancel_at_period_end, true);
+  assert.equal(mapSubscription(subscription({ periodEnd: end, cancelAt: end - DAY }), opts).cancel_at_period_end, true);
+});
+
+test('a cancel_at after the period end does not stop renewal, and neither does a null cancel_at', () => {
+  const end = NOW_SECONDS + 365 * DAY;
+  assert.equal(mapSubscription(subscription({ periodEnd: end, cancelAt: end + DAY }), opts).cancel_at_period_end, false);
+  assert.equal(mapSubscription(subscription({ periodEnd: end, cancelAt: null }), opts).cancel_at_period_end, false);
 });
 
 test('a foreign price is ignored (null), by lookup key or by product', () => {

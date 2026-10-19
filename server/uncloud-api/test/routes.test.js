@@ -162,3 +162,15 @@ test('the route refuses another method with a JSON 405', async () => {
   assert.equal((await response.json()).error.code, 'method_not_allowed');
 });
 
+
+// ---- unknown /v1 paths (review L5) -----------------------------------------
+
+test('an unknown /v1 path gets the JSON error envelope, not the HTML 404 page', async () => {
+  const { GET, POST } = await import('../api/v1/[...path].js');
+  for (const handler of [GET, POST]) {
+    const response = await handler(new Request('https://uncloud-api.vercel.app/v1/nope'));
+    assert.equal(response.status, 404);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+    assert.equal((await response.json()).error.code, 'not_found');
+  }
+});

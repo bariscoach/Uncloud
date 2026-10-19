@@ -37,10 +37,27 @@ umask 077; mkdir -p ~/.uncloud-secrets
 openssl genpkey -algorithm ed25519 -out ~/.uncloud-secrets/entitlement-ed25519.pem
 openssl pkey -in ~/.uncloud-secrets/entitlement-ed25519.pem -pubout -outform DER | tail -c 32 | base64
 # 2. Restricted test key: Dashboard > Developers > API keys > Create restricted key (test mode),
-#    permissions per plan 4.2. Paste it without echo:
+#    permissions per the table below. Paste it without echo:
 read -rs RK && printf '%s' "$RK" > ~/.uncloud-secrets/stripe-restricted-test-key && unset RK
 chmod 600 ~/.uncloud-secrets/stripe-restricted-test-key
 ```
+
+Permissions for the restricted key (set each one to Read, Write, or None as shown). These cover every Stripe
+call the server makes; `server/uncloud-api/test/permissions.test.js` fails if a call is added without being listed here:
+
+| Dashboard resource | Access | Used by |
+|---|---|---|
+| Checkout Sessions | Read and Write | create a session; read it on the success page |
+| Customers | Write | create the customer for a user |
+| Customer portal | Write | portal sessions |
+| Prices | Read | find the price by lookup key |
+| Subscriptions | Read and Write | read, update renewal and one-year flag, cancel duplicates and refunds |
+| Invoices | Read | read the invoice of a duplicate or refunded payment |
+| Invoice Payments | Read | find the PaymentIntent behind an invoice (if the key form lists it separately) |
+| Refunds | Read and Write | list refunds on a charge; refund a duplicate's payment |
+
+Not needed (remove if set): Products, Charges. The webhook payloads carry the charge, so the server does not call
+the Charges API.
 
 ## Run order
 

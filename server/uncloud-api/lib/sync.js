@@ -7,8 +7,16 @@ import { idOf, subscriptionIdOf } from './stripe-shapes.js';
 import { mapSubscription, isOurSubscription } from './entitlement.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// Stripe statuses that mean "this subscription is paying for Uncloud Plus now".
-const LIVE_STATUSES = new Set(['active', 'trialing', 'pastDue']);
+// Entitlement-row statuses that mean "this subscription is paying for Uncloud Plus now".
+const LIVE_ROW_STATUSES = new Set(['active', 'trialing', 'pastDue']);
+// The same idea for Stripe's own subscription statuses.
+const LIVE_STRIPE_STATUSES = new Set(['active', 'trialing', 'past_due']);
+// A duplicate's latest payment is refunded only when it was paid this recently (review H3).
+const REFUND_WINDOW_SECONDS = 24 * 60 * 60;
+// Set on every refund this server makes for a duplicate, so the charge.refunded it causes is skipped.
+const DUPLICATE_REASON = 'duplicate';
+// Subscription metadata key recording the Checkout Session whose one-year choice was applied (review M2).
+const ONE_YEAR_MARKER = 'one_year_applied';
 
 const asUUID = (value) => (typeof value === 'string' && UUID.test(value) ? value : null);
 
@@ -23,9 +31,20 @@ async function resolveUser(deps, subscription, userIdHint) {
   return asUUID(userIdHint);
 }
 
-// Cancels a subscription we must not keep and refunds its latest invoice payment.
-// Re-running it is safe: a canceled subscription is not canceled again, and the refund uses a
-// fixed idempotency key.
+// The refund target for a paid invoice: its PaymentIntent, or the charge for a payment made without one. Found through Invoice Payments, since Invoice has no charge field (review H1).
+async function paidPaymentOf(stripe, invoiceId) {
+  const list = await stripe.invoicePayments.list({ invoice: invoiceId, status: 'paid', limit: 10 });
+  const paid = list.data.find((entry) => entry.payment);
+  if (!paid) return null;
+  const paymentIntent = idOf(paid.payment.payment_intent);
+  if (paymentIntent) return { payment_intent: paymentIntent };
+  const charge = idOf(paid.payment.charge);
+  return charge ? { charge } : null;
+}
+
+// Cancels a duplicate subscription and refunds its latest payment. Re-running it is safe: a canceled
+// subscription is not canceled again, and the refund uses a fixed idempotency key.
+// Returns the refund outcome for logs: refunded, refund_skipped_old or no_payment.
 async function cancelAndRefund(deps, subscriptionId) {
   const { stripe } = deps;
   const current = await stripe.subscriptions.retrieve(subscriptionId);
@@ -33,11 +52,21 @@ async function cancelAndRefund(deps, subscriptionId) {
     await stripe.subscriptions.cancel(subscriptionId, { prorate: false }, { idempotencyKey: `dup-cancel-${subscriptionId}` });
   }
   const invoiceId = idOf(current.latest_invoice);
-  if (!invoiceId) return;
+  if (!invoiceId) return 'no_payment';
   const invoice = await stripe.invoices.retrieve(invoiceId);
-  const chargeId = idOf(invoice.charge);
-  if (!chargeId || !(invoice.amount_paid > 0)) return;
-  await stripe.refunds.create({ charge: chargeId }, { idempotencyKey: `dup-refund-${subscriptionId}` });
+  if (!(invoice.amount_paid > 0)) return 'no_payment';
+  // Only a recent payment is refunded, so a refund never reaches back into an old period (review H3).
+  const paidAt = invoice.status_transitions?.paid_at;
+  if (typeof paidAt !== 'number' || deps.now().getTime() / 1000 - paidAt > REFUND_WINDOW_SECONDS) {
+    return 'refund_skipped_old';
+  }
+  const target = await paidPaymentOf(stripe, invoiceId);
+  if (!target) return 'no_payment';
+  await stripe.refunds.create(
+    { ...target, metadata: { uncloud_reason: DUPLICATE_REASON, subscription: subscriptionId } },
+    { idempotencyKey: `dup-refund-${subscriptionId}` },
+  );
+  return 'refunded';
 }
 
 // Writes the entitlement for a subscription (already fetched from Stripe).
@@ -62,18 +91,28 @@ export async function applySubscription(deps, subscription, { userIdHint } = {})
 
   let result = 'applied';
   const existing = (await db.select('entitlements', { user_id: userId }, { service: true }))[0] ?? null;
-  if (existing?.stripe_subscription_id && existing.stripe_subscription_id !== subscription.id) {
-    if (LIVE_STATUSES.has(existing.status) && LIVE_STATUSES.has(row.status)) {
+  if (
+    existing?.stripe_subscription_id &&
+    existing.stripe_subscription_id !== subscription.id &&
+    LIVE_ROW_STATUSES.has(existing.status)
+  ) {
+    const other = await deps.stripe.subscriptions.retrieve(existing.stripe_subscription_id);
+    if (!LIVE_STRIPE_STATUSES.has(other.status)) {
+      // The row still says live, but Stripe says that subscription has ended (a late or failed
+      // deletion event). Re-sync it, then apply this subscription normally (review H3).
+      await applySubscription(deps, other, { userIdHint: userId });
+    } else if (LIVE_ROW_STATUSES.has(row.status)) {
       // Two live Uncloud subscriptions for one user (for example two checkout tabs). Keep the newer.
-      const other = await deps.stripe.subscriptions.retrieve(existing.stripe_subscription_id);
       if (other.created > subscription.created) {
-        await cancelAndRefund(deps, subscription.id);
+        const outcome = await cancelAndRefund(deps, subscription.id);
+        logEvent({ evt: 'duplicate_refund', id: subscription.id, user: userId, result: outcome });
         result = 'duplicate_cancelled';
       } else {
-        await cancelAndRefund(deps, other.id);
+        const outcome = await cancelAndRefund(deps, other.id);
+        logEvent({ evt: 'duplicate_refund', id: other.id, user: userId, result: outcome });
         result = 'duplicate_replaced';
       }
-    } else if (LIVE_STATUSES.has(existing.status) && !LIVE_STATUSES.has(row.status)) {
+    } else {
       // An old subscription ending must not overwrite the one that is live now.
       logEvent({ evt: 'subscription', id: subscription.id, user: userId, result: 'stale_ignored' });
       return 'stale_ignored';
@@ -132,19 +171,38 @@ export async function syncCheckoutSession(deps, session) {
     );
   }
 
-  // Checkout cannot set cancel_at_period_end, so the one-year choice is applied here.
-  if (session.metadata?.renewal === 'oneYear' && subscription.cancel_at_period_end !== true) {
-    subscription = await stripe.subscriptions.update(
+  // Checkout cannot set cancel_at_period_end, so the one-year choice is applied here, once per
+  // Checkout Session (review M2). Without the marker, every reload, restored tab or late webhook
+  // would turn renewal off again after the user had turned it back on.
+  if (session.metadata?.renewal === 'oneYear' && subscription.metadata?.[ONE_YEAR_MARKER] !== session.id) {
+    await stripe.subscriptions.update(
       subscriptionId,
-      { cancel_at_period_end: true },
+      { cancel_at_period_end: true, metadata: { [ONE_YEAR_MARKER]: session.id } },
       { idempotencyKey: `one-year-${session.id}` },
     );
+    // Re-read: an idempotent replay returns the cached response, not the current state.
+    subscription = await stripe.subscriptions.retrieve(subscriptionId);
   }
   return applySubscription(deps, subscription, { userIdHint: userId });
 }
 
-// charge.refunded: a full refund ends the plan now. A partial refund changes nothing.
+// The invoice behind a charge, found through the charge's PaymentIntent (review H2).
+async function invoiceIdOfCharge(stripe, charge) {
+  const paymentIntent = idOf(charge.payment_intent);
+  if (!paymentIntent) return null;
+  const list = await stripe.invoicePayments.list({
+    payment: { type: 'payment_intent', payment_intent: paymentIntent },
+    limit: 10,
+  });
+  const match = list.data.find((entry) => idOf(entry.payment?.payment_intent) === paymentIntent);
+  return idOf(match?.invoice);
+}
+
+// charge.refunded: a full refund ends the plan now, but only when the refunded charge paid for the
+// user's current subscription (review H2). A partial refund changes nothing. A refund this server
+// made for a duplicate is skipped, because the duplicate handling already dealt with it.
 async function handleRefund(deps, charge) {
+  const { stripe } = deps;
   if (charge.refunded !== true) return 'partial_ignored';
   const customerId = idOf(charge.customer);
   if (!customerId) return 'ignored';
@@ -152,15 +210,27 @@ async function handleRefund(deps, charge) {
   const userId = customers[0]?.user_id;
   if (!userId) return 'ignored';
   const entitlement = (await deps.db.select('entitlements', { user_id: userId }, { service: true }))[0];
-  if (!entitlement?.stripe_subscription_id || !LIVE_STATUSES.has(entitlement.status)) {
+  if (!entitlement?.stripe_subscription_id || !LIVE_ROW_STATUSES.has(entitlement.status)) {
     return 'no_active_subscription';
   }
-  await deps.stripe.subscriptions.cancel(
-    entitlement.stripe_subscription_id,
-    { prorate: false },
-    { idempotencyKey: `refund-${charge.id}` },
-  );
-  return syncSubscription(deps, entitlement.stripe_subscription_id, { userIdHint: userId });
+
+  const refunds = await stripe.refunds.list({ charge: charge.id, limit: 100 });
+  if (refunds.data.some((refund) => refund.metadata?.uncloud_reason === DUPLICATE_REASON)) {
+    return 'duplicate_refund_ignored';
+  }
+
+  const invoiceId = await invoiceIdOfCharge(stripe, charge);
+  if (!invoiceId) return 'refund_other_invoice';
+  const invoice = await stripe.invoices.retrieve(invoiceId);
+  const subscriptionId = subscriptionIdOf(invoice);
+  if (!subscriptionId || subscriptionId !== entitlement.stripe_subscription_id) return 'refund_other_invoice';
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  if (idOf(subscription.latest_invoice) !== invoiceId) return 'refund_other_invoice';
+
+  if (subscription.status !== 'canceled') {
+    await stripe.subscriptions.cancel(subscriptionId, { prorate: false }, { idempotencyKey: `refund-${charge.id}` });
+  }
+  return syncSubscription(deps, subscriptionId, { userIdHint: userId });
 }
 
 // Dispatch for verified webhook events (plan §4.6).

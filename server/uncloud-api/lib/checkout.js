@@ -1,5 +1,6 @@
 // Checkout Session parameters, the customer lookup and creation, and the renewal choice.
 
+import { createHash } from 'node:crypto';
 import { apiError, logEvent } from './http.js';
 
 // Custom submit-button text (final copy, plan §5.3). Checkout allows up to 1200 characters.
@@ -36,18 +37,32 @@ export function checkoutSessionParams({ config, userId, customerId, priceId: pri
   return params;
 }
 
+// Stripe rejects a Checkout Session whose customer no longer exists. The error code and parameter.
+export function isMissingCustomer(error) {
+  return error?.code === 'resource_missing' && error?.param === 'customer';
+}
+
+// Short hash of the email, for idempotency keys: a changed email then never replays another body (review L4).
+function emailKey(email) {
+  return createHash('sha256').update(String(email).trim().toLowerCase()).digest('hex').slice(0, 16);
+}
+
 // Stripe customer for the Supabase user: from the customers table, else created once.
+// `replacing` names a stored customer that Stripe no longer has; a new one is created in its place.
 // Refuses (503) when the stored customer belongs to the other Stripe mode.
-export async function ensureCustomer(deps, { userId, email }) {
+export async function ensureCustomer(deps, { userId, email, replacing = null }) {
   const { db, stripe, config } = deps;
   const rows = await db.select('customers', { user_id: userId }, { service: true });
-  if (rows.length > 0) {
-    if (rows[0].livemode !== config.livemode) throw apiError('checkout_unavailable', 503);
-    return rows[0].stripe_customer_id;
+  const stored = rows[0] ?? null;
+  if (stored && stored.stripe_customer_id !== replacing) {
+    if (stored.livemode !== config.livemode) throw apiError('checkout_unavailable', 503);
+    return stored.stripe_customer_id;
   }
+  // A replacement has its own key, so Stripe does not replay the deleted customer's response.
+  const key = `customer-${userId}-${emailKey(email)}${replacing ? `-replace-${replacing}` : ''}`;
   const customer = await stripe.customers.create(
     { email, metadata: { user_id: userId } },
-    { idempotencyKey: `customer-${userId}` },
+    { idempotencyKey: key },
   );
   if (customer.livemode !== config.livemode) throw apiError('checkout_unavailable', 503);
   await db.upsert(
@@ -56,6 +71,6 @@ export async function ensureCustomer(deps, { userId, email }) {
     { onConflict: 'user_id' },
     { service: true },
   );
-  logEvent({ evt: 'customer_created', user: userId });
+  logEvent({ evt: 'customer_created', user: userId, result: replacing ? 'replaced' : 'created' });
   return customer.id;
 }

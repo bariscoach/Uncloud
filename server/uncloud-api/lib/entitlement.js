@@ -32,6 +32,14 @@ export function isOurSubscription(subscription, { priceLookupKey, productId = PR
   return price.lookup_key === priceLookupKey || idOf(price.product) === productId;
 }
 
+// True when the subscription will not renew: cancel_at_period_end, or a cancel_at (a Dashboard
+// cancellation on a date, or flexible billing) that falls at or before the period end (review L2).
+export function willNotRenew(subscription, end) {
+  if (subscription.cancel_at_period_end === true) return true;
+  if (typeof subscription.cancel_at !== 'number') return false;
+  return end !== null && subscription.cancel_at <= Math.floor(end.getTime() / 1000);
+}
+
 // Maps a Stripe subscription to the entitlements row shape (snake_case, as the table and
 // apply_subscription use it). Returns null for a subscription that is not ours.
 export function mapSubscription(subscription, { now, priceLookupKey, livemode }) {
@@ -42,7 +50,7 @@ export function mapSubscription(subscription, { now, priceLookupKey, livemode })
     plan: mapped.plan,
     status: mapped.status,
     current_period_end: end ? isoSeconds(end) : null,
-    cancel_at_period_end: subscription.cancel_at_period_end === true,
+    cancel_at_period_end: willNotRenew(subscription, end),
     stripe_subscription_id: subscription.id,
     stripe_price_id: idOf(firstItem(subscription)?.price) ?? null,
     livemode: livemode ?? subscription.livemode === true,

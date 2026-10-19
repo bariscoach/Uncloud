@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkout } from '../lib/handlers.js';
 import { checkoutSessionParams, RENEW_TEXT, ONE_YEAR_TEXT } from '../lib/checkout.js';
-import { fakeStripe, fakeDb, makeDeps, authed, json, testConfig, invoke, USER_A } from './helpers.js';
+import { fakeStripe, fakeDb, makeDeps, authed, json, testConfig, invoke, USER_A, USERS } from './helpers.js';
 
 function happyRoutes(overrides = {}) {
   return {
@@ -27,7 +27,8 @@ test('checkout creates the customer once with an idempotency key and returns the
   assert.deepEqual(body, { url: 'https://checkout.stripe.com/c/pay/cs_test_a1b2c3d4e5f6', sessionId: 'cs_test_a1b2c3d4e5f6' });
 
   const customerCall = call(calls, 'POST', '/v1/customers');
-  assert.equal(customerCall.idempotencyKey, `customer-${USER_A}`);
+  // The key covers the email (review L4), so a changed email never replays another request's body.
+  assert.match(customerCall.idempotencyKey, new RegExp(`^customer-${USER_A}-[0-9a-f]{16}$`));
   assert.equal(customerCall.body.get('email'), 'name@example.com');
   assert.equal(customerCall.body.get('metadata[user_id]'), USER_A);
 
@@ -149,4 +150,73 @@ test('a customer from the other Stripe mode is refused with 503', async () => {
   const db = fakeDb({ customers: [{ user_id: USER_A, stripe_customer_id: 'cus_live', livemode: true }] });
   const { status } = await json(await invoke('POST', checkout, authed('/v1/checkout', { body: { renewal: 'automatic' } }), makeDeps({ stripe, db })));
   assert.equal(status, 503);
+});
+
+test('review L4: a changed email gets a different customer idempotency key', async () => {
+  const keys = [];
+  for (const email of ['name@example.com', 'New.Name@example.com']) {
+    const { stripe, calls } = fakeStripe(happyRoutes());
+    const deps = makeDeps({ stripe, db: fakeDb() });
+    const user = { ...USERS[USER_A], email };
+    deps.verify = async () => ({ ...user, jwt: user.userId });
+    await invoke('POST', checkout, authed('/v1/checkout', { body: { renewal: 'automatic' } }), deps);
+    keys.push(call(calls, 'POST', '/v1/customers').idempotencyKey);
+  }
+  assert.notEqual(keys[0], keys[1]);
+  // Case and surrounding spaces do not change the key for the same address.
+  const { stripe, calls } = fakeStripe(happyRoutes());
+  const deps = makeDeps({ stripe, db: fakeDb() });
+  deps.verify = async () => ({ ...USERS[USER_A], email: '  NAME@example.com ', jwt: USER_A });
+  await invoke('POST', checkout, authed('/v1/checkout', { body: { renewal: 'automatic' } }), deps);
+  assert.equal(call(calls, 'POST', '/v1/customers').idempotencyKey, keys[0]);
+});
+
+test('review L4: a stored customer that Stripe no longer has is replaced once, and the new one is stored', async () => {
+  let sessionAttempts = 0;
+  const { stripe, calls } = fakeStripe(happyRoutes({
+    'POST /v1/checkout/sessions': () => {
+      sessionAttempts += 1;
+      if (sessionAttempts === 1) {
+        throw {
+          status: 404,
+          error: { type: 'invalid_request_error', code: 'resource_missing', param: 'customer', message: 'No such customer: cus_gone' },
+        };
+      }
+      return { id: 'cs_test_a1b2c3d4e5f6', url: 'https://checkout.stripe.com/c/pay/cs_test_a1b2c3d4e5f6' };
+    },
+    'POST /v1/customers': () => ({ id: 'cus_new', object: 'customer', livemode: false }),
+  }));
+  const db = fakeDb({ customers: [{ user_id: USER_A, stripe_customer_id: 'cus_gone', livemode: false }] });
+  const { status, body } = await json(await invoke('POST', checkout, authed('/v1/checkout', { body: { renewal: 'automatic' } }), makeDeps({ stripe, db })));
+  assert.equal(status, 200);
+  assert.equal(body.sessionId, 'cs_test_a1b2c3d4e5f6');
+  assert.equal(sessionAttempts, 2);
+  const customerCall = call(calls, 'POST', '/v1/customers');
+  assert.match(customerCall.idempotencyKey, /-replace-cus_gone$/, 'a replacement has its own key');
+  const sessionCalls = calls.filter((c) => c.method === 'POST' && c.path === '/v1/checkout/sessions');
+  assert.equal(sessionCalls[1].body.get('customer'), 'cus_new');
+  assert.equal(db.tables.customers.find((r) => r.user_id === USER_A).stripe_customer_id, 'cus_new');
+});
+
+test('review L4: other session errors are not retried and still fail', async () => {
+  const { stripe, calls } = fakeStripe(happyRoutes({
+    'POST /v1/checkout/sessions': () => { throw { status: 400, error: { type: 'invalid_request_error', code: 'parameter_invalid_empty', param: 'line_items', message: 'bad' } }; },
+  }));
+  const db = fakeDb({ customers: [{ user_id: USER_A, stripe_customer_id: 'cus_test_1', livemode: false }] });
+  const { status } = await json(await invoke('POST', checkout, authed('/v1/checkout', { body: { renewal: 'automatic' } }), makeDeps({ stripe, db })));
+  assert.equal(status, 500);
+  assert.equal(calls.filter((c) => c.path === '/v1/customers').length, 0);
+});
+
+test('review M6: a user may start 10 checkouts an hour; the 11th is 429 with no Stripe call', async () => {
+  const { stripe, calls } = fakeStripe(happyRoutes());
+  const deps = makeDeps({ stripe, db: fakeDb({ customers: [{ user_id: USER_A, stripe_customer_id: 'cus_test_1', livemode: false }] }) });
+  for (let i = 0; i < 10; i += 1) {
+    assert.equal((await json(await invoke('POST', checkout, authed('/v1/checkout', { body: { renewal: 'automatic' } }), deps))).status, 200);
+  }
+  const before = calls.length;
+  const limited = await json(await invoke('POST', checkout, authed('/v1/checkout', { body: { renewal: 'automatic' } }), deps));
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.error.code, 'rate_limited');
+  assert.equal(calls.length, before, 'no Stripe call while limited');
 });

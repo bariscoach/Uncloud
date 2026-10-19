@@ -103,5 +103,31 @@ begin
   end;
 end $$;
 
+-- L1: no TRUNCATE, REFERENCES or TRIGGER for the API roles on the Uncloud tables (explicit grants, migration 20261018130000).
+do $$
+begin
+  if has_table_privilege('authenticated', 'public.customers', 'TRUNCATE')
+     or has_table_privilege('authenticated', 'public.entitlements', 'TRUNCATE')
+     or has_table_privilege('anon', 'public.customers', 'TRUNCATE')
+     or has_table_privilege('anon', 'public.entitlements', 'TRUNCATE') then
+    raise exception 'grants: TRUNCATE on Uncloud tables is granted to an API role';
+  end if;
+end $$;
+
+-- M6: rate-limit counters are not readable or callable by API roles (migration 20261018130000).
+do $$
+begin
+  begin
+    perform 1 from public.rate_limits;
+    raise exception 'rate_limits: authenticated read was allowed';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.consume_rate_limit('probe', 1, 60);
+    raise exception 'rate_limits: authenticated call to consume_rate_limit was allowed';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
 reset role;
 rollback;
