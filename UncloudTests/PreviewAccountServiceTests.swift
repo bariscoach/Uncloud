@@ -112,7 +112,7 @@ struct PreviewAccountServiceTests {
         #expect(url.path == "/success")
         #expect(url.query?.hasPrefix("session_id=preview_") == true)
 
-        let (entitlement, _) = try await service.currentEntitlement(tokens: session.tokens)
+        let entitlement = try await service.currentEntitlement(tokens: session.tokens)
         #expect(entitlement.plan == .plus)
         #expect(entitlement.status == .active)
         #expect(entitlement.currentPeriodEnd == clock.now.addingTimeInterval(365 * 24 * 60 * 60))
@@ -129,13 +129,15 @@ struct PreviewAccountServiceTests {
         }
     }
 
-    @Test("An expired access token is renewed by currentEntitlement")
-    func renewsExpiredAccess() async throws {
+    @Test("currentEntitlement never renews the tokens itself: the model does that, once, for every caller (L3)")
+    func entitlementDoesNotRenew() async throws {
         let clock = TestClock()
         let service = Self.makeService(clock: clock)
         let session = try await Self.signIn(service, email: "a@example.com")
         clock.advance(by: PreviewAccountService.accessLifetime + 1)
-        let (_, renewed) = try await service.currentEntitlement(tokens: session.tokens)
+        _ = try await service.currentEntitlement(tokens: session.tokens)
+        // The old refresh token is still good, because nothing rotated it.
+        let renewed = try await service.refresh(tokens: session.tokens)
         #expect(renewed.refreshToken != session.tokens.refreshToken)
     }
 
@@ -158,7 +160,7 @@ struct PreviewAccountServiceTests {
         _ = try await first.checkoutURL(tokens: session.tokens, renewal: .automatic)
 
         let second = Self.makeService(clock: clock, defaults: defaults)
-        let (entitlement, _) = try await second.currentEntitlement(tokens: session.tokens)
+        let entitlement = try await second.currentEntitlement(tokens: session.tokens)
         #expect(entitlement.plan == .plus)
     }
 
@@ -168,13 +170,13 @@ struct PreviewAccountServiceTests {
         let service = Self.makeService(clock: clock)
         let session = try await Self.signIn(service, email: "renew@example.com")
         _ = try await service.checkoutURL(tokens: session.tokens, renewal: .oneYear)
-        let (oneYear, tokens) = try await service.currentEntitlement(tokens: session.tokens)
+        let oneYear = try await service.currentEntitlement(tokens: session.tokens)
         #expect(oneYear.plan == .plus)
         #expect(oneYear.cancelAtPeriodEnd)
 
-        let renewed = try await service.setAutoRenew(true, tokens: tokens)
+        let renewed = try await service.setAutoRenew(true, tokens: session.tokens)
         #expect(renewed.cancelAtPeriodEnd == false)
-        let stopped = try await service.setAutoRenew(false, tokens: tokens)
+        let stopped = try await service.setAutoRenew(false, tokens: session.tokens)
         #expect(stopped.cancelAtPeriodEnd)
     }
 

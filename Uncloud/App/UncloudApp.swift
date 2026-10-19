@@ -34,9 +34,9 @@ struct UncloudApp: App {
         let model = ExportModel()
         let settings = AutoBackupSettings()
         // Accounts are off in Release builds, and in Debug they use the preview service (plan A.6).
-        let account = AccountModel(configuration: .current)
-        // Paid features are checked when a run would start, never while one runs (plan C.4).
-        model.isFeatureAllowed = { [account] feature in account.allows(feature) }
+        // A revoked session waits for a running export (M4); `onRunFinished` applies it when the run ends.
+        let account = AccountModel(configuration: .current, isExportRunning: { [weak model] in model?.isExporting ?? false })
+        model.onRunFinished = { [weak account] in account?.exportDidFinish() }
         let controller = AutoBackupController(model: model, settings: settings, isAllowed: { [account] feature in account.allows(feature) })
         controller.start()
         AppDelegate.model = model

@@ -20,8 +20,6 @@ actor LiveAccountService: AccountService {
     static let otpLifetime: TimeInterval = 10 * 60
     static let resendInterval: TimeInterval = 60
     static let maxWrongCodes = 5
-    /// Access tokens are refreshed when they expire within this window.
-    static let refreshWindow: TimeInterval = 60
 
     private let apiBaseURL: URL
     private let supabaseURL: URL
@@ -95,13 +93,9 @@ actor LiveAccountService: AccountService {
         )
     }
 
-    func currentEntitlement(tokens: AccountTokens) async throws -> (Entitlement, AccountTokens) {
-        var current = tokens
-        if current.accessExpiresAt < now().addingTimeInterval(Self.refreshWindow) {
-            current = try await refresh(tokens: current)
-        }
-        let (_, plan) = try await fetchPlan(tokens: current)
-        return (plan, current)
+    func currentEntitlement(tokens: AccountTokens) async throws -> Entitlement {
+        let (_, plan) = try await fetchPlan(tokens: tokens)
+        return plan
     }
 
     func refresh(tokens: AccountTokens) async throws -> AccountTokens {

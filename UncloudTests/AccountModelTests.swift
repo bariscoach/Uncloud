@@ -151,11 +151,17 @@ struct AccountModelTests {
         harness.export.running = true
         await harness.model.refreshEntitlement(force: true)
         #expect(harness.model.phase == .signedIn)
+        #expect(harness.model.showsAppMenus)
+
+        // Still running: the hook that runs at the end of a run must not end the session early.
+        harness.model.exportDidFinish()
+        #expect(harness.model.phase == .signedIn)
 
         harness.export.running = false
         harness.model.exportDidFinish()
         #expect(harness.model.phase == .signedOut(.welcome))
         #expect(harness.model.error == .signedOut)
+        #expect(!harness.model.showsAppMenus)
     }
 
     @Test("A revoked session outside an export signs out at once")

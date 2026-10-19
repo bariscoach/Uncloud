@@ -444,8 +444,8 @@ final class ExportModel {
     /// Set by BackupTools: true while a backup check or library cleanup is running, so no export starts mid-check.
     @ObservationIgnored var isExportBlocked: () -> Bool = { false }
 
-    /// Set by the app from the account: whether a paid feature may start. Checked when a run starts, never during one.
-    @ObservationIgnored var isFeatureAllowed: @MainActor (PaidFeature) -> Bool = { _ in true }
+    /// Set by the app: called when a run ends, whatever its result. The account applies a session revoked during the run (M4).
+    @ObservationIgnored var onRunFinished: @MainActor () -> Void = {}
 
     var canStart: Bool {
         if phase == .paused { return true }
@@ -931,6 +931,7 @@ final class ExportModel {
         }
         recordNewPhotosWatermark(result, selection: run?.selection ?? selection)
         storage.exportDidFinish()
+        onRunFinished()
         refreshDestinationFreeSpace(force: true)
 
         if skippedThisRun > 0, result != .idle {

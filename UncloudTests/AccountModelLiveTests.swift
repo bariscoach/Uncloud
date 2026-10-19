@@ -31,9 +31,9 @@ actor FakeLiveService: AccountService {
         throw AccountError.server(message: "not used")
     }
 
-    func currentEntitlement(tokens: AccountTokens) async throws -> (Entitlement, AccountTokens) {
+    func currentEntitlement(tokens: AccountTokens) async throws -> Entitlement {
         try check(tokens)
-        return (plan, tokens)
+        return plan
     }
 
     func refresh(tokens: AccountTokens) async throws -> AccountTokens {
@@ -92,6 +92,42 @@ actor FakeLiveService: AccountService {
     }
 }
 
+/// A token store whose Keychain item can be made unreadable, as when access is denied or the Keychain is locked.
+final class GatedTokenStore: AccountTokenStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: AccountTokens?
+    private var readable: Bool
+
+    init(tokens: AccountTokens, readable: Bool) {
+        stored = tokens
+        self.readable = readable
+    }
+
+    func setReadable(_ value: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        readable = value
+    }
+
+    func load() -> AccountTokens? {
+        lock.lock()
+        defer { lock.unlock() }
+        return readable ? stored : nil
+    }
+
+    func save(_ tokens: AccountTokens) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        stored = tokens
+    }
+
+    func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        stored = nil
+    }
+}
+
 /// Records the sleeps the poll asks for, so the tests don't wait.
 final class SleepLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -129,18 +165,20 @@ struct AccountModelLiveTests {
         accessExpiresAt: Date = now.addingTimeInterval(3600),
         verifyCachedEntitlement: @escaping @Sendable (Entitlement, String) -> Bool = { _, _ in true },
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
-        clock: TestClock = TestClock(Self.now)
+        clock: TestClock = TestClock(Self.now),
+        gated: GatedTokenStore? = nil
     ) -> (AccountModel, OpenedURLs) {
         let defaults = isolatedDefaults()
         let tokenStore = DefaultsAccountTokenStore(defaults: defaults)
-        try? tokenStore.save(AccountTokens(accessToken: "access-0", refreshToken: "refresh-0", accessExpiresAt: accessExpiresAt))
+        let tokens = AccountTokens(accessToken: "access-0", refreshToken: "refresh-0", accessExpiresAt: accessExpiresAt)
+        try? tokenStore.save(tokens)
         defaults.set(try? JSONEncoder().encode(UncloudAccount(id: "user-1", email: "name@example.com")), forKey: "uncloudAccount")
         defaults.set(try? JSONEncoder().encode(cached), forKey: "uncloudEntitlement")
         let opened = OpenedURLs()
         let model = AccountModel(
             mode: .live,
             service: service,
-            tokens: tokenStore,
+            tokens: gated ?? tokenStore,
             defaults: defaults,
             clock: clock.reader,
             openURL: { opened.urls.append($0) },
@@ -161,6 +199,55 @@ struct AccountModelLiveTests {
         #expect(await service.refreshCalls == 1)
         #expect(opened.urls.count == 2)
         #expect(model.phase == .signedIn)
+    }
+
+    @Test("The plan check and a server call share one token refresh, because refresh tokens are single use (L3)")
+    func planCheckSharesRefresh() async {
+        let service = FakeLiveService(refreshDelay: .milliseconds(50))
+        let (model, opened) = Self.signedInModel(service: service, accessExpiresAt: Self.now.addingTimeInterval(10))
+        async let plan: Void = model.refreshEntitlement(force: true)
+        async let portal: Void = model.openManageSubscription()
+        _ = await (plan, portal)
+        #expect(await service.refreshCalls == 1)
+        #expect(opened.urls.count == 1)
+        #expect(model.phase == .signedIn)
+    }
+
+    @Test("Tokens the Keychain won't return keep a verified session signed in, and a server call asks for sign-in again (M5)")
+    func unreadableTokensKeepSession() async {
+        let service = FakeLiveService()
+        let gated = GatedTokenStore(
+            tokens: AccountTokens(accessToken: "access-0", refreshToken: "refresh-0", accessExpiresAt: Self.now.addingTimeInterval(3600)),
+            readable: false
+        )
+        let (model, opened) = Self.signedInModel(service: service, cached: Self.plus, gated: gated)
+        #expect(model.phase == .signedIn)
+        #expect(model.account?.id == "user-1")
+        #expect(model.access != .free)
+        #expect(model.showsAppMenus)
+
+        await model.openManageSubscription()
+        #expect(model.phase == .signedIn)
+        #expect(model.error == .signedOut)
+        #expect(model.access != .free)
+        #expect(opened.urls.isEmpty)
+        #expect(await service.refreshCalls == 0)
+
+        // Access is granted later: the next call reads the tokens again and succeeds.
+        gated.setReadable(true)
+        await model.openManageSubscription()
+        #expect(model.error == nil)
+        #expect(opened.urls.count == 1)
+    }
+
+    @Test("Unreadable tokens with a plan that doesn't verify start signed out, as before")
+    func unreadableTokensUntrustedPlanIsWelcome() {
+        let gated = GatedTokenStore(
+            tokens: AccountTokens(accessToken: "access-0", refreshToken: "refresh-0", accessExpiresAt: Self.now),
+            readable: false
+        )
+        let (model, _) = Self.signedInModel(service: FakeLiveService(), cached: Self.plus, verifyCachedEntitlement: { _, _ in false }, gated: gated)
+        #expect(model.phase == .signedOut(.welcome))
     }
 
     @Test("A rejected access token is refreshed once and the call retried")

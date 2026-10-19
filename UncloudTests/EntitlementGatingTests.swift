@@ -115,4 +115,11 @@ struct EntitlementGatingTests {
         #expect(PlanText.renewalTerms(.automatic).contains("$9.99/year + tax"))
         #expect(PlanText.renewalTerms(.oneYear).contains("$9.99 + tax"))
     }
+
+    @Test("A library delete that starts after the plan lapsed is refused, and recovery stays free (L6)")
+    func deleteRefusedAfterLapse() {
+        #expect(CleanupGridView.mayStart(mode: .library, allowsCleanUp: false) == false)
+        #expect(CleanupGridView.mayStart(mode: .library, allowsCleanUp: true))
+        #expect(CleanupGridView.mayStart(mode: .recentlyDeleted, allowsCleanUp: false))
+    }
 }

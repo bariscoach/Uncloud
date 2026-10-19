@@ -104,9 +104,11 @@ struct PaywallRequest: Identifiable {
         let cachedAccount = mode == .off ? nil : Self.load(UncloudAccount.self, forKey: Self.accountKey, in: defaults)
         let cachedEntitlement = Self.load(Entitlement.self, forKey: Self.entitlementKey, in: defaults) ?? .free
         let storedTokens = mode == .off ? nil : tokens.load()
-        let signedIn = cachedAccount != nil && storedTokens != nil
         // A cached plan whose signature doesn't verify is not trusted: Free until the server answers.
-        let trusted = signedIn && cachedAccount.map { verifyCachedEntitlement(cachedEntitlement, $0.id) } == true
+        let trusted = cachedAccount != nil && cachedAccount.map { verifyCachedEntitlement(cachedEntitlement, $0.id) } == true
+        // Tokens the Keychain won't give back (denied, locked) don't end a verified session: the user stays signed in,
+        // and a server call asks for sign-in again (M5).
+        let signedIn = cachedAccount != nil && (storedTokens != nil || trusted)
         phase = mode == .off ? .off : (signedIn ? .signedIn : .signedOut(.welcome))
         account = signedIn ? cachedAccount : nil
         entitlement = signedIn && trusted ? cachedEntitlement : .free
@@ -118,10 +120,16 @@ struct PaywallRequest: Identifiable {
 
     /// The app's model. Preview accounts for Debug builds. `live` talks to the server; if its configuration is
     /// incomplete, `AccountConfiguration` has already resolved it to `off`.
-    convenience init(configuration: AccountConfiguration = .current) {
+    convenience init(
+        configuration: AccountConfiguration = .current,
+        isExportRunning: @escaping @MainActor () -> Bool = { false }
+    ) {
         switch configuration.mode {
         case .preview:
-            self.init(mode: .preview, service: PreviewAccountService(), tokens: DefaultsAccountTokenStore(defaults: .standard))
+            self.init(
+                mode: .preview, service: PreviewAccountService(), tokens: DefaultsAccountTokenStore(defaults: .standard),
+                isExportRunning: isExportRunning
+            )
         case .live:
             let verifier = EntitlementVerifier(base64PublicKey: configuration.entitlementPublicKey)
             if let service = LiveAccountService(configuration: configuration, verifier: verifier) {
@@ -129,6 +137,7 @@ struct PaywallRequest: Identifiable {
                     mode: .live,
                     service: service,
                     tokens: KeychainAccountTokenStore(),
+                    isExportRunning: isExportRunning,
                     verifyCachedEntitlement: { entitlement, accountID in verifier.isValid(entitlement, accountID: accountID) }
                 )
             } else {
@@ -240,24 +249,24 @@ struct PaywallRequest: Identifiable {
 
     /// Asks the server for the current plan. Non-forced calls only check once a day. Offline keeps the cache.
     func refreshEntitlement(force: Bool) async {
-        guard mode != .off, case .signedIn = phase, let current = tokens else { return }
+        guard mode != .off, case .signedIn = phase, tokens != nil else { return }
         if !force, clock().timeIntervalSince(entitlement.checkedAt) < Self.refreshInterval {
             return
         }
         do {
-            let (fresh, renewed) = try await service.currentEntitlement(tokens: current)
+            // Refreshes the tokens through the shared refresh first, so no two paths spend the same refresh token (L3).
+            let current = try await currentTokens(forceRefresh: false)
+            let fresh = try await service.currentEntitlement(tokens: current)
             guard case .signedIn = phase else { return }
-            if renewed != current {
-                tokens = renewed
-                try? tokenStore.save(renewed)
-            }
             entitlement = fresh
             cacheAccount()
             settleCheckout()
-        } catch {
-            if (error as? AccountError) == .signedOut {
+        } catch AccountError.signedOut {
+            // A revoked session. Already ended by `currentTokens` when the refresh was refused; this covers the plan call.
+            if case .signedIn = phase {
                 revokeSession()
             }
+        } catch {
             // Offline and server errors keep the cached plan.
         }
     }
@@ -287,6 +296,7 @@ struct PaywallRequest: Identifiable {
 
     func openManageSubscription() async {
         guard mode != .off, case .signedIn = phase else { return }
+        error = nil
         let service = service
         do {
             let url = try await authorized { try await service.manageSubscriptionURL(tokens: $0) }
@@ -375,9 +385,11 @@ struct PaywallRequest: Identifiable {
     }
     #endif
 
-    /// Applies a session the server revoked while an export was running. Call when the export ends.
+    /// Called when an export ends. Applies a session the server revoked while it ran (M4). Revocation is deferred
+    /// while `isExportRunning` says so, and this is where the deferred one is applied.
     func exportDidFinish() {
         guard deferredRevocation else { return }
+        deferredRevocation = false
         revokeSession()
     }
 
@@ -401,7 +413,10 @@ struct PaywallRequest: Identifiable {
     }
 
     private func currentTokens(forceRefresh: Bool) async throws -> AccountTokens {
-        guard let current = tokens else { throw AccountError.signedOut }
+        guard let current = tokens ?? reloadTokens() else {
+            // Signed in, but the tokens can't be read. Ask for sign-in again; the session itself is kept (M5).
+            throw AccountError.signedOut
+        }
         if !forceRefresh, current.accessExpiresAt >= clock().addingTimeInterval(Self.refreshWindow) {
             return current
         }
@@ -411,6 +426,13 @@ struct PaywallRequest: Identifiable {
             revokeSession()
             throw AccountError.signedOut
         }
+    }
+
+    /// Reads the tokens from the store again, for a session that started without them. A grant or unlock since launch is used.
+    private func reloadTokens() -> AccountTokens? {
+        guard case .signedIn = phase, let loaded = tokenStore.load() else { return nil }
+        tokens = loaded
+        return loaded
     }
 
     /// One refresh at a time. The refreshed pair is saved before anyone uses it, because the old refresh token is spent.

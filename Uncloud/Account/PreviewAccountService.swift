@@ -117,15 +117,11 @@ actor PreviewAccountService: AccountService {
         )
     }
 
-    func currentEntitlement(tokens: AccountTokens) async throws -> (Entitlement, AccountTokens) {
+    func currentEntitlement(tokens: AccountTokens) async throws -> Entitlement {
         let email = try email(matching: tokens)
         try await simulateDelay(for: email)
-        var renewed = tokens
-        if now() >= tokens.accessExpiresAt {
-            renewed = try await refresh(tokens: tokens)
-        }
         guard let record = records[email] else { throw AccountError.signedOut }
-        return (Self.entitlement(record, now: now()), renewed)
+        return Self.entitlement(record, now: now())
     }
 
     func refresh(tokens: AccountTokens) async throws -> AccountTokens {

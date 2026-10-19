@@ -275,7 +275,7 @@ struct CheckoutStub: AccountService {
         try await base.verify(challenge: challenge, code: code)
     }
 
-    func currentEntitlement(tokens: AccountTokens) async throws -> (Entitlement, AccountTokens) {
+    func currentEntitlement(tokens: AccountTokens) async throws -> Entitlement {
         try await base.currentEntitlement(tokens: tokens)
     }
 

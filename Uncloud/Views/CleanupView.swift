@@ -127,7 +127,14 @@ struct CleanupGridView: View {
                     count: cleanup.pendingCount,
                     notBackedUp: notBackedUpCount,
                     onCancel: { cleanup.cancelConfirmation() },
-                    onDelete: { typed in cleanup.start(typed: typed) }
+                    onDelete: { typed in
+                        // The plan can lapse while this sheet is open. A library delete then closes it instead (L6).
+                        guard Self.mayStart(mode: cleanup.mode, allowsCleanUp: account.allows(.cleanUpICloud)) else {
+                            cleanup.cancelConfirmation()
+                            return
+                        }
+                        cleanup.start(typed: typed)
+                    }
                 )
             } else {
                 CleanupRecoverySheet(
@@ -205,6 +212,11 @@ struct CleanupGridView: View {
     private var notBackedUpCount: Int {
         let backedUpSelected = backedUp.filter { cleanup.selection.contains($0) }.count
         return max(0, cleanup.pendingCount - backedUpSelected)
+    }
+
+    /// Deleting from the library needs Plus at the moment it starts. Recovering from Recently Deleted stays free.
+    static func mayStart(mode: ICloudCleanup.Mode, allowsCleanUp: Bool) -> Bool {
+        mode != .library || allowsCleanUp
     }
 
     /// Choosing Library while it's locked opens the paywall. Choosing it after subscribing shows the library.

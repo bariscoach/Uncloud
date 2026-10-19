@@ -187,27 +187,20 @@ struct LiveAccountServiceTests {
 
     // MARK: - Plan and tokens
 
-    @Test("A token about to expire is refreshed before /v1/me, and the rotated pair is returned")
-    func currentEntitlementRefreshes() async throws {
+    @Test("The plan call never refreshes the tokens: it sends the given token to /v1/me and nothing else (L3)")
+    func currentEntitlementDoesNotRefresh() async throws {
         let nearlyExpired = AccountTokens(
             accessToken: Self.jwt(sub: Self.vector.accountId),
             refreshToken: "refresh-old",
             accessExpiresAt: Self.now.addingTimeInterval(30)
         )
         let service = Self.service { request in
-            if request.path == "/auth/v1/token" { return MockReply(json: Self.sessionJSON(newAccount: false)) }
             if request.path == "/v1/me" { return MockReply(json: Self.meJSON) }
             throw URLError(.badURL)
         }
-        let (plan, renewed) = try await service.currentEntitlement(tokens: nearlyExpired)
+        let plan = try await service.currentEntitlement(tokens: nearlyExpired)
         #expect(plan.plan == .plus)
-        #expect(renewed.refreshToken == "refresh-new")
-        let requests = MockURLProtocol.requests
-        #expect(requests.map(\.path) == ["/auth/v1/token", "/v1/me"])
-        let refresh = try #require(requests.first)
-        #expect(refresh.url.query == "grant_type=refresh_token")
-        #expect(refresh.json?["refresh_token"] as? String == "refresh-old")
-        #expect(requests[1].headers["Authorization"] == "Bearer access-new")
+        #expect(MockURLProtocol.requests.map(\.path) == ["/v1/me"])
     }
 
     @Test("A refresh token that was already used means signed out")
