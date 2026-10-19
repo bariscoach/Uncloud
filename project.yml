@@ -53,8 +53,8 @@ targets:
         UNCLOUD_SUPABASE_URL: "https://nkcbuwuuatsbskqcqosc.supabase.co"
         # Empty until the orchestrator fills them in (publishable key from Supabase; base64 of the 32-byte public
         # half of ENTITLEMENT_SIGNING_KEY). While empty, `live` resolves to `off`, so nothing half-configured ships.
-        UNCLOUD_SUPABASE_PUBLISHABLE_KEY: ""
-        UNCLOUD_ENTITLEMENT_PUBLIC_KEY: ""
+        UNCLOUD_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_XIZXliAMljBaJUlJcb14FA_-sc_NF6B"
+        UNCLOUD_ENTITLEMENT_PUBLIC_KEY: "qwGj6tPobumIR5fSh4CXbICwpAgc/KeFeDkiZ/O5zhE="
       configs:
         Debug:
           # Debug runs `preview`. Launch with `-UncloudAccountMode live` (scheme argument) to use the test backend.

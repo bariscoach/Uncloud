@@ -36,6 +36,18 @@ ok()   { printf '    ok: %s\n' "$*"; }
 warn() { printf '    warning: %s\n' "$*" >&2; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# The Stripe CLI exits 0 even when the API answers with an error object, so every call goes through this
+# wrapper: it fails (and shows the error message, which never contains a secret) when the reply has "error".
+stripe() {
+  local out
+  out="$(command stripe "$@" 2>/dev/null)" || return 1
+  if jq -e 'type == "object" and has("error")' >/dev/null 2>&1 <<<"$out"; then
+    printf '    stripe error: %s\n' "$(jq -r '.error.message // "unknown"' <<<"$out")" >&2
+    return 1
+  fi
+  printf '%s' "$out"
+}
+
 require_cmd() {
   local c
   for c in "$@"; do
@@ -127,7 +139,7 @@ else
     [ "$(jq -r '.active' <<<"$PRODUCT_JSON")" = "true" ] || warn "product $PRODUCT_ID is archived; reactivate it in the dashboard"
     ok "exists"
   else
-    TAX_CODE="${TAX_CODE:-}"
+    TAX_CODE="${TAX_CODE:-txcd_10103100}"   # SaaS, electronic download, personal use
     if [ -z "$TAX_CODE" ]; then
       TAX_LIST="$(stripe get /v1/tax_codes --limit 100)"
       jq -e '.has_more == false' <<<"$TAX_LIST" >/dev/null \

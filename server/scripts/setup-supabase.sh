@@ -118,12 +118,14 @@ if [ "$DRY_RUN" = 1 ]; then
 else
   (cd "$SERVER_DIR" && supabase config diff --project-ref "$SUPABASE_REF") \
     || warn "supabase config diff failed; the push below will still run"
-  (cd "$SERVER_DIR" && supabase config push --project-ref "$SUPABASE_REF" --yes)
+  # config.toml reads the SMTP password from RESEND_API_KEY; it is passed through the environment only.
+  [[ -s "$SECRETS/resend-api-key" ]] || fail "~/.uncloud-secrets/resend-api-key is missing (needed for the Resend SMTP settings)"
+  (cd "$SERVER_DIR" && RESEND_API_KEY="$(cat "$SECRETS/resend-api-key")" supabase config push --project-ref "$SUPABASE_REF" --yes)
   ok "auth config pushed"
 fi
 
 step "Secret API key to Vercel production (never printed)"
-put_env SUPABASE_SECRET_KEY secret "supabase projects api-keys (secret)" '^sb_secret_[A-Za-z0-9_]+$' \
+put_env SUPABASE_SECRET_KEY secret "supabase projects api-keys (secret)" '^sb_secret_[A-Za-z0-9_-]+$' \
   supabase_api_key secret
 
 step "Publishable key (public by design; goes into project.yml)"
@@ -131,7 +133,7 @@ if [ "$DRY_RUN" = 1 ]; then
   plan "print the publishable key (public) for UNCLOUD_SUPABASE_PUBLISHABLE_KEY in project.yml"
 else
   PUBLISHABLE="$(supabase_api_key publishable)"
-  [[ $PUBLISHABLE =~ ^sb_publishable_[A-Za-z0-9_]+$ ]] \
+  [[ $PUBLISHABLE =~ ^sb_publishable_[A-Za-z0-9_-]+$ ]] \
     || fail "no publishable key found in the supabase projects api-keys output (check the JSON shape)"
   echo "publishable key for project.yml UNCLOUD_SUPABASE_PUBLISHABLE_KEY: $PUBLISHABLE"
   unset PUBLISHABLE

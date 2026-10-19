@@ -112,7 +112,7 @@ fi
 step "Production environment variables (names only are printed)"
 put_env PUBLIC_BASE_URL plain "UNCLOUD_API_BASE_URL" "" printf '%s' "$BASE_URL"
 put_env SUPABASE_URL plain "constant" "" printf '%s' "$SUPABASE_URL"
-put_env SUPABASE_PUBLISHABLE_KEY plain "supabase projects api-keys (publishable)" '^sb_publishable_[A-Za-z0-9_]+$' \
+put_env SUPABASE_PUBLISHABLE_KEY plain "supabase projects api-keys (publishable)" '^sb_publishable_[A-Za-z0-9_-]+$' \
   supabase_api_key publishable
 put_env STRIPE_PRICE_LOOKUP_KEY plain "constant" "" printf '%s' "uncloud_plus_yearly"
 put_env STRIPE_AUTOMATIC_TAX plain "constant (test default off, orchestrator decision 2)" "" printf '%s' "false"

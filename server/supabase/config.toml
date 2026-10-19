@@ -35,12 +35,14 @@ token_verifications = 30         # per 5 min per IP
 token_refresh = 150              # per 5 min per IP
 sign_in_sign_ups = 30            # per 5 min per IP
 
-# Later, with Resend behind the custom domain:
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.resend.com"
-# port = 465
-# user = "resend"
-# pass = "env(RESEND_API_KEY)"
-# admin_email = "hello@<domain>"
-# sender_name = "Uncloud"
+# Email through Resend. Until a custom domain is verified in Resend, the sender is Resend's test address,
+# which can only deliver to the email the Resend account was created with (fine for testing).
+# The API key comes from the RESEND_API_KEY environment variable at push time (never in this file).
+[auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+pass = "env(RESEND_API_KEY)"
+admin_email = "onboarding@resend.dev"
+sender_name = "Uncloud"

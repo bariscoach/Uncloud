@@ -1513,8 +1513,8 @@
 				SDKROOT = macosx;
 				UNCLOUD_ACCOUNT_MODE = preview;
 				UNCLOUD_API_BASE_URL = "https://uncloud-api.vercel.app";
-				UNCLOUD_ENTITLEMENT_PUBLIC_KEY = "";
-				UNCLOUD_SUPABASE_PUBLISHABLE_KEY = "";
+				UNCLOUD_ENTITLEMENT_PUBLIC_KEY = "qwGj6tPobumIR5fSh4CXbICwpAgc/KeFeDkiZ/O5zhE=";
+				UNCLOUD_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_XIZXliAMljBaJUlJcb14FA_-sc_NF6B";
 				UNCLOUD_SUPABASE_URL = "https://nkcbuwuuatsbskqcqosc.supabase.co";
 			};
 			name = Debug;
@@ -1600,8 +1600,8 @@
 				SDKROOT = macosx;
 				UNCLOUD_ACCOUNT_MODE = off;
 				UNCLOUD_API_BASE_URL = "https://uncloud-api.vercel.app";
-				UNCLOUD_ENTITLEMENT_PUBLIC_KEY = "";
-				UNCLOUD_SUPABASE_PUBLISHABLE_KEY = "";
+				UNCLOUD_ENTITLEMENT_PUBLIC_KEY = "qwGj6tPobumIR5fSh4CXbICwpAgc/KeFeDkiZ/O5zhE=";
+				UNCLOUD_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_XIZXliAMljBaJUlJcb14FA_-sc_NF6B";
 				UNCLOUD_SUPABASE_URL = "https://nkcbuwuuatsbskqcqosc.supabase.co";
 			};
 			name = Release;
