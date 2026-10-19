@@ -23,11 +23,11 @@ max_frequency = "60s"            # app's live resendAfter = 60 s (preview keeps 
 
 [auth.email.template.confirmation]   # new users (create_user: true)
 subject = "Your Uncloud code is {{ .Token }}"
-content_path = "./templates/code.html"
+content_path = "./supabase/templates/code.html"
 
 [auth.email.template.magic_link]     # returning users
 subject = "Your Uncloud code is {{ .Token }}"
-content_path = "./templates/code.html"
+content_path = "./supabase/templates/code.html"
 
 [auth.rate_limit]
 email_sent = 30                  # per hour, project-wide; only effective with custom SMTP
