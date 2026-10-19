@@ -7,3 +7,9 @@ Vendor/
 dist/
 .claude/worktrees/
 supabase/.temp/
+# Server (server/)
+node_modules/
+.vercel/
+.env
+.env.*
+!.env.example

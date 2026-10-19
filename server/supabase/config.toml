@@ -1,0 +1,46 @@
+# Supabase CLI config for the Uncloud project (ref nkcbuwuuatsbskqcqosc).
+# Push with: supabase config push --project-ref nkcbuwuuatsbskqcqosc
+# Key names checked against Supabase CLI 2.121.0. Values are not secrets.
+project_id = "uncloud"
+
+[auth]
+site_url = "https://uncloud-api.vercel.app"
+additional_redirect_urls = []
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true      # OTP verification confirms the email
+double_confirm_changes = true
+secure_password_change = true
+otp_length = 6
+otp_expiry = 600                 # 10 minutes, matches the app's challenge
+max_frequency = "60s"            # app's live resendAfter = 60 s (preview keeps 30 s)
+
+[auth.email.template.confirmation]   # new users (create_user: true)
+subject = "Your Uncloud code is {{ .Token }}"
+content_path = "./templates/code.html"
+
+[auth.email.template.magic_link]     # returning users
+subject = "Your Uncloud code is {{ .Token }}"
+content_path = "./templates/code.html"
+
+[auth.rate_limit]
+email_sent = 30                  # per hour, project-wide; only effective with custom SMTP
+token_verifications = 30         # per 5 min per IP
+token_refresh = 150              # per 5 min per IP
+sign_in_sign_ups = 30            # per 5 min per IP
+
+# Later, with Resend behind the custom domain:
+# [auth.email.smtp]
+# enabled = true
+# host = "smtp.resend.com"
+# port = 465
+# user = "resend"
+# pass = "env(RESEND_API_KEY)"
+# admin_email = "hello@<domain>"
+# sender_name = "Uncloud"

@@ -1,0 +1,102 @@
+/* Hosted pages for Uncloud. Plain CSS, light and dark, no framework. No inline styles (CSP). */
+:root {
+  color-scheme: light dark;
+  --bg: #F5F6F8;
+  --card: #FFFFFF;
+  --text: #1D1D1F;
+  --secondary: #6E6E73;
+  --hairline: rgba(0, 0, 0, .08);
+  --accent: #1E6FD9;
+  --accent-text: #FFFFFF;
+  --success: #34C759;
+  --warning-bg: rgba(255, 159, 10, .12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161618;
+    --card: #232326;
+    --text: #F5F5F7;
+    --secondary: #98989D;
+    --hairline: rgba(255, 255, 255, .10);
+    --accent: #4A8FEA;
+    --accent-text: #FFFFFF;
+    --success: #30D158;
+    --warning-bg: rgba(255, 159, 10, .16);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161618;
+  --card: #232326;
+  --text: #F5F5F7;
+  --secondary: #98989D;
+  --hairline: rgba(255, 255, 255, .10);
+  --accent: #4A8FEA;
+  --accent-text: #FFFFFF;
+  --success: #30D158;
+  --warning-bg: rgba(255, 159, 10, .16);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-items: center;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  padding: 24px 16px;
+  overflow-wrap: anywhere;
+}
+main { width: 100%; min-width: 0; display: flex; justify-content: center; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  max-width: 440px;
+  width: 100%;
+  min-width: 0;
+  padding: 40px 32px;
+  text-align: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+}
+.icon { width: 64px; height: 64px; border-radius: 14px; display: block; margin: 0 auto; }
+.seal { position: relative; width: 64px; height: 64px; margin: 0 auto; }
+.seal .icon { margin: 0; }
+.seal svg { position: absolute; right: -8px; bottom: -8px; width: 28px; height: 28px; }
+h1 { font-size: 24px; font-weight: 600; line-height: 1.25; margin: 16px 0 8px; }
+p { margin: 0 0 12px; }
+a { color: var(--accent); }
+.secondary { color: var(--secondary); font-size: 13px; }
+.button {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-text);
+  text-decoration: none;
+  font-weight: 600;
+}
+.button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.legal { max-width: 640px; text-align: left; }
+.legal h2 { font-size: 17px; font-weight: 600; margin: 24px 0 8px; }
+.legal h1 { text-align: left; }
+.legal p { margin-bottom: 10px; }
+.legal .meta { color: var(--secondary); font-size: 13px; margin-bottom: 16px; }
+.placeholder {
+  background: var(--warning-bg);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+.links { margin-top: 20px; font-size: 13px; color: var(--secondary); }
+.success { color: var(--success); }
+footer.links a { margin: 0 4px; }
+@media (max-width: 420px) {
+  .card { padding: 32px 20px; }
+}
