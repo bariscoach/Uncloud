@@ -9,7 +9,7 @@ import { DbError } from '../lib/supabase.js';
 import * as waitlistRoute from '../api/v1/waitlist.js';
 import { fakeDb, makeDeps } from './helpers.js';
 
-const ORIGIN = 'https://uncloud.vercel.app';
+const ORIGIN = 'https://uncloud-app.vercel.app';
 const URL_WAITLIST = 'https://uncloud-api.vercel.app/v1/waitlist';
 const CORS_HEADERS = ['access-control-allow-origin', 'vary', 'access-control-allow-methods', 'access-control-allow-headers', 'access-control-max-age'];
 
@@ -103,7 +103,7 @@ test('the sixth request from one address is 429, another address still passes, a
 });
 
 test('a missing or other origin gets 403 forbidden_origin with no CORS headers', async () => {
-  for (const origin of [null, 'https://evil.example', 'https://uncloud.vercel.app.evil.test']) {
+  for (const origin of [null, 'https://evil.example', 'https://uncloud-app.vercel.app.evil.test']) {
     const deps = makeDeps({ db: fakeDb() });
     const response = await app(deps)(post({ email: 'a@example.com' }, { origin }));
     assert.equal(response.status, 403, String(origin));
