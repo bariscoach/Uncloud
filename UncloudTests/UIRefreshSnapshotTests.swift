@@ -90,10 +90,10 @@ struct UIRefreshSnapshotTests {
         // The whole window, with the sidebar and toolbar, on each pane.
         model.newPhotos.setStatusForPreview(NewPhotosStatus(count: 1_243, isAtLeast: false, since: since), context: context)
         for variant in Self.variants {
-            for pane in [ExportModel.Pane.library, .backup, .cleanup] {
+            for pane in [ExportModel.Pane.export, .backup, .cleanup] {
                 model.pane = pane
                 for scheme in [ColorScheme.light, .dark] {
-                    let window = LibraryWindow()
+                    let window = MainWindow()
                         .environment(model)
                         .environment(BackupTools(model: model))
                     let image = try #require(await Self.renderTitledWindow(window, size: NSSize(width: 1_000, height: 700), scheme: scheme, variant: variant))
@@ -101,7 +101,7 @@ struct UIRefreshSnapshotTests {
                 }
             }
         }
-        model.pane = .library
+        model.pane = .export
 
         // Settings, and the Clean Up sheets.
         let settings = AutoBackupSettings()

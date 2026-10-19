@@ -1,0 +1,373 @@
+import AppKit
+import Foundation
+import Observation
+
+/// The paywall sheet's request: the feature that asked for it (nil when opened from Settings), and the action to run after subscribing.
+struct PaywallRequest: Identifiable {
+    let id = UUID()
+    let feature: PaidFeature?
+    let then: (@MainActor () -> Void)?
+}
+
+/// The one object the account views read: the phase, the account, the cached plan and the paywall.
+@MainActor @Observable final class AccountModel {
+    enum Phase: Equatable {
+        case off
+        case restoring
+        case signedOut(Route)
+        case signedIn
+    }
+
+    enum Route: Hashable {
+        case welcome
+        case signUp
+        case signIn
+        case code(AuthChallenge, AuthIntent)
+    }
+
+    /// Progress of the paywall's checkout (plan D.1).
+    enum Checkout: Equatable {
+        case idle
+        case opening
+        /// The browser has Checkout open. `processing` is true once the browser came back before the server confirmed a plan.
+        case waiting(processing: Bool)
+        case active
+        case failed(AccountError)
+    }
+
+    let mode: AccountMode
+    private(set) var phase: Phase
+    private(set) var account: UncloudAccount?
+    /// The plan as last reported by the server, or the cached one.
+    private(set) var entitlement: Entitlement
+    /// Whether the last sign-in created the account. The Welcome announcement depends on it.
+    private(set) var isNewAccount = false
+    /// The email from the last submit, kept when moving between the email and code screens.
+    private(set) var email = ""
+    var paywall: PaywallRequest?
+    private(set) var checkout: Checkout = .idle
+    /// A sign-in request is in flight.
+    private(set) var isBusy = false
+    /// The error for the current screen.
+    private(set) var error: AccountError?
+
+    private let service: AccountService
+    @ObservationIgnored private let tokenStore: AccountTokenStore
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let clock: @Sendable () -> Date
+    @ObservationIgnored private let openURL: @MainActor (URL) -> Void
+    @ObservationIgnored private let isExportRunning: @MainActor () -> Bool
+    @ObservationIgnored private var tokens: AccountTokens?
+    /// Counts sign-in requests, so a cancelled or superseded request's result is ignored.
+    @ObservationIgnored private var requestID = 0
+    @ObservationIgnored private var requestCanceller: (() -> Void)?
+    /// Set when the server revoked the session while an export ran. Applied by `exportDidFinish()`.
+    @ObservationIgnored private var deferredRevocation = false
+    /// The last refresh started from a `uncloud://` link or the paywall, so it can be awaited.
+    @ObservationIgnored private(set) var refreshTask: Task<Void, Never>?
+
+    private static let accountKey = "uncloudAccount"
+    private static let entitlementKey = "uncloudEntitlement"
+    private static let refreshInterval: TimeInterval = 24 * 60 * 60
+
+    init(
+        mode: AccountMode,
+        service: AccountService,
+        tokens: AccountTokenStore,
+        defaults: UserDefaults = .standard,
+        clock: @escaping @Sendable () -> Date = { Date() },
+        openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        isExportRunning: @escaping @MainActor () -> Bool = { false }
+    ) {
+        self.mode = mode
+        self.service = service
+        self.tokenStore = tokens
+        self.defaults = defaults
+        self.clock = clock
+        self.openURL = openURL
+        self.isExportRunning = isExportRunning
+
+        // Restoring is synchronous: the account and plan come from defaults, the tokens from the store.
+        let cachedAccount = mode == .off ? nil : Self.load(UncloudAccount.self, forKey: Self.accountKey, in: defaults)
+        let cachedEntitlement = Self.load(Entitlement.self, forKey: Self.entitlementKey, in: defaults) ?? .free
+        let storedTokens = mode == .off ? nil : tokens.load()
+        let signedIn = cachedAccount != nil && storedTokens != nil
+        phase = mode == .off ? .off : (signedIn ? .signedIn : .signedOut(.welcome))
+        account = signedIn ? cachedAccount : nil
+        entitlement = signedIn ? cachedEntitlement : .free
+        self.tokens = signedIn ? storedTokens : nil
+    }
+
+    /// The app's model. Preview accounts for Debug builds; `live` has no server client yet, so it behaves as `off`.
+    convenience init(configuration: AccountConfiguration = .current) {
+        switch configuration.mode {
+        case .preview:
+            self.init(mode: .preview, service: PreviewAccountService(), tokens: DefaultsAccountTokenStore(defaults: .standard))
+        case .off, .live:
+            self.init(mode: .off, service: PreviewAccountService(), tokens: KeychainAccountTokenStore())
+        }
+    }
+
+    /// The plan's access right now. Computed from the clock, so grace and expiry move on their own.
+    var access: EntitlementPolicy.Access {
+        EntitlementPolicy.access(entitlement, now: clock())
+    }
+
+    /// Whether a paid feature may be used. Always true when accounts are off.
+    func allows(_ feature: PaidFeature) -> Bool {
+        mode == .off || access != .free
+    }
+
+    /// Runs `action` if the feature is allowed. Otherwise opens the paywall; `action` runs after a successful subscribe, on Continue.
+    func require(_ feature: PaidFeature, _ action: @escaping @MainActor () -> Void) {
+        if allows(feature) {
+            action()
+            return
+        }
+        checkout = .idle
+        paywall = PaywallRequest(feature: feature, then: action)
+    }
+
+    /// Moves between Welcome, Sign Up, Sign In and the code screen. Does nothing while signed in.
+    func show(_ route: Route) {
+        guard case .signedOut = phase else { return }
+        if isBusy {
+            cancelRequest()
+        }
+        phase = .signedOut(route)
+        error = nil
+    }
+
+    func submitEmail(_ raw: String, intent: AuthIntent) async {
+        guard mode != .off, case .signedOut = phase, !isBusy else { return }
+        guard let normalized = EmailAddress.normalized(raw) else {
+            error = .invalidEmail
+            return
+        }
+        email = normalized
+        let service = service
+        await perform({ try await service.requestCode(email: normalized, intent: intent) }) { challenge in
+            self.phase = .signedOut(.code(challenge, intent))
+        }
+    }
+
+    func submitCode(_ raw: String) async {
+        guard mode != .off, case let .signedOut(.code(challenge, _)) = phase, !isBusy else { return }
+        let code = OneTimeCode.sanitized(raw)
+        guard OneTimeCode.isComplete(code) else { return }
+        let service = service
+        await perform({ try await service.verify(challenge: challenge, code: code) }) { session in
+            self.didSignIn(session)
+        }
+    }
+
+    func resendCode() async {
+        guard mode != .off, case let .signedOut(.code(challenge, intent)) = phase, !isBusy else { return }
+        let service = service
+        await perform({ try await service.requestCode(email: challenge.email, intent: intent) }) { fresh in
+            self.phase = .signedOut(.code(fresh, intent))
+        }
+    }
+
+    /// Stops the request in flight, such as on Esc. Its result is dropped and the screen stays as it was.
+    func cancelRequest() {
+        guard isBusy else { return }
+        requestID += 1
+        requestCanceller?()
+        requestCanceller = nil
+        isBusy = false
+    }
+
+    /// Signs out on this Mac. The server revokes the refresh token on a best-effort basis.
+    /// Refused while an export runs, so the export's sign-in is never pulled away mid-run.
+    func signOut() async {
+        guard mode != .off, case .signedIn = phase, !isExportRunning() else { return }
+        let old = tokens
+        forgetAccount()
+        phase = .signedOut(.welcome)
+        if let old {
+            await service.signOut(tokens: old)
+        }
+    }
+
+    /// Asks the server for the current plan. Non-forced calls only check once a day. Offline keeps the cache.
+    func refreshEntitlement(force: Bool) async {
+        guard mode != .off, case .signedIn = phase, let current = tokens else { return }
+        if !force, clock().timeIntervalSince(entitlement.checkedAt) < Self.refreshInterval {
+            return
+        }
+        do {
+            let (fresh, renewed) = try await service.currentEntitlement(tokens: current)
+            guard case .signedIn = phase else { return }
+            if renewed != current {
+                tokens = renewed
+                try? tokenStore.save(renewed)
+            }
+            entitlement = fresh
+            cacheAccount()
+            settleCheckout()
+        } catch {
+            if (error as? AccountError) == .signedOut {
+                revokeSession()
+            }
+            // Offline and server errors keep the cached plan.
+        }
+    }
+
+    /// Opens Stripe Checkout in the browser. The paywall waits there until the app comes back with a refreshed plan.
+    func openCheckout(for feature: PaidFeature?) async {
+        guard mode != .off, case .signedIn = phase, let current = tokens else { return }
+        checkout = .opening
+        error = nil
+        do {
+            let url = try await service.checkoutURL(tokens: current)
+            openURL(url)
+            checkout = .waiting(processing: false)
+        } catch {
+            checkout = .failed(error as? AccountError ?? .server(message: nil))
+        }
+    }
+
+    func openManageSubscription() async {
+        guard mode != .off, case .signedIn = phase, let current = tokens else { return }
+        do {
+            openURL(try await service.manageSubscriptionURL(tokens: current))
+        } catch {
+            self.error = error as? AccountError ?? .server(message: nil)
+        }
+    }
+
+    /// Handles a `uncloud://` link. Returns false for anything it doesn't handle (plan D.2).
+    @discardableResult
+    func handle(_ url: URL) -> Bool {
+        guard mode != .off, let action = AccountURL(url) else { return false }
+        switch action {
+        case .checkoutSuccess:
+            // A hint to look again. The server decides whether the plan is paid.
+            refreshTask = Task {
+                await refreshEntitlement(force: true)
+                if case .waiting = checkout, access == .free {
+                    checkout = .waiting(processing: true)
+                }
+            }
+        case .checkoutCancel:
+            if paywall != nil {
+                checkout = .idle
+            }
+        case .refresh:
+            refreshTask = Task { await refreshEntitlement(force: true) }
+        }
+        return true
+    }
+
+    /// Continue on the paywall's thank-you state. Closes the paywall and runs the action that opened it.
+    func finishPaywall() {
+        guard checkout == .active else { return }
+        let then = paywall?.then
+        dismissPaywall()
+        then?()
+    }
+
+    /// Not Now, or closing the paywall. The action that opened it doesn't run.
+    func dismissPaywall() {
+        paywall = nil
+        checkout = .idle
+    }
+
+    /// Applies a session the server revoked while an export was running. Call when the export ends.
+    func exportDidFinish() {
+        guard deferredRevocation else { return }
+        revokeSession()
+    }
+
+    // MARK: - Private
+
+    /// Runs one sign-in request. Its result is applied only if the request wasn't cancelled or superseded.
+    private func perform<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T, apply: (T) -> Void) async {
+        requestID += 1
+        let id = requestID
+        isBusy = true
+        error = nil
+        let task = Task { try await operation() }
+        requestCanceller = { task.cancel() }
+        let result = await task.result
+        guard id == requestID else { return }
+        requestCanceller = nil
+        isBusy = false
+        switch result {
+        case let .success(value):
+            apply(value)
+        case let .failure(failure):
+            error = (failure as? AccountError) ?? .server(message: nil)
+        }
+    }
+
+    private func didSignIn(_ session: AuthSession) {
+        tokens = session.tokens
+        // A failed Keychain write only means the user has to sign in again after a relaunch.
+        try? tokenStore.save(session.tokens)
+        account = session.account
+        entitlement = session.entitlement
+        isNewAccount = session.isNewAccount
+        cacheAccount()
+        phase = .signedIn
+        error = nil
+    }
+
+    /// Signed-out state after the server revoked the session. The Welcome page says why.
+    private func revokeSession() {
+        guard !isExportRunning() else {
+            deferredRevocation = true
+            return
+        }
+        forgetAccount()
+        phase = .signedOut(.welcome)
+        error = .signedOut
+    }
+
+    private func forgetAccount() {
+        tokens = nil
+        tokenStore.clear()
+        account = nil
+        entitlement = .free
+        isNewAccount = false
+        deferredRevocation = false
+        checkout = .idle
+        paywall = nil
+        cacheAccount()
+    }
+
+    /// A paywall waiting on checkout moves to its thank-you state once the server reports a paid plan.
+    private func settleCheckout() {
+        guard paywall != nil else { return }
+        switch checkout {
+        case .opening, .waiting:
+            if access != .free {
+                checkout = .active
+            }
+        case .idle, .active, .failed:
+            break
+        }
+    }
+
+    /// Stores the account and plan in defaults. Neither is secret. The tokens are never written here.
+    private func cacheAccount() {
+        Self.save(account, forKey: Self.accountKey, in: defaults)
+        Self.save(account == nil ? nil : entitlement, forKey: Self.entitlementKey, in: defaults)
+    }
+
+    private static func load<T: Decodable>(_ type: T.Type, forKey key: String, in defaults: UserDefaults) -> T? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+
+    private static func save<T: Encodable>(_ value: T?, forKey key: String, in defaults: UserDefaults) {
+        guard let value else {
+            defaults.removeObject(forKey: key)
+            return
+        }
+        if let data = try? JSONEncoder().encode(value) {
+            defaults.set(data, forKey: key)
+        }
+    }
+}

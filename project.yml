@@ -14,11 +14,25 @@ targets:
   Uncloud:
     type: application
     platform: macOS
+    info:
+      path: Uncloud/App/Info.plist
+      properties:
+        # Versions come from the build settings, as they did before the Info.plist moved here.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # The uncloud:// scheme returns from Stripe Checkout and the customer portal (AccountURL).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.example.Uncloud.account
+            CFBundleURLSchemes: [uncloud]
+        UncloudAccountMode: $(UNCLOUD_ACCOUNT_MODE)
+        UncloudAPIBaseURL: $(UNCLOUD_API_BASE_URL)
     sources: &appSources
       - path: Uncloud
         excludes:
           # photo_bridge.py is copied into the embedded runtime by "Embed icloudpd runtime".
           - "Helper/**"
+          # The Info.plists are generated from the `info:` blocks below.
+          - "App/*Info.plist"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.Uncloud
@@ -31,6 +45,14 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Uncloud/Uncloud.entitlements
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: YES
+        # The account server's base URL. Empty until the server exists; only `live` reads it.
+        UNCLOUD_API_BASE_URL: ""
+      configs:
+        Debug:
+          UNCLOUD_ACCOUNT_MODE: "preview"
+        Release:
+          # Until the server exists, release builds have no accounts: the app is exactly the free build.
+          UNCLOUD_ACCOUNT_MODE: "off"
     preBuildScripts: &preBuildScripts
       - name: Build icloudpd helper
         script: '"$SRCROOT/scripts/build-icloudpd.sh"'
@@ -75,6 +97,13 @@ targets:
   UncloudTestHost:
     type: application
     platform: macOS
+    # No CFBundleURLTypes here: a test build must not register uncloud:// and take the scheme from the real app.
+    info:
+      path: Uncloud/App/TestHost-Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UncloudAccountMode: "preview"
     sources: *appSources
     settings:
       base:

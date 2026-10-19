@@ -17,9 +17,9 @@ final class ExportModel {
         case failed(String)
     }
 
-    /// The sidebar pane of the main window: the Library grid or the Backup pane.
+    /// The sidebar pane of the main window: the Export grid or the Backup pane.
     enum Pane: Hashable {
-        case library
+        case export
         case backup
         case cleanup
         case browse
@@ -32,7 +32,7 @@ final class ExportModel {
         var id: Self { self }
     }
 
-    var pane: Pane = .library
+    var pane: Pane = .export
     private(set) var phase: Phase = .idle
     private(set) var authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     private(set) var destination: Destination?
@@ -227,7 +227,7 @@ final class ExportModel {
 
         // An unfinished export opens on the Backup pane, where it can be resumed.
         let unfinished = isSourceReady && (destination.map { ExportManifest.hasIncompleteRun(in: $0.url) } ?? false)
-        pane = unfinished ? .backup : .library
+        pane = unfinished ? .backup : .export
     }
 
     /// New installs use iCloud. An install that already exports from the Photos library keeps doing so.
@@ -444,6 +444,9 @@ final class ExportModel {
     /// Set by BackupTools: true while a backup check or library cleanup is running, so no export starts mid-check.
     @ObservationIgnored var isExportBlocked: () -> Bool = { false }
 
+    /// Set by the app from the account: whether a paid feature may start. Checked when a run starts, never during one.
+    @ObservationIgnored var isFeatureAllowed: @MainActor (PaidFeature) -> Bool = { _ in true }
+
     var canStart: Bool {
         if phase == .paused { return true }
         return !isExporting && !isEngineRunning && !isExportBlocked()
@@ -576,7 +579,7 @@ final class ExportModel {
                 // One question at a time: a second Export from the menu while it's showing does nothing.
                 guard !isConfirmingStorageWarning else { return }
                 isConfirmingStorageWarning = true
-                // Stays on the current pane, so the user can keep browsing; progress is in the Library toolbar and Backup.
+                // Stays on the current pane, so the user can keep browsing; progress is in the Export toolbar and Backup.
                 Task {
                     let proceed = await (storageWarningConfirmation ?? confirmExport(despite:))(warning)
                     isConfirmingStorageWarning = false

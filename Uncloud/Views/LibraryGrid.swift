@@ -36,7 +36,7 @@ enum BackupFilter: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// The library as a lazy grid of thumbnails that can be selected, with tap, Shift-click range, Space and ⌘A.
-/// The Library pane and Clean Up iCloud both show it; each passes its own selection.
+/// The Export pane and Clean Up iCloud both show it; each passes its own selection.
 struct LibraryGrid: View {
     let browser: LibraryBrowser
     @Binding var selection: LibrarySelection

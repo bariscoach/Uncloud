@@ -12,7 +12,7 @@ struct BackupPane: View {
         }
     }
 
-    /// Shown while no source is ready: nothing to export yet, so point back to the Library's landing page.
+    /// Shown while no source is ready: nothing to export yet, so point back to the Export pane's landing page.
     private var notReady: some View {
         ContentUnavailableView {
             Label {
@@ -25,7 +25,7 @@ struct BackupPane: View {
             Text("Sign in to iCloud or choose Photos on This Mac first.")
         } actions: {
             Button("Get Started") {
-                model.pane = .library
+                model.pane = .export
             }
             .buttonStyle(.borderedProminent)
         }

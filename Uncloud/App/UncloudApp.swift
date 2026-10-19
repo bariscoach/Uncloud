@@ -45,7 +45,7 @@ struct UncloudApp: App {
 
     var body: some Scene {
         Window("Uncloud", id: "main") {
-            LibraryWindow()
+            MainWindow()
                 .backupToolSheets()
                 .environment(model)
                 .environment(backupTools)

@@ -52,8 +52,8 @@ struct ExportCommands: Commands {
         }
 
         CommandGroup(before: .sidebar) {
-            Button("Library") {
-                model.pane = .library
+            Button("Export") {
+                model.pane = .export
             }
             .keyboardShortcut("1")
 

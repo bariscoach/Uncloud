@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// The main window: a sidebar with the Library and Backup panes, and the selected pane in the detail.
-struct LibraryWindow: View {
+/// The main window: a sidebar with the Export and Backup panes, and the selected pane in the detail.
+struct MainWindow: View {
     @Environment(ExportModel.self) private var model
     @Environment(BackupTools.self) private var backupTools
 
@@ -11,8 +11,8 @@ struct LibraryWindow: View {
 
         NavigationSplitView {
             List(selection: paneSelection) {
-                Label("Library", systemImage: "photo.on.rectangle")
-                    .tag(ExportModel.Pane.library)
+                Label("Export", systemImage: "photo.on.rectangle")
+                    .tag(ExportModel.Pane.export)
 
                 Label("Backup", systemImage: "externaldrive")
                     .badge(progressBadge ?? model.newPhotosBadgeText)
@@ -37,9 +37,9 @@ struct LibraryWindow: View {
             }
         } detail: {
             switch model.pane {
-            case .library:
-                LibraryView()
-                    .navigationTitle("Library")
+            case .export:
+                ExportView()
+                    .navigationTitle("Export")
             case .backup:
                 BackupPane()
                     .navigationTitle("Backup")
@@ -76,8 +76,8 @@ struct LibraryWindow: View {
             model.refreshAuthorization()
         }
         .onChange(of: model.isExporting) { _, isExporting in
-            // Only exports the user starts from the Library are announced. Backup runs and automatic backups aren't.
-            guard isExporting, model.pane == .library, !startedAutomatically else { return }
+            // Only exports the user starts from Export are announced. Backup runs and automatic backups aren't.
+            guard isExporting, model.pane == .export, !startedAutomatically else { return }
             AccessibilityNotification.Announcement("Export started. Progress is in Backup.").post()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// The Library pane: the whole library as a grid to choose from, or the state that replaces it.
-struct LibraryView: View {
+/// The Export pane: the whole library as a grid to choose from, or the state that replaces it.
+struct ExportView: View {
     @Environment(ExportModel.self) private var model
 
     var body: some View {
@@ -20,7 +20,7 @@ struct LibraryView: View {
         .navigationSubtitle(countText)
         .toolbar {
             if model.isSourceReady, let browser = model.browser {
-                LibraryToolbar(browser: browser)
+                ExportToolbar(browser: browser)
             }
         }
     }
@@ -38,8 +38,8 @@ struct LibraryView: View {
     }
 }
 
-/// The toolbar of the Library pane: Select All or Deselect All, export progress, and the primary button in its own group.
-private struct LibraryToolbar: ToolbarContent {
+/// The toolbar of the Export pane: Select All or Deselect All, export progress, and the primary button in its own group.
+private struct ExportToolbar: ToolbarContent {
     @Environment(ExportModel.self) private var model
     let browser: LibraryBrowser
 
