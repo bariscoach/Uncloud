@@ -82,3 +82,28 @@ test('exactly one key mode must be given', async () => {
   await assert.rejects(db.select('customers', {}, {}), TypeError);
   await assert.rejects(db.select('customers', {}, { jwt: JWT, service: true }), TypeError);
 });
+
+test('deleteUser calls the admin delete with the secret key and no user token', async () => {
+  const { requests, fetchFn } = recordingFetch(200, '');
+  await client(fetchFn).deleteUser('8b1c2d3e-4f50-4a61-8b72-9c83d4e5f601');
+  const [request] = requests;
+  assert.equal(request.url.toString(), 'https://example.supabase.test/auth/v1/admin/users/8b1c2d3e-4f50-4a61-8b72-9c83d4e5f601');
+  assert.equal(request.method, 'DELETE');
+  assert.equal(request.headers.apikey, FAKE_SUPABASE_SECRET);
+  assert.equal(request.headers.authorization, undefined);
+  assert.deepEqual(JSON.parse(request.body), { should_soft_delete: false });
+});
+
+test('deleteUser treats 404 as already deleted, so a retry succeeds', async () => {
+  const { fetchFn } = recordingFetch(404, '{"message":"User not found"}');
+  await client(fetchFn).deleteUser('8b1c2d3e-4f50-4a61-8b72-9c83d4e5f601');
+});
+
+test('deleteUser rethrows other failures as DbError', async () => {
+  const { fetchFn } = recordingFetch(500, '');
+  await assert.rejects(client(fetchFn).deleteUser('8b1c2d3e-4f50-4a61-8b72-9c83d4e5f601'), (error) => {
+    assert.ok(error instanceof DbError);
+    assert.equal(error.status, 500);
+    return true;
+  });
+});

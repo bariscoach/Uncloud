@@ -1,11 +1,12 @@
 // JSON responses, error envelope, body limits and method guards.
 
 export class ApiError extends Error {
-  constructor(code, status, message) {
+  constructor(code, status, message, headers = {}) {
     super(message ?? code);
     this.name = 'ApiError';
     this.code = code;
     this.status = status;
+    this.headers = headers;
   }
 }
 
@@ -15,13 +16,14 @@ const DEFAULT_MESSAGES = {
   already_subscribed: 'You already have Uncloud Plus.',
   no_subscription: 'There is no Uncloud Plus plan to change.',
   checkout_unavailable: 'Checkout is unavailable right now. Try again later.',
+  confirmation_mismatch: 'The email does not match this account.',
   rate_limited: 'Too many requests. Try again later.',
   server_error: 'Something went wrong. Try again later.',
   method_not_allowed: 'This method is not allowed here.',
 };
 
-export function apiError(code, status, message) {
-  return new ApiError(code, status, message ?? DEFAULT_MESSAGES[code]);
+export function apiError(code, status, message, headers = {}) {
+  return new ApiError(code, status, message ?? DEFAULT_MESSAGES[code], headers);
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
@@ -84,7 +86,7 @@ export function route(method, handler) {
     try {
       return await handler(request);
     } catch (error) {
-      if (error instanceof ApiError) return errorResponse(error.code, error.status, error.message);
+      if (error instanceof ApiError) return errorResponse(error.code, error.status, error.message, error.headers);
       logEvent({ evt: 'unhandled', route: new URL(request.url).pathname, error: error?.name ?? 'Error' });
       return errorResponse('server_error', 500);
     }

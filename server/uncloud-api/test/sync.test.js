@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkoutSync } from '../lib/handlers.js';
 import { applySubscription, syncCheckoutSession } from '../lib/sync.js';
+import { DbError } from '../lib/supabase.js';
 import {
   fakeStripe, fakeDb, makeDeps, invoke, json, subscription, checkoutSession, invoice, invoicePayment, USER_A, NOW_SECONDS, DAY, testConfig,
 } from './helpers.js';
@@ -307,4 +308,49 @@ test('config is used for the price lookup key', async () => {
   const db = fakeDb();
   const deps = makeDeps({ db, config: testConfig({ STRIPE_PRICE_LOOKUP_KEY: 'uncloud_plus_next' }) });
   assert.equal(await applySubscription(deps, sub), 'applied');
+});
+
+// ---- account deletion races (plan §4.3) -----------------------------------
+
+test('a subscription event for a user deleted meanwhile is ignored, not an error (no Stripe retry)', async () => {
+  const sub = subscription({ id: 'sub_test_1' });
+  const db = fakeDb({ customers: [], entitlements: [] });
+  const rpc = db.rpc;
+  db.rpc = async (name, args, mode) => {
+    if (name === 'apply_subscription') throw new DbError(409, 'rpc');
+    return rpc(name, args, mode);
+  };
+  const result = await applySubscription(makeDeps({ stripe: fakeStripe().stripe, db }), sub);
+  assert.equal(result, 'ignored');
+});
+
+test('a subscription whose metadata was scrubbed and whose customer row is gone is ignored (no_user)', async () => {
+  const sub = subscription({ id: 'sub_test_1', userId: null, customer: 'cus_gone' });
+  const db = fakeDb({ customers: [], entitlements: [] });
+  const result = await applySubscription(makeDeps({ stripe: fakeStripe().stripe, db }), sub);
+  assert.equal(result, 'ignored');
+  assert.equal(db.calls.some((c) => c.op === 'rpc'), false);
+});
+
+test('a checkout that completes after the account was deleted cancels and refunds the new subscription', async () => {
+  const sub = subscription({ id: 'sub_test_1', latestInvoice: 'in_test_1' });
+  const state = structuredClone(sub);
+  const { stripe, calls } = fakeStripe({
+    'GET /v1/subscriptions/sub_test_1': () => structuredClone(state),
+    'DELETE /v1/subscriptions/sub_test_1': () => { state.status = 'canceled'; return state; },
+    'GET /v1/invoices/in_test_1': () => invoice({ id: 'in_test_1', subscriptionId: 'sub_test_1' }),
+    'GET /v1/invoice_payments': () => ({ object: 'list', data: [invoicePayment({ invoiceId: 'in_test_1', paymentIntent: 'pi_new' })] }),
+    'GET /v1/refunds': () => ({ object: 'list', data: [] }),
+    'POST /v1/refunds': () => ({ id: 're_new', object: 'refund', status: 'succeeded' }),
+  });
+  const db = fakeDb({ customers: [], entitlements: [] });
+  db.upsert = async () => { throw new DbError(409, 'upsert'); };
+  const result = await syncCheckoutSession(makeDeps({ stripe, db }), checkoutSession({ id: SESSION_ID, userId: USER_A }));
+  assert.equal(result, 'user_gone_refunded');
+  const cancel = stripeCalls(calls, 'DELETE', '/v1/subscriptions/sub_test_1')[0];
+  assert.equal(cancel.query.get('prorate'), 'false');
+  const refund = stripeCalls(calls, 'POST', '/v1/refunds')[0];
+  assert.equal(refund.body.get('payment_intent'), 'pi_new');
+  assert.equal(refund.idempotencyKey, 'dup-refund-sub_test_1');
+  assert.equal(db.calls.some((c) => c.op === 'rpc'), false, 'no entitlement is written for a deleted user');
 });

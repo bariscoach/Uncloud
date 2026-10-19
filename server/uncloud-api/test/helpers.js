@@ -107,6 +107,12 @@ export function fakeDb(seed = {}) {
       calls.push({ op: 'upsert', table, row, mode });
       upsertRow(table, row, onConflict);
     },
+    // Like the real admin delete: the user's customers and entitlements rows cascade away.
+    async deleteUser(userId, mode) {
+      calls.push({ op: 'deleteUser', userId, mode });
+      tables.customers = tables.customers.filter((r) => r.user_id !== userId);
+      tables.entitlements = tables.entitlements.filter((r) => r.user_id !== userId);
+    },
     async rpc(name, args, mode) {
       calls.push({ op: 'rpc', name, args, mode });
       if (name === 'my_entitlement') {

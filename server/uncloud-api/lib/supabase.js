@@ -56,6 +56,20 @@ export function createSupabase({ url, publishableKey, secretKey, fetchFn = globa
       });
     },
 
+    // Deletes the Supabase user (service key). customers and entitlements cascade. A 404 means the user is
+    // already gone, so a retry after a partial failure succeeds.
+    async deleteUser(userId) {
+      try {
+        await send('deleteUser', `/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+          method: 'DELETE',
+          body: { should_soft_delete: false },
+          service: true,
+        });
+      } catch (error) {
+        if (!(error instanceof DbError && error.status === 404)) throw error;
+      }
+    },
+
     async rpc(name, args, mode) {
       return send('rpc', `/rest/v1/rpc/${encodeURIComponent(name)}`, {
         ...mode,

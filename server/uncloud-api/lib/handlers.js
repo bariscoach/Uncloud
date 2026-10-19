@@ -8,6 +8,7 @@ import { RENEWALS, checkoutSessionParams, ensureCustomer, isMissingCustomer } fr
 import { enforceRateLimit, clientAddress } from './ratelimit.js';
 import { syncCheckoutSession, syncSubscription, handleEvent } from './sync.js';
 import { toWire, signEntitlement } from './entitlement.js';
+import { deleteAccountFor } from './account.js';
 
 const CHECKOUT_SESSION_ID = /^cs_(test|live)_[A-Za-z0-9]{10,200}$/;
 const WEBHOOK_BODY_LIMIT = 256 * 1024;
@@ -15,6 +16,8 @@ const ACTIVE_STATUSES = new Set(['active', 'pastDue', 'trialing']);
 // Allowances per window (review M6). Checkout Session creation is per user; the sync endpoint is per address.
 const CHECKOUT_LIMIT = { limit: 10, windowSeconds: 60 * 60 };
 const SYNC_LIMIT = { limit: 30, windowSeconds: 60 };
+// Account deletion: five attempts an hour per user (plan §4.1).
+const DELETE_LIMIT = { limit: 5, windowSeconds: 60 * 60 };
 
 // GET /v1/health: no auth, no secrets. livemode comes from the key prefix when it is set.
 export function health(env = process.env) {
@@ -145,6 +148,21 @@ export async function renewal(request, deps) {
   await syncSubscription(deps, row.stripe_subscription_id, { userIdHint: auth.userId });
   const entitlement = await readEntitlement(deps, auth);
   return json({ entitlement: signed(deps, auth, entitlement) });
+}
+
+// POST /v1/account/delete  body { confirmEmail }. 204 on success. Plan §4.1–4.2.
+export async function deleteAccount(request, deps) {
+  const auth = await deps.verify(request);
+  const body = await readJSON(request);
+  if (typeof body.confirmEmail !== 'string') {
+    throw apiError('bad_request', 400, 'confirmEmail is required.');
+  }
+  if (body.confirmEmail.trim().toLowerCase() !== String(auth.email).trim().toLowerCase()) {
+    throw apiError('confirmation_mismatch', 400);
+  }
+  await enforceRateLimit(deps, `delete:${auth.userId}`, DELETE_LIMIT);
+  await deleteAccountFor(deps, auth.userId);
+  return noContent();
 }
 
 // POST /v1/stripe/webhook. Signature check first; events are applied once (stripe_events).

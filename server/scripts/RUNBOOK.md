@@ -48,13 +48,14 @@ call the server makes; `server/uncloud-api/test/permissions.test.js` fails if a 
 | Dashboard resource | Access | Used by |
 |---|---|---|
 | Checkout Sessions | Read and Write | create a session; read it on the success page |
-| Customers | Write | create the customer for a user |
+| Customers | Write | create the customer for a user; scrub the user link on account deletion |
 | Customer portal | Write | portal sessions |
 | Prices | Read | find the price by lookup key |
-| Subscriptions | Read and Write | read, update renewal and one-year flag, cancel duplicates and refunds |
-| Invoices | Read | read the invoice of a duplicate or refunded payment |
+| Subscriptions | Read and Write | read, update renewal and one-year flag, cancel duplicates, refunds and account deletion |
+| Invoices | Read and Write | read the invoice of a duplicate or refunded payment; list and void open invoices on account deletion |
 | Invoice Payments | Read | find the PaymentIntent behind an invoice (if the key form lists it separately) |
 | Refunds | Read and Write | list refunds on a charge; refund a duplicate's payment |
+| Payment Methods | Read and Write | list and detach saved cards on account deletion |
 
 Not needed (remove if set): Products, Charges. The webhook payloads carry the charge, so the server does not call
 the Charges API.

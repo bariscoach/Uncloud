@@ -21,10 +21,16 @@ const PERMISSIONS = {
   'subscriptions.retrieve': [['Subscriptions', 'Read and Write']],
   'subscriptions.update': [['Subscriptions', 'Read and Write']],
   'subscriptions.cancel': [['Subscriptions', 'Read and Write']],
-  'invoices.retrieve': [['Invoices', 'Read']],
+  'subscriptions.list': [['Subscriptions', 'Read and Write']],
+  'invoices.retrieve': [['Invoices', 'Read and Write']],
+  'invoices.list': [['Invoices', 'Read and Write']],
+  'invoices.voidInvoice': [['Invoices', 'Read and Write']],
   'invoicePayments.list': [['Invoice Payments', 'Read']],
   'refunds.list': [['Refunds', 'Read and Write']],
   'refunds.create': [['Refunds', 'Read and Write']],
+  'customers.update': [['Customers', 'Write']],
+  'paymentMethods.list': [['Payment Methods', 'Read and Write']],
+  'paymentMethods.detach': [['Payment Methods', 'Read and Write']],
 };
 // Calls that make no request to Stripe's API.
 const NO_API_CALL = new Set(['webhooks.constructEvent']);

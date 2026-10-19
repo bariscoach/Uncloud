@@ -3,6 +3,7 @@
 // events converge on Stripe's current state.
 
 import { logEvent } from './http.js';
+import { DbError } from './supabase.js';
 import { idOf, subscriptionIdOf } from './stripe-shapes.js';
 import { mapSubscription, isOurSubscription } from './entitlement.js';
 
@@ -17,6 +18,9 @@ const REFUND_WINDOW_SECONDS = 24 * 60 * 60;
 const DUPLICATE_REASON = 'duplicate';
 // Subscription metadata key recording the Checkout Session whose one-year choice was applied (review M2).
 const ONE_YEAR_MARKER = 'one_year_applied';
+
+// A write for a user who has been deleted fails on the foreign key (PostgREST 409). Plan §4.3.
+const isGoneUser = (error) => error instanceof DbError && error.status === 409;
 
 const asUUID = (value) => (typeof value === 'string' && UUID.test(value) ? value : null);
 
@@ -123,20 +127,27 @@ export async function applySubscription(deps, subscription, { userIdHint } = {})
     logEvent({ evt: 'subscription', id: subscription.id, user: userId, result });
     return result;
   }
-  await db.rpc(
-    'apply_subscription',
-    {
-      p_user_id: userId,
-      p_subscription_id: row.stripe_subscription_id,
-      p_price_id: row.stripe_price_id,
-      p_plan: row.plan,
-      p_status: row.status,
-      p_current_period_end: row.current_period_end,
-      p_cancel_at_period_end: row.cancel_at_period_end,
-      p_livemode: row.livemode,
-    },
-    { service: true },
-  );
+  try {
+    await db.rpc(
+      'apply_subscription',
+      {
+        p_user_id: userId,
+        p_subscription_id: row.stripe_subscription_id,
+        p_price_id: row.stripe_price_id,
+        p_plan: row.plan,
+        p_status: row.status,
+        p_current_period_end: row.current_period_end,
+        p_cancel_at_period_end: row.cancel_at_period_end,
+        p_livemode: row.livemode,
+      },
+      { service: true },
+    );
+  } catch (error) {
+    // The user was deleted while this event was in flight. Ignore it, so Stripe does not retry for 3 days (plan §4.3).
+    if (!isGoneUser(error)) throw error;
+    logEvent({ evt: 'subscription', id: subscription.id, user: userId, result: 'user_gone' });
+    return 'ignored';
+  }
   logEvent({ evt: 'subscription', id: subscription.id, user: userId, result });
   return result;
 }
@@ -163,12 +174,20 @@ export async function syncCheckoutSession(deps, session) {
   const userId = asUUID(session.client_reference_id) ?? asUUID(session.metadata?.user_id);
   const customerId = idOf(session.customer);
   if (userId && customerId) {
-    await db.upsert(
-      'customers',
-      { user_id: userId, stripe_customer_id: customerId, livemode: session.livemode === true },
-      { onConflict: 'user_id' },
-      { service: true },
-    );
+    try {
+      await db.upsert(
+        'customers',
+        { user_id: userId, stripe_customer_id: customerId, livemode: session.livemode === true },
+        { onConflict: 'user_id' },
+        { service: true },
+      );
+    } catch (error) {
+      if (!isGoneUser(error)) throw error;
+      // Paid in another tab after the account was deleted: the account no longer exists, so return the money (plan §4.3).
+      const outcome = await cancelAndRefund(deps, subscriptionId);
+      logEvent({ evt: 'checkout', id: session.id, user: userId, result: 'user_gone_refunded', refund: outcome });
+      return 'user_gone_refunded';
+    }
   }
 
   // Checkout cannot set cancel_at_period_end, so the one-year choice is applied here, once per

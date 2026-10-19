@@ -386,7 +386,7 @@ trigger builds. Preview deployments are behind Vercel Deployment Protection, so 
 
 | Name | Secret | Value |
 |---|---|---|
-| `STRIPE_SECRET_KEY` | yes | Test: a **restricted key** `rk_test_…` with: Checkout Sessions read and write, Customers write, Customer portal write, Prices read, Subscriptions read and write, Invoices read, Invoice Payments read (if the key form lists it), Refunds read and write. Each call the server makes is listed in `server/uncloud-api/test/permissions.test.js`, and `server/scripts/RUNBOOK.md` carries the same list (review M3). Live later: `rk_live_…` on the Uncloud account. |
+| `STRIPE_SECRET_KEY` | yes | Test: a **restricted key** `rk_test_…` with: Checkout Sessions read and write, Customers write, Customer portal write, Prices read, Subscriptions read and write, Invoices read and write (account deletion voids open invoices), Invoice Payments read (if the key form lists it), Refunds read and write, Payment Methods read and write (account deletion detaches saved cards). Each call the server makes is listed in `server/uncloud-api/test/permissions.test.js`, and `server/scripts/RUNBOOK.md` carries the same list (review M3). Live later: `rk_live_…` on the Uncloud account. |
 | `STRIPE_WEBHOOK_SECRET` | yes | `whsec_…` of the endpoint |
 | `STRIPE_PORTAL_CONFIGURATION_ID` | no | `bpc_…` |
 | `STRIPE_PRICE_LOOKUP_KEY` | no | `uncloud_plus_yearly` (default if unset) |

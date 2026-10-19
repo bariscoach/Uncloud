@@ -174,3 +174,15 @@ test('an unknown /v1 path gets the JSON error envelope, not the HTML 404 page', 
     assert.equal((await response.json()).error.code, 'not_found');
   }
 });
+
+// ---- POST /v1/account/delete -------------------------------------------------
+
+test('/v1/account/delete is a POST route; other methods get the JSON 405', async () => {
+  const module = await import('../api/v1/account/delete.js');
+  assert.equal(typeof module.POST, 'function');
+  for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
+    const response = await module[method](new Request('https://uncloud-api.vercel.app/v1/account/delete', { method }));
+    assert.equal(response.status, 405, method);
+    assert.equal((await response.json()).error.code, 'method_not_allowed');
+  }
+});
