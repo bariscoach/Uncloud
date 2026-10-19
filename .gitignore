@@ -6,3 +6,4 @@ DerivedData/
 Vendor/
 dist/
 .claude/worktrees/
+supabase/.temp/
