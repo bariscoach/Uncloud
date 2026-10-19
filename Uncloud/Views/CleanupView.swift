@@ -68,12 +68,6 @@ struct CleanupGridView: View {
         cleanup.mode == .library ? library : recentlyDeleted
     }
 
-    /// Deleting from iCloud is paid. Recently Deleted (and Recover) stays free. A run that started before a lapse
-    /// keeps its grid, so it is never cut off (plan §5.5, owner decision 3).
-    private var isLibraryLocked: Bool {
-        cleanup.mode == .library && !account.allows(.cleanUpICloud) && !cleanup.isRunning
-    }
-
     /// The window subtitle: the selection count, and in Recently Deleted, how long photos stay there.
     private var subtitle: String {
         let count = countText
@@ -84,9 +78,8 @@ struct CleanupGridView: View {
 
     var body: some View {
         Group {
-            if isLibraryLocked {
-                LockedFeatureView(feature: .cleanUpICloud)
-            } else if cleanup.mode == .recentlyDeleted, browser.count == 0 {
+            // Clean Up iCloud is locked as a whole by MainWindow for free accounts, so this view never shows the lock.
+            if cleanup.mode == .recentlyDeleted, browser.count == 0 {
                 ContentUnavailableView("No Recently Deleted Photos", systemImage: "trash")
             } else if browser.count != nil {
                 LibraryGrid(
@@ -140,7 +133,14 @@ struct CleanupGridView: View {
                 CleanupRecoverySheet(
                     count: cleanup.pendingCount,
                     onCancel: { cleanup.cancelConfirmation() },
-                    onRecover: { cleanup.recover() }
+                    onRecover: {
+                        // A lapse while this sheet is open closes it instead, as for a delete.
+                        guard Self.mayStart(mode: cleanup.mode, allowsCleanUp: account.allows(.cleanUpICloud)) else {
+                            cleanup.cancelConfirmation()
+                            return
+                        }
+                        cleanup.recover()
+                    }
                 )
             }
         }
@@ -151,15 +151,9 @@ struct CleanupGridView: View {
         // and is enabled exactly when that button is.
         .focusedValue(\.cleanupCommand, CleanupCommandActions(
             title: commandTitle,
-            isEnabled: cleanup.canRequestConfirmation && !isLibraryLocked,
+            isEnabled: cleanup.canRequestConfirmation,
             perform: { cleanup.requestConfirmation() }
         ))
-        .onAppear {
-            // Free accounts start on Recently Deleted, the part of Clean Up iCloud that stays free.
-            if !account.allows(.cleanUpICloud), cleanup.mode == .library, !cleanup.isRunning {
-                cleanup.setMode(.recentlyDeleted)
-            }
-        }
         .task(id: ObjectIdentifier(browser)) {
             browser.load()
         }
@@ -177,12 +171,8 @@ struct CleanupGridView: View {
     /// Library or Recently Deleted, with the count of Recently Deleted. Locked while a run works on one of them.
     /// It sits in the toolbar's centre, where switching views belongs on macOS, rather than in a bar under it.
     private var modePicker: some View {
-        Picker("Show", selection: Binding(get: { cleanup.mode }, set: { chooseMode($0) })) {
-            if account.allows(.cleanUpICloud) {
-                Text("Library").tag(ICloudCleanup.Mode.library)
-            } else {
-                Label("Library", systemImage: "lock.fill").tag(ICloudCleanup.Mode.library)
-            }
+        Picker("Show", selection: Binding(get: { cleanup.mode }, set: { cleanup.setMode($0) })) {
+            Text("Library").tag(ICloudCleanup.Mode.library)
             Text(recentlyDeletedTitle).tag(ICloudCleanup.Mode.recentlyDeleted)
         }
         .pickerStyle(.segmented)
@@ -214,20 +204,9 @@ struct CleanupGridView: View {
         return max(0, cleanup.pendingCount - backedUpSelected)
     }
 
-    /// Deleting from the library needs Plus at the moment it starts. Recovering from Recently Deleted stays free.
+    /// Deleting from the library and recovering from Recently Deleted both need Plus at the moment they start.
     static func mayStart(mode: ICloudCleanup.Mode, allowsCleanUp: Bool) -> Bool {
-        mode != .library || allowsCleanUp
-    }
-
-    /// Choosing Library while it's locked opens the paywall. Choosing it after subscribing shows the library.
-    private func chooseMode(_ mode: ICloudCleanup.Mode) {
-        guard mode == .library, !account.allows(.cleanUpICloud) else {
-            cleanup.setMode(mode)
-            return
-        }
-        account.require(.cleanUpICloud) {
-            cleanup.setMode(.library)
-        }
+        allowsCleanUp
     }
 
     @ToolbarContentBuilder
@@ -244,7 +223,7 @@ struct CleanupGridView: View {
                     Button("Select All") {
                         cleanup.selection = filter.selection(backedUp: backedUp)
                     }
-                    .disabled(browser.count == nil || isLibraryLocked)
+                    .disabled(browser.count == nil)
                 } else {
                     Button("Deselect All") {
                         cleanup.selection = .only([])
@@ -284,7 +263,7 @@ struct CleanupGridView: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .buttonStyle(.bordered)
-                .disabled(!cleanup.canRequestConfirmation || isLibraryLocked)
+                .disabled(!cleanup.canRequestConfirmation)
                 .help(deleteHelp)
             } else {
                 // Recovering isn't destructive, so this is the prominent button without the red.

@@ -169,7 +169,29 @@ enum NewPhotosCounter {
 enum NewPhotosTitle {
     static let exportNewPhotos = "Export New Photos"
     static let chooseFolder = "Choose Backup Folder…"
+    static let newOnlyHelp = "Exports only photos that aren’t in your backup yet. Photos already backed up are never exported twice."
 
+    /// "Export 1 New Photo", "Export 1,243 New Photos".
+    static func exportNewPhotos(count: Int) -> String {
+        count == 1 ? "Export 1 New Photo" : "Export \(count.formatted()) New Photos"
+    }
+
+    /// True when the primary action is presented as new photos only: everything is selected, a folder is chosen, no run
+    /// is paused or interrupted, and the folder already has backed-up photos (or a New Photos watermark exists).
+    static func offersNewOnly(
+        isPaused: Bool,
+        hasInterruptedRun: Bool,
+        needsFolder: Bool,
+        isEverything: Bool,
+        hasNewPhotosStatus: Bool,
+        backedUpCount: Int
+    ) -> Bool {
+        !isPaused && !hasInterruptedRun && !needsFolder && isEverything && (backedUpCount > 0 || hasNewPhotosStatus)
+    }
+
+    /// `notBackedUpCount` is nil when unknown, approximate or during a run. The number shows only once the folder has
+    /// backed-up photos, so a first export keeps "Export All Photos".
+    ///
     /// An interrupted or paused run keeps the fallback, which is the resume title, so resuming wins over new photos.
     static func primary(
         isPaused: Bool,
@@ -177,12 +199,24 @@ enum NewPhotosTitle {
         needsFolder: Bool,
         isEverything: Bool,
         hasNewPhotosStatus: Bool,
+        backedUpCount: Int,
+        notBackedUpCount: Int?,
         fallback: String
     ) -> String {
         if isPaused || hasInterruptedRun { return fallback }
         if needsFolder { return chooseFolder }
-        if isEverything, hasNewPhotosStatus { return exportNewPhotos }
-        return fallback
+        guard offersNewOnly(
+            isPaused: isPaused,
+            hasInterruptedRun: hasInterruptedRun,
+            needsFolder: needsFolder,
+            isEverything: isEverything,
+            hasNewPhotosStatus: hasNewPhotosStatus,
+            backedUpCount: backedUpCount
+        ) else { return fallback }
+        if backedUpCount > 0, let count = notBackedUpCount, count > 0 {
+            return exportNewPhotos(count: count)
+        }
+        return exportNewPhotos
     }
 }
 

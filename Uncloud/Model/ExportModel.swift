@@ -550,8 +550,42 @@ final class ExportModel {
             needsFolder: destination == nil && !isExporting,
             isEverything: selection.isEverything,
             hasNewPhotosStatus: newPhotosStatus != nil,
+            backedUpCount: newOnlyBackedUpCount,
+            notBackedUpCount: newOnlyNotBackedUpCount,
             fallback: exportTitle(total: total)
         )
+    }
+
+    /// True when the primary action exports new photos only (the title's "Export N New Photos" family), so the help and
+    /// the subtitle can say so. It reads the manifest's counts, not the watermark, so it holds for any history.
+    var offersNewPhotosOnly: Bool {
+        NewPhotosTitle.offersNewOnly(
+            isPaused: phase == .paused,
+            hasInterruptedRun: hasIncompleteRun,
+            needsFolder: destination == nil && !isExporting,
+            isEverything: selection.isEverything,
+            hasNewPhotosStatus: newPhotosStatus != nil,
+            backedUpCount: newOnlyBackedUpCount
+        )
+    }
+
+    /// The Export pane's subtitle, such as "1,243 not backed up", "about 1,200 not backed up" or "all backed up". Nil
+    /// unless the primary action offers new photos only and the folder has backed-up photos.
+    var notBackedUpSummary: String? {
+        guard offersNewPhotosOnly, newOnlyBackedUpCount > 0, let toGo = toGoCount else { return nil }
+        if toGo == 0 { return "all backed up" }
+        let about = isOnDriveCountApproximate ? "about " : ""
+        return "\(about)\(toGo.formatted()) not backed up"
+    }
+
+    /// Backed up on this drive, for the title. Zero during a run, so the title keeps what it was before the run.
+    private var newOnlyBackedUpCount: Int {
+        isExporting || isEngineRunning ? 0 : (onDriveCount ?? 0)
+    }
+
+    /// Not backed up, for the title's number. Nil during a run, and when the iCloud count is approximate or unknown.
+    private var newOnlyNotBackedUpCount: Int? {
+        isExporting || isEngineRunning || isOnDriveCountApproximate ? nil : toGoCount
     }
 
     /// Whether the primary action can run. Without a folder it only needs a ready source.

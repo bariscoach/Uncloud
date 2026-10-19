@@ -110,15 +110,30 @@ struct AccountSnapshotTests {
             let rows = List {
                 LockableSidebarRow(title: "Browse Backup", symbol: "map", isLocked: true)
                 LockableSidebarRow(title: "Browse Backup", symbol: "map", isLocked: false)
+                LockableSidebarRow(title: "Clean Up iCloud", symbol: "icloud", isLocked: true)
             }
             .environment(free)
             .frame(width: 240)
-            let rowImage = try #require(await Self.renderTitledWindow(rows, size: NSSize(width: 240, height: 120), scheme: scheme))
+            let rowImage = try #require(await Self.renderTitledWindow(rows, size: NSSize(width: 240, height: 160), scheme: scheme))
             images.append(("locked-sidebar-\(Self.name(scheme))", rowImage))
+
+            // Clean Up iCloud for a free account: the whole pane is the locked view, with the 30-day note (plan §2.2).
+            let cleanup = LockedFeatureView(feature: .cleanUpICloud)
+                .environment(free)
+            let cleanupImage = try #require(await Self.renderTitledWindow(cleanup, size: NSSize(width: 1_000, height: 700), scheme: scheme))
+            images.append(("locked-cleanup-\(Self.name(scheme))", cleanupImage))
         }
 
+        // The PNGs also go to the scratch folder, so they can be looked at without opening the result bundle.
+        let scratch = URL(
+            fileURLWithPath: "/private/tmp/claude-501/-Users-barishiz-Developer-icloud-photo-export/df886b0f-d79a-4d1c-973d-23c5d89614c2/scratchpad/account-snapshots",
+            isDirectory: true
+        )
         for (name, image) in images {
-            Attachment.record(try Self.png(image), named: "\(name).png")
+            let data = try Self.png(image)
+            Attachment.record(data, named: "\(name).png")
+            try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+            try? data.write(to: scratch.appending(path: "\(name).png"))
         }
     }
 

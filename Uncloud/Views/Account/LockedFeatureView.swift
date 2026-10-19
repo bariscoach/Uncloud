@@ -14,8 +14,16 @@ struct LockedFeatureView: View {
                 Image(systemName: feature.symbol)
             }
         } description: {
-            Text("\(feature.summary) It’s part of Uncloud Plus, \(PlanCopy.yearlyPricePlusTax).")
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: Tokens.Space.s) {
+                Text("\(feature.summary) It’s part of Uncloud Plus, \(PlanCopy.yearlyPricePlusTax).")
+                    .fixedSize(horizontal: false, vertical: true)
+                if let note = feature.lockedNote {
+                    Text(note)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .multilineTextAlignment(.center)
         } actions: {
             Button {
                 account.require(feature) {}

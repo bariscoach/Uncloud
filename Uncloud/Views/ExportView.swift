@@ -29,9 +29,13 @@ struct ExportView: View {
     private var countText: String {
         guard model.isSourceReady, let total = model.browser?.count else { return "" }
         let selected = model.selection.selectedCount(total: total)
-        let count = model.selection.isEverything
+        var count = model.selection.isEverything
             ? "All \(Plural.photos(total)) selected"
             : "\(selected.formatted()) of \(total.formatted()) selected"
+        // "· 1,243 not backed up" when the primary action exports only those.
+        if let notBackedUp = model.notBackedUpSummary {
+            count += " · \(notBackedUp)"
+        }
         // The estimated size, such as "· about 412 GB", once anything is selected.
         guard selected > 0, let size = model.storageEstimateText else { return count }
         return "\(count) · \(size)"
@@ -98,6 +102,7 @@ private struct ExportToolbar: ToolbarContent {
             .buttonStyle(.borderedProminent)
             .disabled(!model.primaryExportEnabled(total: total))
             .help(model.primaryExportHelp ?? "")
+            .accessibilityHint(model.primaryExportHelp ?? "")
         }
     }
 

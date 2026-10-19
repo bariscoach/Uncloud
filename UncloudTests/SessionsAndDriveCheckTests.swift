@@ -198,6 +198,38 @@ extension ExportCancellationTests {
         await harness.tearDown()
     }
 
+    /// The owner's case: a backup with export history but no New Photos watermark still offers new photos only.
+    @Test @MainActor func newPhotosOfferComesFromTheBackupNotTheWatermark() async throws {
+        let fixture = try Fixture(icloudpd: ["--total", "20", "--rate", "0"])
+        let harness = ModelHarness(fixture: fixture, timing: Self.waitingResumes)
+        let model = harness.model
+        try await Self.withLibraryCount(21) {
+            // Before any run the folder holds nothing: the first export keeps its title.
+            #expect(!model.offersNewPhotosOnly)
+            #expect(model.primaryExportTitle(total: nil) == "Export All Photos")
+
+            model.startOrResume()
+            #expect(await harness.waitFor { model.phase == .completed })
+            #expect(await harness.waitFor { !model.isEngineRunning })
+            // The run left no watermark, as with runs that had a failed item or came before New Photos.
+            #expect(model.newPhotosStatus == nil)
+            #expect(model.onDriveCount == 20)
+            #expect(model.toGoCount == 1)
+            #expect(model.offersNewPhotosOnly)
+            #expect(model.primaryExportHelp == NewPhotosTitle.newOnlyHelp)
+            // Items recorded by asset ID count exactly. Path-only records make the count approximate, and then the
+            // title and subtitle drop the number (plan 1.3). Both are the same offer.
+            if model.isOnDriveCountApproximate {
+                #expect(model.primaryExportTitle(total: nil) == "Export New Photos")
+                #expect(model.notBackedUpSummary == "about 1 not backed up")
+            } else {
+                #expect(model.primaryExportTitle(total: nil) == "Export 1 New Photo")
+                #expect(model.notBackedUpSummary == "1 not backed up")
+            }
+        }
+        await harness.tearDown()
+    }
+
     @Test @MainActor func checkDriveFindsMissingTruncatedUntrackedAndPartialFiles() async throws {
         let fixture = try Fixture(icloudpd: ["--total", "20", "--rate", "0"])
         let harness = ModelHarness(fixture: fixture, timing: Self.waitingResumes)

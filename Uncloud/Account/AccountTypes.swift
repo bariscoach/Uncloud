@@ -110,6 +110,16 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
         self == .newPhotos ? "Reminders" : title
     }
 
+    /// A second line for the locked pane, under the summary, where the feature needs one. Nil for the rest.
+    var lockedNote: String? {
+        switch self {
+        case .cleanUpICloud:
+            "Photos you deleted stay in Recently Deleted for 30 days. You can recover them there in the Photos app or on iCloud.com."
+        default:
+            nil
+        }
+    }
+
     /// One line, as on the Welcome page and the paywall.
     var summary: String {
         switch self {

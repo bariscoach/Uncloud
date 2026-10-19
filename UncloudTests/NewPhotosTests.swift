@@ -169,6 +169,8 @@ struct NewPhotosTests {
             folder: Bool = true,
             everything: Bool = true,
             status: Bool = true,
+            backedUp: Int = 0,
+            notBackedUp: Int? = nil,
             fallback: String = fallback
         ) -> String {
             NewPhotosTitle.primary(
@@ -177,6 +179,8 @@ struct NewPhotosTests {
                 needsFolder: !folder,
                 isEverything: everything,
                 hasNewPhotosStatus: status,
+                backedUpCount: backedUp,
+                notBackedUpCount: notBackedUp,
                 fallback: fallback
             )
         }
@@ -184,13 +188,76 @@ struct NewPhotosTests {
         #expect(title(paused: true, fallback: "Resume") == "Resume")
         // An interrupted run keeps the fallback too, so resuming wins.
         #expect(title(interrupted: true, fallback: "Resume Export") == "Resume Export")
+        #expect(title(paused: true, backedUp: 1_243, notBackedUp: 1, fallback: "Resume") == "Resume")
+        #expect(title(interrupted: true, backedUp: 1_243, notBackedUp: 1, fallback: "Resume Export") == "Resume Export")
         // No folder beats new photos.
         #expect(title(folder: false) == "Choose Backup Folder…")
+        #expect(title(folder: false, backedUp: 1_243, notBackedUp: 1_243) == "Choose Backup Folder…")
         // New photos apply to everything only.
         #expect(title() == "Export New Photos")
         #expect(title(everything: false, fallback: "Export 3 Photos") == "Export 3 Photos")
+        #expect(title(everything: false, backedUp: 1_243, notBackedUp: 3, fallback: "Export 3 Photos") == "Export 3 Photos")
         // No complete export yet: the default.
         #expect(title(status: false) == fallback)
+    }
+
+    @Test func newOnlyTitleCountsWhatIsNotBackedUp() {
+        func title(backedUp: Int, notBackedUp: Int?, status: Bool = false) -> String {
+            NewPhotosTitle.primary(
+                isPaused: false,
+                hasInterruptedRun: false,
+                needsFolder: false,
+                isEverything: true,
+                hasNewPhotosStatus: status,
+                backedUpCount: backedUp,
+                notBackedUpCount: notBackedUp,
+                fallback: "Export All Photos"
+            )
+        }
+        // A folder with backed-up photos: the button says what it will copy.
+        #expect(title(backedUp: 9_207, notBackedUp: 1_243) == "Export 1,243 New Photos")
+        #expect(title(backedUp: 9_207, notBackedUp: 1) == "Export 1 New Photo")
+        // Unknown, approximate, or nothing left: no number.
+        #expect(title(backedUp: 9_207, notBackedUp: nil) == "Export New Photos")
+        #expect(title(backedUp: 9_207, notBackedUp: 0) == "Export New Photos")
+        #expect(title(backedUp: 9_207, notBackedUp: nil, status: true) == "Export New Photos")
+        // A first export: nothing backed up, so the default stays, with or without a watermark.
+        #expect(title(backedUp: 0, notBackedUp: 93_015) == "Export All Photos")
+        #expect(title(backedUp: 0, notBackedUp: 93_015, status: true) == "Export New Photos")
+    }
+
+    @Test func offersNewOnlyMatchesTheTable() {
+        func offers(
+            paused: Bool = false,
+            interrupted: Bool = false,
+            needsFolder: Bool = false,
+            everything: Bool = true,
+            status: Bool = false,
+            backedUp: Int = 9_207
+        ) -> Bool {
+            NewPhotosTitle.offersNewOnly(
+                isPaused: paused,
+                hasInterruptedRun: interrupted,
+                needsFolder: needsFolder,
+                isEverything: everything,
+                hasNewPhotosStatus: status,
+                backedUpCount: backedUp
+            )
+        }
+        #expect(offers())
+        #expect(offers(status: true, backedUp: 0))
+        #expect(!offers(backedUp: 0))
+        #expect(!offers(everything: false))
+        #expect(!offers(paused: true))
+        #expect(!offers(interrupted: true))
+        #expect(!offers(needsFolder: true))
+    }
+
+    @Test func newOnlyTitleCountsPhotosWithThousandsGrouped() {
+        #expect(NewPhotosTitle.exportNewPhotos(count: 1) == "Export 1 New Photo")
+        #expect(NewPhotosTitle.exportNewPhotos(count: 2) == "Export 2 New Photos")
+        #expect(NewPhotosTitle.exportNewPhotos(count: 1_243) == "Export 1,243 New Photos")
+        #expect(NewPhotosTitle.exportNewPhotos(count: 93_015) == "Export 93,015 New Photos")
     }
 
     // MARK: - Text

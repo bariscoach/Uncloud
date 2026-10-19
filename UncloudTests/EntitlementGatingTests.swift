@@ -116,10 +116,44 @@ struct EntitlementGatingTests {
         #expect(PlanText.renewalTerms(.oneYear).contains("$9.99 + tax"))
     }
 
-    @Test("A library delete that starts after the plan lapsed is refused, and recovery stays free (L6)")
-    func deleteRefusedAfterLapse() {
+    @Test("Deleting and recovering that start after the plan lapsed are both refused (L6)")
+    func deleteAndRecoverRefusedAfterLapse() {
         #expect(CleanupGridView.mayStart(mode: .library, allowsCleanUp: false) == false)
+        #expect(CleanupGridView.mayStart(mode: .recentlyDeleted, allowsCleanUp: false) == false)
         #expect(CleanupGridView.mayStart(mode: .library, allowsCleanUp: true))
-        #expect(CleanupGridView.mayStart(mode: .recentlyDeleted, allowsCleanUp: false))
+        #expect(CleanupGridView.mayStart(mode: .recentlyDeleted, allowsCleanUp: true))
+    }
+
+    @Test("Only Clean Up iCloud has a locked note, and it says where recoverable photos stay")
+    func cleanUpLockedNote() {
+        let note = PaidFeature.cleanUpICloud.lockedNote ?? ""
+        #expect(note.contains("30 days"))
+        #expect(note.contains("iCloud.com"))
+        for feature in PaidFeature.allCases where feature != .cleanUpICloud {
+            #expect(feature.lockedNote == nil, "\(feature) has no locked note")
+        }
+    }
+
+    @Test("Clean Up iCloud shows its grid when the plan allows it or a run is going, and the lock otherwise")
+    func cleanupPaneGate() {
+        #expect(MainWindow.showsCleanup(allowed: false, isRunning: false) == false)
+        #expect(MainWindow.showsCleanup(allowed: false, isRunning: true))
+        #expect(MainWindow.showsCleanup(allowed: true, isRunning: false))
+        #expect(MainWindow.showsCleanup(allowed: true, isRunning: true))
+    }
+
+    @Test("A free account keeps the new-photos offer: its title and subtitle never read the account")
+    func newPhotosOfferIsFree() async {
+        let harness = AccountModelTests.makeHarness()
+        await AccountModelTests.signIn(harness.model)
+        #expect(harness.model.allows(.cleanUpICloud) == false)
+        #expect(harness.model.allows(.newPhotos) == false)
+
+        // The export title is computed from the backup alone, so it is the same with the account locked out.
+        #expect(NewPhotosTitle.offersNewOnly(isPaused: false, hasInterruptedRun: false, needsFolder: false,
+                                             isEverything: true, hasNewPhotosStatus: false, backedUpCount: 9_207))
+        #expect(NewPhotosTitle.primary(isPaused: false, hasInterruptedRun: false, needsFolder: false, isEverything: true,
+                                       hasNewPhotosStatus: false, backedUpCount: 9_207, notBackedUpCount: 1_243,
+                                       fallback: "Export All Photos") == "Export 1,243 New Photos")
     }
 }

@@ -89,6 +89,101 @@ struct NewPhotosSnapshotTests {
         }
     }
 
+    /// The Export pane with a backup that has history but no New Photos watermark: the primary button reads
+    /// "Export 1,243 New Photos", the subtitle says "1,243 not backed up", and the Backup pane's hero says the same.
+    /// Renders the real main window in a titled window, so the toolbar and subtitle draw. Runs only with the env var.
+    @Test func rendersExportPaneWithTheNewOnlyOffer() async throws {
+        guard ProcessInfo.processInfo.environment["UNCLOUD_NEW_PHOTOS_SNAPSHOTS"] != nil else { return }
+        let defaults = UserDefaults.standard
+        let drive = FileManager.default.temporaryDirectory
+            .appending(path: "uncloud-new-only-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: drive, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: drive) }
+
+        // 93,015 in iCloud, of which 91,772 are already in the backup (the month layout the test uses).
+        let savedAppleID = ICloudAccount.appleID
+        let savedCount = defaults.object(forKey: "icloudLibraryCount")
+        let savedSource = defaults.object(forKey: "librarySource")
+        let savedLayout = defaults.object(forKey: "folderLayout")
+        ICloudAccount.appleID = "preview@example.invalid"
+        defaults.set(93_015, forKey: "icloudLibraryCount")
+        defaults.set(LibrarySource.iCloud.rawValue, forKey: "librarySource")
+        defaults.set(FolderLayout.month.rawValue, forKey: "folderLayout")
+        defaults.removeObject(forKey: ExportModel.bookmarkKey)
+        defer {
+            ICloudAccount.appleID = savedAppleID
+            defaults.set(savedCount, forKey: "icloudLibraryCount")
+            defaults.set(savedSource, forKey: "librarySource")
+            defaults.set(savedLayout, forKey: "folderLayout")
+        }
+        let records = (0..<91_772).map { index in
+            (key: ExportManifest.iCloudIDPrefix + "asset-\(index)", paths: ["2001/01/IMG_\(index).JPG"])
+        }
+        try ExportManifest.appendRecords(records, in: drive)
+
+        let model = ExportModel()
+        model.chooseDestination(.success(drive))
+        // The manifest is read in the background, which takes a while for this many records, so wait for its count.
+        for _ in 0..<300 where model.onDriveCount != 91_772 {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        model.pane = .export
+        #expect(model.onDriveCount == 91_772)
+        #expect(model.primaryExportTitle(total: 93_015) == "Export 1,243 New Photos")
+        #expect(model.notBackedUpSummary == "1,243 not backed up")
+
+        var attachments: [(String, Data)] = []
+        for scheme in [ColorScheme.light, .dark] {
+            let main = MainWindow()
+                .environment(model)
+                .environment(BackupTools(model: model))
+                .environment(AccountModel.forTesting())
+            let image = try #require(await renderWindow(main, size: NSSize(width: 1_000, height: 700), scheme: scheme))
+            attachments.append(("export-pane-new-only-\(Self.name(scheme)).png", try Self.png(image)))
+
+            let hero = BackupPane()
+                .environment(model)
+                .environment(BackupTools(model: model))
+                .environment(AccountModel.forTesting())
+            let heroImage = try #require(await renderWindow(hero, size: NSSize(width: 1_000, height: 700), scheme: scheme))
+            attachments.append(("backup-pane-new-only-\(Self.name(scheme)).png", try Self.png(heroImage)))
+        }
+
+        for (name, data) in attachments {
+            Attachment.record(data, named: name)
+            try? FileManager.default.createDirectory(at: Self.scratch, withIntermediateDirectories: true)
+            try? data.write(to: Self.scratch.appending(path: name))
+        }
+    }
+
+    /// Renders a view in a titled window, so the window's frame, toolbar and subtitle draw as they do in the app.
+    private func renderWindow<V: View>(_ view: V, size: NSSize, scheme: ColorScheme) async -> NSImage? {
+        let page = view.environment(\.colorScheme, scheme)
+        let controller = NSHostingController(rootView: page)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.contentViewController = controller
+        window.setContentSize(size)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<25 {
+            window.contentView?.layoutSubtreeIfNeeded()
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        defer { window.close() }
+        guard let frameView = window.contentView?.superview,
+              let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) else { return nil }
+        frameView.cacheDisplay(in: frameView.bounds, to: rep)
+        let image = NSImage(size: frameView.bounds.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
     private static func name(_ scheme: ColorScheme) -> String {
         scheme == .dark ? "dark" : "light"
     }

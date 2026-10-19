@@ -893,7 +893,7 @@ Acceptance:
 
 1. Plan name: **Uncloud Plus**.
 2. New Photos: the sidebar badge / "N new photos" count and hero line stay **free** (and Export New Photos, being an export, is free). **Reminders and automatic backups are paid.**
-3. **Recover (Recently Deleted in Clean Up iCloud) is free**, so someone whose plan lapsed can always get back photos they deleted with Uncloud. Deleting from iCloud stays paid. The Clean Up iCloud pane therefore opens for free users in Recently Deleted mode only; the Library/delete mode shows the lock and paywall.
+3. **(revised 2026-10-18): Clean Up iCloud is Uncloud Plus as a whole, including Recently Deleted and Recover.** Free users see the locked pane and the paywall. Photos stay recoverable for 30 days in Recently Deleted in Apple's Photos app or on iCloud.com, and the locked view says so. A run in progress finishes after a lapse.
 4. **No free trial.**
 5. Welcome hero line: **"Take Your Photos Home"**.
 6. Domain, Terms/Privacy URLs and tax handling are deferred to the Stripe phase; use placeholders behind constants.

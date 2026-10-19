@@ -21,11 +21,9 @@ extension ExportModel {
         return Text(status.isAtLeast ? "\(number)+" : number)
     }
 
-    /// Help for the primary button when it exports new photos: it still checks the drive for missing ones.
+    /// Help and VoiceOver hint for the primary button when it exports only the photos not yet backed up.
     var primaryExportHelp: String? {
-        primaryExportTitle(total: browser?.count) == NewPhotosTitle.exportNewPhotos
-            ? "Exports new photos, and any missing from your backup."
-            : nil
+        offersNewPhotosOnly ? NewPhotosTitle.newOnlyHelp : nil
     }
 }
 

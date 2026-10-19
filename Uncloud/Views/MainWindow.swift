@@ -29,8 +29,9 @@ struct MainWindow: View {
                     .tag(ExportModel.Pane.browse)
 
                 // The one destructive pane sits apart from the two backup panes.
+                // Locked for free accounts as a whole, like Browse Backup (Clean Up iCloud is Uncloud Plus).
                 Section("iCloud") {
-                    Label("Clean Up iCloud", systemImage: "icloud")
+                    LockableSidebarRow(title: "Clean Up iCloud", symbol: "icloud", isLocked: !account.allows(.cleanUpICloud))
                         .tag(ExportModel.Pane.cleanup)
                 }
             }
@@ -47,8 +48,13 @@ struct MainWindow: View {
                 BackupPane()
                     .navigationTitle("Backup")
             case .cleanup:
-                CleanupView()
-                    .navigationTitle("Clean Up iCloud")
+                if Self.showsCleanup(allowed: account.allows(.cleanUpICloud), isRunning: model.iCloudCleanup?.isRunning == true) {
+                    CleanupView()
+                        .navigationTitle("Clean Up iCloud")
+                } else {
+                    LockedFeatureView(feature: .cleanUpICloud)
+                        .navigationTitle("Clean Up iCloud")
+                }
             case .browse:
                 if account.allows(.browseBackup) {
                     BrowseBackupView(browse: backupTools.browse)
@@ -70,6 +76,9 @@ struct MainWindow: View {
             // Choosing a locked pane shows its lock and opens the paywall at once (plan C.3).
             if pane == .browse, !account.allows(.browseBackup) {
                 account.require(.browseBackup) {}
+            }
+            if pane == .cleanup, !account.allows(.cleanUpICloud) {
+                account.require(.cleanUpICloud) {}
             }
         }
         .fileImporter(isPresented: $model.isChoosingDestination, allowedContentTypes: [.folder]) { result in
@@ -108,6 +117,12 @@ struct MainWindow: View {
                 model.browser?.reload()
             }
         }
+    }
+
+    /// Clean Up iCloud shows its grid when the plan allows it, or while a run already in progress needs it to stay open
+    /// after a lapse (plan §5.5). Otherwise the pane is the locked view.
+    static func showsCleanup(allowed: Bool, isRunning: Bool) -> Bool {
+        allowed || isRunning
     }
 
     /// The sidebar selection. The list never clears it, so the optional is only a SwiftUI requirement.
