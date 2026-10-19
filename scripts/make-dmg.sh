@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Builds Uncloud in Release and packages it as dist/Uncloud-<version>.dmg, a compressed
 # disk image with the app and an Applications shortcut to drag it onto.
-# Usage: scripts/make-dmg.sh [--identity "Developer ID Application: …"]
+# Usage: scripts/make-dmg.sh [--identity "Developer ID Application: …"] [--account-mode off|live]
+#
+# --account-mode live builds against the Uncloud Plus server (sign-in and paywall on) and names the image
+# Uncloud-<version>-test.dmg. Without it, Release uses the mode in project.yml.
 #
 # Without --identity the app is signed ad hoc: it runs on this Mac, but on other Macs
 # Gatekeeper blocks the first launch until the user chooses Open Anyway in
@@ -10,9 +13,11 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IDENTITY="-"
+ACCOUNT_MODE=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --identity) IDENTITY="$2"; shift 2 ;;
+        --account-mode) ACCOUNT_MODE="$2"; shift 2 ;;
         -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
         *) echo "error: unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -24,6 +29,11 @@ xcodegen generate --quiet
 BUILD_DIR="$REPO_ROOT/build/release"
 # No get-task-allow: a build for other people shouldn't let debuggers attach.
 SIGNING=(CODE_SIGN_IDENTITY="$IDENTITY" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO)
+case "$ACCOUNT_MODE" in
+    "") SUFFIX="" ;;
+    off|live) SIGNING+=(UNCLOUD_ACCOUNT_MODE="$ACCOUNT_MODE"); SUFFIX=$([ "$ACCOUNT_MODE" = live ] && echo "-test" || echo "") ;;
+    *) echo "error: --account-mode must be off or live" >&2; exit 2 ;;
+esac
 echo "Building Uncloud (Release)…"
 xcodebuild -project Uncloud.xcodeproj -scheme Uncloud -configuration Release \
     -derivedDataPath "$BUILD_DIR" "${SIGNING[@]}" build >"$BUILD_DIR.log" 2>&1 \
@@ -39,7 +49,7 @@ ditto "$APP" "$STAGE/Uncloud.app"
 ln -s /Applications "$STAGE/Applications"
 
 mkdir -p "$REPO_ROOT/dist"
-DMG="$REPO_ROOT/dist/Uncloud-$VERSION.dmg"
+DMG="$REPO_ROOT/dist/Uncloud-$VERSION$SUFFIX.dmg"
 rm -f "$DMG"
 hdiutil create -volname "Uncloud $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO -quiet "$DMG"
 hdiutil verify -quiet "$DMG"
