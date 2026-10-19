@@ -95,7 +95,7 @@ struct ExportCommands: Commands {
                     }
                     .pickerStyle(.inline)
                 }
-                .disabled(model.pane != .browse)
+                .disabled(model.pane != .browse || !account.allows(.browseBackup))
 
                 Divider()
             }
@@ -143,18 +143,18 @@ struct ExportCommands: Commands {
                 .disabled(!model.canCheckDrive)
 
                 Button("Verify Backup…") {
-                    tools.showVerify()
+                    account.require(.verifyBackup) { tools.showVerify() }
                 }
                 .disabled(!tools.canOpenVerify)
 
                 Button("Find Duplicates…") {
-                    tools.showDuplicates()
+                    account.require(.findDuplicates) { tools.showDuplicates() }
                 }
                 .disabled(!tools.canOpenDuplicates)
 
                 // Always listed. Only Photos on This Mac can free up space, so it is disabled for iCloud.
                 Button("Free Up Space…") {
-                    tools.showFreeUpSpace()
+                    account.require(.freeUpSpace) { tools.showFreeUpSpace() }
                 }
                 .disabled(!tools.canOpenFreeUpSpace)
             }

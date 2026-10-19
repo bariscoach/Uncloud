@@ -5,6 +5,10 @@ enum PlanCopy {
     static let price = "$9.99"
     /// The price for the Welcome page and the paywall, e.g. "$9.99/year".
     static let yearlyPrice = "\(price)/year"
+    /// The paywall's and locked panes' price, with tax: "$9.99/year + tax" (Stripe Tax adds it at checkout).
+    static let yearlyPricePlusTax = "\(yearlyPrice) + tax"
+    /// The one-year option's price, with tax: "$9.99 + tax".
+    static let onePricePlusTax = "\(price) + tax"
     /// The Welcome page's one quiet line about what is free and what costs money.
     static let welcomePlanLine = "Export is free. Everything else is Uncloud Plus, \(yearlyPrice)."
 }
@@ -99,6 +103,11 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
         case .freeUpSpace: "externaldrive.badge.minus"
         case .cleanUpICloud: "icloud"
         }
+    }
+
+    /// The name used on the paywall. New Photos is paid for its reminders only; its count stays free (owner decision 2).
+    var paywallTitle: String {
+        self == .newPhotos ? "Reminders" : title
     }
 
     /// One line, as on the Welcome page and the paywall.

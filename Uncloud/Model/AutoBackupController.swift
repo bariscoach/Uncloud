@@ -6,6 +6,8 @@ import UserNotifications
 final class AutoBackupController {
     private let model: ExportModel
     private let settings: AutoBackupSettings
+    /// Whether a paid feature may start, read when a run would start (plan C.4). Never consulted during a run.
+    private let isAllowed: @MainActor (PaidFeature) -> Bool
     private var mountObserver: NSObjectProtocol?
     private var dailyScheduler: NSBackgroundActivityScheduler?
     private var driveBackupTask: Task<Void, Never>?
@@ -17,9 +19,14 @@ final class AutoBackupController {
     /// How often the new-photos count is refreshed and the reminder checked, while the app runs.
     private static let newPhotosCheckInterval: TimeInterval = 6 * 60 * 60
 
-    init(model: ExportModel, settings: AutoBackupSettings) {
+    init(
+        model: ExportModel,
+        settings: AutoBackupSettings,
+        isAllowed: @escaping @MainActor (PaidFeature) -> Bool = { _ in true }
+    ) {
         self.model = model
         self.settings = settings
+        self.isAllowed = isAllowed
     }
 
     func start() {
@@ -87,12 +94,19 @@ final class AutoBackupController {
     }
 
     private func checkForNewPhotos() async {
+        // The count is free. Only the reminder is paid, so without Uncloud Plus the count refreshes and nothing is posted.
+        guard isAllowed(.newPhotos) else {
+            model.refreshNewPhotos(force: true)
+            return
+        }
         await model.checkForNewPhotos(reminder: settings.newPhotosReminder, automaticBackupOn: settings.isEnabled)
     }
 
     private func volumeDidMount(_ mountedVolume: URL?) {
         guard settings.backUpWhenDriveConnects else { return }
         model.reconnectDestination()
+        // Automatic backups are paid: a drive that connects does nothing without Uncloud Plus.
+        guard isAllowed(.automaticBackups) else { return }
 
         guard let mountedVolume, let destinationVolume = model.destinationVolumeURL,
               destinationVolume.standardizedFileURL.path == mountedVolume.standardizedFileURL.path
@@ -108,7 +122,7 @@ final class AutoBackupController {
     }
 
     private func runDailyBackupIfDue(olderThan threshold: TimeInterval) {
-        guard settings.backUpDaily, isBackupStale(olderThan: threshold) else { return }
+        guard settings.backUpDaily, isAllowed(.automaticBackups), isBackupStale(olderThan: threshold) else { return }
         model.backUpAutomatically(reason: "daily backup")
     }
 

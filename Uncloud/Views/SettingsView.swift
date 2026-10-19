@@ -5,17 +5,31 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(ExportModel.self) private var model
     @Environment(AutoBackupSettings.self) private var settings
+    @Environment(AccountModel.self) private var account
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var settings = settings
+        let automatic = account.allows(.automaticBackups)
 
         Form {
+            // First, and absent in `off` builds, which keep the old layout exactly (plan §5.4).
+            if account.mode != .off {
+                AccountSection(isExporting: model.isExporting || model.isEngineRunning)
+            }
+
             Section("Automatic Backup") {
-                Toggle("Export when the backup drive is connected", isOn: $settings.backUpWhenDriveConnects)
-                    .disabled(model.destination == nil)
-                Toggle("Export once a day", isOn: $settings.backUpDaily)
-                    .disabled(model.destination == nil)
+                // Locked for free accounts: shown off and disabled. The saved values stay as they were (plan C.3).
+                Toggle("Export when the backup drive is connected", isOn: lockable($settings.backUpWhenDriveConnects, allowed: automatic))
+                    .disabled(model.destination == nil || !automatic)
+                Toggle("Export once a day", isOn: lockable($settings.backUpDaily, allowed: automatic))
+                    .disabled(model.destination == nil || !automatic)
+
+                if !automatic {
+                    LockedSettingRow(text: "Automatic backups are part of Uncloud Plus.") {
+                        openPaywall(.automaticBackups)
+                    }
+                }
 
                 LabeledContent("Backup folder") {
                     HStack {
@@ -38,7 +52,11 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            NewPhotosReminderSection(reminder: settings.newPhotosReminder)
+            NewPhotosReminderSection(
+                reminder: settings.newPhotosReminder,
+                isAllowed: account.allows(.newPhotos),
+                onGetPlus: { openPaywall(.newPhotos) }
+            )
 
             Section("General") {
                 Toggle("Open at login", isOn: $settings.openAtLogin)
@@ -55,6 +73,24 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 460)
+    }
+
+    /// A toggle's value while the feature is allowed; shown off otherwise. Writes go through only when allowed.
+    private func lockable(_ binding: Binding<Bool>, allowed: Bool) -> Binding<Bool> {
+        Binding(
+            get: { allowed && binding.wrappedValue },
+            set: { value in
+                guard allowed else { return }
+                binding.wrappedValue = value
+            }
+        )
+    }
+
+    /// Opens the paywall in the main window, which is where it is presented, and brings that window forward.
+    private func openPaywall(_ feature: PaidFeature) {
+        openWindow(id: "main")
+        NSApp.activate()
+        account.require(feature) {}
     }
 
     private var statusText: String {

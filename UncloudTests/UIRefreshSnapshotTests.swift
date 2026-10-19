@@ -207,6 +207,7 @@ struct UIRefreshSnapshotTests {
         let page = view
             .accentVariant(variant)
             .environment(\.colorScheme, scheme)
+            .environment(AccountModel.forTesting())
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
         let host = NSHostingView(rootView: page)
@@ -233,6 +234,7 @@ struct UIRefreshSnapshotTests {
         let page = view
             .accentVariant(variant)
             .environment(\.colorScheme, scheme)
+            .environment(AccountModel.forTesting())
         let controller = NSHostingController(rootView: page)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),

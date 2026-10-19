@@ -5,9 +5,11 @@ import SwiftUI
 struct MainWindow: View {
     @Environment(ExportModel.self) private var model
     @Environment(BackupTools.self) private var backupTools
+    @Environment(AccountModel.self) private var account
 
     var body: some View {
         @Bindable var model = model
+        @Bindable var account = account
 
         NavigationSplitView {
             List(selection: paneSelection) {
@@ -22,7 +24,8 @@ struct MainWindow: View {
                     .accessibilityValue(backupAccessibilityValue)
                     .tag(ExportModel.Pane.backup)
 
-                Label("Browse Backup", systemImage: "map")
+                // Locked for free accounts: the row stays, with a lock, and choosing it opens the paywall (plan C.3).
+                LockableSidebarRow(title: "Browse Backup", symbol: "map", isLocked: !account.allows(.browseBackup))
                     .tag(ExportModel.Pane.browse)
 
                 // The one destructive pane sits apart from the two backup panes.
@@ -47,11 +50,28 @@ struct MainWindow: View {
                 CleanupView()
                     .navigationTitle("Clean Up iCloud")
             case .browse:
-                BrowseBackupView(browse: backupTools.browse)
-                    .navigationTitle("Browse Backup")
+                if account.allows(.browseBackup) {
+                    BrowseBackupView(browse: backupTools.browse)
+                        .navigationTitle("Browse Backup")
+                } else {
+                    LockedFeatureView(feature: .browseBackup)
+                        .navigationTitle("Browse Backup")
+                }
             }
         }
         .frame(minWidth: 760, minHeight: 500)
+        // The paywall for a locked feature, presented from the main window. Not Now or Esc closes it and runs nothing.
+        .sheet(item: $account.paywall) { request in
+            PaywallSheet(request: request)
+                .environment(account)
+                .accentVariant(AccentVariant.override)
+        }
+        .onChange(of: model.pane) { _, pane in
+            // Choosing a locked pane shows its lock and opens the paywall at once (plan C.3).
+            if pane == .browse, !account.allows(.browseBackup) {
+                account.require(.browseBackup) {}
+            }
+        }
         .fileImporter(isPresented: $model.isChoosingDestination, allowedContentTypes: [.folder]) { result in
             model.chooseDestination(result)
         }
@@ -195,6 +215,26 @@ struct MainWindow: View {
             model.iCloudAppleID == nil ? "Not signed in" : LibrarySource.iCloud.title
         case .photosLibrary:
             model.isSourceReady ? "Ready" : "Needs access"
+        }
+    }
+}
+
+/// A sidebar row for a paid pane: the title and symbol, with a lock while it's locked (plan C.3).
+struct LockableSidebarRow: View {
+    let title: String
+    let symbol: String
+    let isLocked: Bool
+
+    var body: some View {
+        if isLocked {
+            HStack {
+                Label(title, systemImage: symbol)
+                Spacer(minLength: Tokens.Space.s)
+                LockGlyph()
+            }
+            .accessibilityValue("Requires Uncloud Plus")
+        } else {
+            Label(title, systemImage: symbol)
         }
     }
 }

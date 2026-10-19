@@ -35,3 +35,17 @@ func isolatedDefaults() -> UserDefaults {
     defaults.removePersistentDomain(forName: suite)
     return defaults
 }
+
+extension AccountModel {
+    /// A model for views that read it without testing accounts. `off` by default, so no lock and no Account section show,
+    /// and the snapshots match the app before accounts existed.
+    @MainActor static func forTesting(mode: AccountMode = .off) -> AccountModel {
+        let defaults = isolatedDefaults()
+        return AccountModel(
+            mode: mode,
+            service: PreviewAccountService(store: PreviewAccountStore(defaults: defaults)),
+            tokens: DefaultsAccountTokenStore(defaults: defaults),
+            defaults: defaults
+        )
+    }
+}

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Unit tests are hosted by this app. Under the test runner, start an empty stand-in instead, so a test
@@ -32,11 +33,13 @@ struct UncloudApp: App {
     init() {
         let model = ExportModel()
         let settings = AutoBackupSettings()
-        let controller = AutoBackupController(model: model, settings: settings)
-        controller.start()
-        AppDelegate.model = model
         // Accounts are off in Release builds, and in Debug they use the preview service (plan A.6).
         let account = AccountModel(configuration: .current)
+        // Paid features are checked when a run would start, never while one runs (plan C.4).
+        model.isFeatureAllowed = { [account] feature in account.allows(feature) }
+        let controller = AutoBackupController(model: model, settings: settings, isAllowed: { [account] feature in account.allows(feature) })
+        controller.start()
+        AppDelegate.model = model
         AppDelegate.account = account
         #if DEBUG
         HelperProbe.runIfRequested()
@@ -55,6 +58,10 @@ struct UncloudApp: App {
                 .environment(backupTools)
                 .environment(account)
                 .accentVariant(AccentVariant.override)
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    // Back from the browser: Checkout or the billing page may have changed the plan (plan D.1).
+                    account.appDidBecomeActive()
+                }
         }
         .defaultSize(width: 1000, height: 700)
         .windowResizability(.contentMinSize)
@@ -66,6 +73,7 @@ struct UncloudApp: App {
             SettingsView()
                 .environment(model)
                 .environment(settings)
+                .environment(account)
                 .accentVariant(AccentVariant.override)
         }
 
@@ -82,7 +90,7 @@ struct UncloudApp: App {
         let settings = settings
         let account = account
         return Binding(
-            get: { settings.showInMenuBar && settings.isEnabled && account.showsAppMenus },
+            get: { settings.showInMenuBar && settings.isEnabled && account.showsAppMenus && account.allows(.automaticBackups) },
             set: { settings.showInMenuBar = $0 }
         )
     }
@@ -123,8 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // While automatic backup is on, the app keeps running in the menu bar.
-        !AutoBackupSettings.isEnabledInDefaults
+        // While automatic backup is on (and paid for), the app keeps running in the menu bar.
+        let keepsRunning = AutoBackupSettings.isEnabledInDefaults && (Self.account?.allows(.automaticBackups) ?? true)
+        return !keepsRunning
     }
 
     /// Quitting mid-export or while paused must not leave icloudpd downloading, or stopped with

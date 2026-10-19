@@ -104,6 +104,7 @@ struct NewPhotosSnapshotTests {
     private func render<V: View>(_ view: V, size: NSSize, scheme: ColorScheme) async -> NSImage? {
         let page = view
             .environment(\.colorScheme, scheme)
+            .environment(AccountModel.forTesting())
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
         let host = NSHostingView(rootView: page)

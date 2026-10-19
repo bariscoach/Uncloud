@@ -72,6 +72,8 @@ struct PaywallRequest: Identifiable {
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     /// True while a renewal change is saving, for the Settings toggle's spinner.
     private(set) var isChangingRenewal = false
+    /// Set when Manage Subscription opened the billing portal. The next activation of the app refreshes the plan.
+    private(set) var awaitingPortalReturn = false
 
     private static let accountKey = "uncloudAccount"
     private static let entitlementKey = "uncloudEntitlement"
@@ -160,6 +162,13 @@ struct PaywallRequest: Identifiable {
         }
         checkout = .idle
         paywall = PaywallRequest(feature: feature, then: action)
+    }
+
+    /// Opens the paywall without a feature, from Settings. Nothing runs after it.
+    func showPaywall() {
+        guard mode != .off, case .signedIn = phase else { return }
+        checkout = .idle
+        paywall = PaywallRequest(feature: nil, then: nil)
     }
 
     /// Moves between Welcome, Sign Up, Sign In and the code screen. Does nothing while signed in.
@@ -282,6 +291,7 @@ struct PaywallRequest: Identifiable {
         do {
             let url = try await authorized { try await service.manageSubscriptionURL(tokens: $0) }
             openURL(url)
+            awaitingPortalReturn = true
         } catch {
             self.error = error as? AccountError ?? .server(message: nil)
         }
@@ -343,6 +353,27 @@ struct PaywallRequest: Identifiable {
         paywall = nil
         checkout = .idle
     }
+
+    /// The app became active. If the browser was on checkout or the billing portal, looks at the plan again.
+    func appDidBecomeActive() {
+        guard mode != .off, case .signedIn = phase else { return }
+        var checkoutOpen = false
+        if case .waiting = checkout {
+            checkoutOpen = true
+        }
+        guard awaitingPortalReturn || checkoutOpen else { return }
+        awaitingPortalReturn = false
+        refreshTask = Task { await refreshEntitlement(force: true) }
+    }
+
+    #if DEBUG
+    /// Preview only: ends the plan now, so the locks and the ended captions can be checked by hand.
+    func debugExpireNow() {
+        guard mode == .preview, case .signedIn = phase else { return }
+        entitlement = Entitlement(plan: .free, status: .expired, currentPeriodEnd: clock(), cancelAtPeriodEnd: false, checkedAt: clock())
+        cacheAccount()
+    }
+    #endif
 
     /// Applies a session the server revoked while an export was running. Call when the export ends.
     func exportDidFinish() {

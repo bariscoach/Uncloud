@@ -194,6 +194,7 @@ struct BrowseBackupSnapshotTests {
         let page = NavigationStack { view }
             .accentVariant(.sky)
             .environment(\.colorScheme, scheme)
+            .environment(AccountModel.forTesting())
         let controller = NSHostingController(rootView: page)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
