@@ -5,7 +5,7 @@
 export const DEFAULT_PUBLIC_BASE_URL = 'https://uncloud-api.vercel.app';
 export const PRODUCT_ID = 'uncloud_plus';
 export const DEFAULT_PRICE_LOOKUP_KEY = 'uncloud_plus_yearly';
-export const DEFAULT_WAITLIST_ORIGINS = 'https://uncloud.vercel.app';
+export const DEFAULT_WAITLIST_ORIGINS = 'https://uncloud-app.vercel.app';
 
 // TODO(owner): seller identity and support address appear in the static pages
 // (public/terms.html, public/privacy.html); fill them in before go-live (owner Q5).
