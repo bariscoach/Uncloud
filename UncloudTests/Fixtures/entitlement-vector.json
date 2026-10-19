@@ -1,0 +1,12 @@
+{
+  "description": "Shared entitlement signature vector (Uncloud). Test key pair only; not the production key. Message format: plan section 4.5.",
+  "publicKey": "HeXos4T9Ul64SVHFAYIUhS1jqBSBuAag/zfsCfOeImU=",
+  "accountId": "8b1c2f3e-0000-4000-8000-000000000001",
+  "plan": "plus",
+  "status": "active",
+  "currentPeriodEnd": "2027-10-18T09:41:00Z",
+  "cancelAtPeriodEnd": false,
+  "checkedAt": "2026-10-18T09:41:07Z",
+  "message": "uncloud-entitlement-v1\n8b1c2f3e-0000-4000-8000-000000000001\nplus\nactive\n2027-10-18T09:41:00Z\nfalse\n2026-10-18T09:41:07Z",
+  "signature": "/aqzj0YtTsJOYzS7fzEV6j14tQvs0JFUHLuB3IObEIbYbEA0Vxr8VeNHA7Prf7zH/szBtpS3NKwX83zjvcJXDQ=="
+}

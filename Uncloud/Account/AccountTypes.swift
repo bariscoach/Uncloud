@@ -36,6 +36,13 @@ struct AuthSession: Equatable, Sendable {
     let isNewAccount: Bool
 }
 
+/// The two ways to buy Plus. Both are one yearly subscription; `oneYear` ends it at the period end (plan §1).
+/// The raw values are the API's `renewal` strings.
+enum Renewal: String, Equatable, Sendable {
+    case automatic
+    case oneYear
+}
+
 struct AccountTokens: Codable, Equatable, Sendable {
     let accessToken: String
     let refreshToken: String
@@ -47,6 +54,7 @@ enum Plan: String, Codable, Equatable, Sendable {
 }
 
 /// The plan as the server last reported it. Cached on disk with `checkedAt`.
+/// `signature` is the server's Ed25519 signature over the entitlement (plan §4.5); nil for preview and `free`.
 struct Entitlement: Codable, Equatable, Sendable {
     enum Status: String, Codable, Equatable, Sendable {
         case none, active, trialing, pastDue, canceled, expired
@@ -58,6 +66,7 @@ struct Entitlement: Codable, Equatable, Sendable {
     let currentPeriodEnd: Date?
     let cancelAtPeriodEnd: Bool
     let checkedAt: Date
+    var signature: String? = nil
 
     static let free = Entitlement(plan: .free, status: .none, currentPeriodEnd: nil, cancelAtPeriodEnd: false, checkedAt: .distantPast)
 }
@@ -116,6 +125,8 @@ enum AccountError: Error, Equatable, Sendable {
     case server(message: String?)
     case signedOut
     case checkoutUnavailable
+    case alreadySubscribed
+    case noSubscription
 
     /// The sentence shown next to the field or in a banner (plan F.7).
     var message: String {
@@ -129,6 +140,8 @@ enum AccountError: Error, Equatable, Sendable {
         case .server: "Something went wrong on our side. Try again in a moment."
         case .signedOut: "You’ve been signed out. Sign in again to keep using Uncloud Plus."
         case .checkoutUnavailable: "Checkout isn’t available right now. Try again later."
+        case .alreadySubscribed: "You already have Uncloud Plus."
+        case .noSubscription: "There’s no plan to change. Get Uncloud Plus to start one."
         }
     }
 }

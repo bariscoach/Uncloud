@@ -71,4 +71,19 @@ struct EntitlementPolicyTests {
         #expect(EntitlementPolicy.access(Self.entitlement(status: .expired), now: Self.checked) == .free)
         #expect(EntitlementPolicy.access(Self.entitlement(plan: .free, status: .active), now: Self.checked) == .free)
     }
+
+    @Test("A plan set not to renew ends at the period end, with no grace")
+    func nonRenewingEndsWithoutGrace() {
+        let ending = Entitlement(plan: .plus, status: .active, currentPeriodEnd: Self.periodEnd, cancelAtPeriodEnd: true, checkedAt: Self.checked)
+        #expect(EntitlementPolicy.access(ending, now: Self.periodEnd.addingTimeInterval(-1)) == .plus)
+        #expect(EntitlementPolicy.access(ending, now: Self.periodEnd) == .free)
+        #expect(EntitlementPolicy.access(ending, now: Self.periodEnd.addingTimeInterval(EntitlementPolicy.gracePeriod / 2)) == .free)
+    }
+
+    @Test("A renewing plan past its period end keeps the grace period")
+    func renewingKeepsGrace() {
+        let renewing = Entitlement(plan: .plus, status: .active, currentPeriodEnd: Self.periodEnd, cancelAtPeriodEnd: false, checkedAt: Self.checked)
+        let graceEnd = Self.periodEnd.addingTimeInterval(EntitlementPolicy.gracePeriod)
+        #expect(EntitlementPolicy.access(renewing, now: Self.periodEnd) == .plusGrace(until: graceEnd))
+    }
 }

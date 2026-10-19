@@ -26,6 +26,9 @@ targets:
             CFBundleURLSchemes: [uncloud]
         UncloudAccountMode: $(UNCLOUD_ACCOUNT_MODE)
         UncloudAPIBaseURL: $(UNCLOUD_API_BASE_URL)
+        UncloudSupabaseURL: $(UNCLOUD_SUPABASE_URL)
+        UncloudSupabasePublishableKey: $(UNCLOUD_SUPABASE_PUBLISHABLE_KEY)
+        UncloudEntitlementPublicKey: $(UNCLOUD_ENTITLEMENT_PUBLIC_KEY)
     sources: &appSources
       - path: Uncloud
         excludes:
@@ -45,10 +48,16 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Uncloud/Uncloud.entitlements
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: YES
-        # The account server's base URL. Empty until the server exists; only `live` reads it.
-        UNCLOUD_API_BASE_URL: ""
+        # The account server (Vercel) and Supabase project. Public values; only `live` reads them.
+        UNCLOUD_API_BASE_URL: "https://uncloud-api.vercel.app"
+        UNCLOUD_SUPABASE_URL: "https://nkcbuwuuatsbskqcqosc.supabase.co"
+        # Empty until the orchestrator fills them in (publishable key from Supabase; base64 of the 32-byte public
+        # half of ENTITLEMENT_SIGNING_KEY). While empty, `live` resolves to `off`, so nothing half-configured ships.
+        UNCLOUD_SUPABASE_PUBLISHABLE_KEY: ""
+        UNCLOUD_ENTITLEMENT_PUBLIC_KEY: ""
       configs:
         Debug:
+          # Debug runs `preview`. Launch with `-UncloudAccountMode live` (scheme argument) to use the test backend.
           UNCLOUD_ACCOUNT_MODE: "preview"
         Release:
           # Until the server exists, release builds have no accounts: the app is exactly the free build.

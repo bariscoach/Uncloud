@@ -1,6 +1,6 @@
 import Foundation
 
-/// The account backend. `PreviewAccountService` now; `HTTPAccountService` comes with the server.
+/// The account backend. `PreviewAccountService` for Debug builds; `LiveAccountService` for `live`.
 /// Implementations are actors or otherwise Sendable; every call is async and may throw `AccountError`.
 protocol AccountService: Sendable {
     /// Sends a 6-digit code to `email`. Sign Up and Sign In both call this; `intent` only affects the email's wording.
@@ -14,7 +14,9 @@ protocol AccountService: Sendable {
     /// Revokes the refresh token on the server. Best effort: local sign-out happens whatever this does.
     func signOut(tokens: AccountTokens) async
     /// A Stripe Checkout URL for Uncloud Plus. The app opens it in the browser.
-    func checkoutURL(tokens: AccountTokens) async throws -> URL
+    func checkoutURL(tokens: AccountTokens, renewal: Renewal) async throws -> URL
     /// A Stripe customer portal URL (manage, cancel, change card, invoices).
     func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL
+    /// Turns renewal on or off for an existing plan. Returns the plan as the server now reports it.
+    func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement
 }

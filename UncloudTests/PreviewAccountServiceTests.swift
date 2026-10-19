@@ -106,7 +106,7 @@ struct PreviewAccountServiceTests {
         let service = Self.makeService(clock: clock)
         let session = try await Self.signIn(service, email: "a@example.com")
 
-        let url = try await service.checkoutURL(tokens: session.tokens)
+        let url = try await service.checkoutURL(tokens: session.tokens, renewal: .automatic)
         #expect(url.scheme == "uncloud")
         #expect(url.host == "checkout")
         #expect(url.path == "/success")
@@ -155,10 +155,35 @@ struct PreviewAccountServiceTests {
         let defaults = isolatedDefaults()
         let first = Self.makeService(clock: clock, defaults: defaults)
         let session = try await Self.signIn(first, email: "a@example.com")
-        _ = try await first.checkoutURL(tokens: session.tokens)
+        _ = try await first.checkoutURL(tokens: session.tokens, renewal: .automatic)
 
         let second = Self.makeService(clock: clock, defaults: defaults)
         let (entitlement, _) = try await second.currentEntitlement(tokens: session.tokens)
         #expect(entitlement.plan == .plus)
+    }
+
+    @Test("One year is the same subscription set not to renew; renewal can be turned back on")
+    func renewalChoice() async throws {
+        let clock = TestClock()
+        let service = Self.makeService(clock: clock)
+        let session = try await Self.signIn(service, email: "renew@example.com")
+        _ = try await service.checkoutURL(tokens: session.tokens, renewal: .oneYear)
+        let (oneYear, tokens) = try await service.currentEntitlement(tokens: session.tokens)
+        #expect(oneYear.plan == .plus)
+        #expect(oneYear.cancelAtPeriodEnd)
+
+        let renewed = try await service.setAutoRenew(true, tokens: tokens)
+        #expect(renewed.cancelAtPeriodEnd == false)
+        let stopped = try await service.setAutoRenew(false, tokens: tokens)
+        #expect(stopped.cancelAtPeriodEnd)
+    }
+
+    @Test("Setting renewal without a plan is noSubscription")
+    func renewalNeedsPlan() async throws {
+        let service = Self.makeService(clock: TestClock())
+        let session = try await Self.signIn(service, email: "free@example.com")
+        await #expect(throws: AccountError.noSubscription) {
+            try await service.setAutoRenew(true, tokens: session.tokens)
+        }
     }
 }

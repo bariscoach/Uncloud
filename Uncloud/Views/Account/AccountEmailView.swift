@@ -1,11 +1,5 @@
 import SwiftUI
 
-/// Where the account screens link. Placeholders until the domain and the Terms are settled (plan Q5); the Stripe phase replaces them.
-enum AccountLinks {
-    static let terms = URL(string: "https://github.com/bariscoach/Uncloud#readme")!
-    static let privacy = URL(string: "https://github.com/bariscoach/Uncloud#readme")!
-}
-
 /// The email step, shared by Sign Up and Sign In. The intent only changes the wording and the link at the bottom.
 /// It is one view for both routes, so a typed email stays in the field when switching between them.
 struct AccountEmailView: View {
@@ -102,7 +96,7 @@ struct AccountEmailView: View {
     private var footnote: some View {
         if intent == .signUp {
             VStack(spacing: Tokens.Space.m) {
-                Text("By creating an account, you agree to the [Terms of Use](\(AccountLinks.terms.absoluteString)) and [Privacy Policy](\(AccountLinks.privacy.absoluteString)).")
+                Text("By creating an account, you agree to the [Terms of Use](\(AccountLinks.terms(.current).absoluteString)) and [Privacy Policy](\(AccountLinks.privacy(.current).absoluteString)).")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

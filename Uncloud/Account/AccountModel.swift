@@ -65,10 +65,18 @@ struct PaywallRequest: Identifiable {
     @ObservationIgnored private var deferredRevocation = false
     /// The last refresh started from a `uncloud://` link or the paywall, so it can be awaited.
     @ObservationIgnored private(set) var refreshTask: Task<Void, Never>?
+    /// A token refresh in flight. Concurrent server calls share it, because refresh tokens are single use.
+    @ObservationIgnored private var refreshingTokens: Task<AccountTokens, Error>?
+    /// The post-checkout polling, cancelled when the paywall closes or the plan settles.
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    /// True while a renewal change is saving, for the Settings toggle's spinner.
+    private(set) var isChangingRenewal = false
 
     private static let accountKey = "uncloudAccount"
     private static let entitlementKey = "uncloudEntitlement"
     private static let refreshInterval: TimeInterval = 24 * 60 * 60
+    private static let refreshWindow: TimeInterval = 60
 
     init(
         mode: AccountMode,
@@ -77,7 +85,9 @@ struct PaywallRequest: Identifiable {
         defaults: UserDefaults = .standard,
         clock: @escaping @Sendable () -> Date = { Date() },
         openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
-        isExportRunning: @escaping @MainActor () -> Bool = { false }
+        isExportRunning: @escaping @MainActor () -> Bool = { false },
+        verifyCachedEntitlement: @escaping @Sendable (Entitlement, String) -> Bool = { _, _ in true },
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.mode = mode
         self.service = service
@@ -86,24 +96,43 @@ struct PaywallRequest: Identifiable {
         self.clock = clock
         self.openURL = openURL
         self.isExportRunning = isExportRunning
+        self.sleep = sleep
 
         // Restoring is synchronous: the account and plan come from defaults, the tokens from the store.
         let cachedAccount = mode == .off ? nil : Self.load(UncloudAccount.self, forKey: Self.accountKey, in: defaults)
         let cachedEntitlement = Self.load(Entitlement.self, forKey: Self.entitlementKey, in: defaults) ?? .free
         let storedTokens = mode == .off ? nil : tokens.load()
         let signedIn = cachedAccount != nil && storedTokens != nil
+        // A cached plan whose signature doesn't verify is not trusted: Free until the server answers.
+        let trusted = signedIn && cachedAccount.map { verifyCachedEntitlement(cachedEntitlement, $0.id) } == true
         phase = mode == .off ? .off : (signedIn ? .signedIn : .signedOut(.welcome))
         account = signedIn ? cachedAccount : nil
-        entitlement = signedIn ? cachedEntitlement : .free
+        entitlement = signedIn && trusted ? cachedEntitlement : .free
         self.tokens = signedIn ? storedTokens : nil
+        if signedIn && !trusted {
+            refreshTask = Task { await refreshEntitlement(force: true) }
+        }
     }
 
-    /// The app's model. Preview accounts for Debug builds; `live` has no server client yet, so it behaves as `off`.
+    /// The app's model. Preview accounts for Debug builds. `live` talks to the server; if its configuration is
+    /// incomplete, `AccountConfiguration` has already resolved it to `off`.
     convenience init(configuration: AccountConfiguration = .current) {
         switch configuration.mode {
         case .preview:
             self.init(mode: .preview, service: PreviewAccountService(), tokens: DefaultsAccountTokenStore(defaults: .standard))
-        case .off, .live:
+        case .live:
+            let verifier = EntitlementVerifier(base64PublicKey: configuration.entitlementPublicKey)
+            if let service = LiveAccountService(configuration: configuration, verifier: verifier) {
+                self.init(
+                    mode: .live,
+                    service: service,
+                    tokens: KeychainAccountTokenStore(),
+                    verifyCachedEntitlement: { entitlement, accountID in verifier.isValid(entitlement, accountID: accountID) }
+                )
+            } else {
+                self.init(mode: .off, service: PreviewAccountService(), tokens: KeychainAccountTokenStore())
+            }
+        case .off:
             self.init(mode: .off, service: PreviewAccountService(), tokens: KeychainAccountTokenStore())
         }
     }
@@ -225,25 +254,55 @@ struct PaywallRequest: Identifiable {
     }
 
     /// Opens Stripe Checkout in the browser. The paywall waits there until the app comes back with a refreshed plan.
-    func openCheckout(for feature: PaidFeature?) async {
-        guard mode != .off, case .signedIn = phase, let current = tokens else { return }
+    /// `renewal` is the paywall's choice: automatic renewal, or one year that ends (plan §1).
+    func openCheckout(for feature: PaidFeature?, renewal: Renewal = .automatic) async {
+        guard mode != .off, case .signedIn = phase else { return }
         checkout = .opening
         error = nil
+        let service = service
         do {
-            let url = try await service.checkoutURL(tokens: current)
+            let url = try await authorized { try await service.checkoutURL(tokens: $0, renewal: renewal) }
             openURL(url)
             checkout = .waiting(processing: false)
+        } catch AccountError.alreadySubscribed {
+            // Already on Plus: show the plan, not a second checkout.
+            checkout = .waiting(processing: false)
+            await refreshEntitlement(force: true)
+            if case .waiting = checkout {
+                checkout = .failed(.alreadySubscribed)
+            }
         } catch {
             checkout = .failed(error as? AccountError ?? .server(message: nil))
         }
     }
 
     func openManageSubscription() async {
-        guard mode != .off, case .signedIn = phase, let current = tokens else { return }
+        guard mode != .off, case .signedIn = phase else { return }
+        let service = service
         do {
-            openURL(try await service.manageSubscriptionURL(tokens: current))
+            let url = try await authorized { try await service.manageSubscriptionURL(tokens: $0) }
+            openURL(url)
         } catch {
             self.error = error as? AccountError ?? .server(message: nil)
+        }
+    }
+
+    /// Turns renewal on or off for the current plan. On failure the old plan stays and `error` says why.
+    func setAutoRenew(_ autoRenew: Bool) async {
+        guard mode != .off, case .signedIn = phase, !isChangingRenewal else { return }
+        isChangingRenewal = true
+        error = nil
+        defer { isChangingRenewal = false }
+        let service = service
+        do {
+            let fresh = try await authorized { try await service.setAutoRenew(autoRenew, tokens: $0) }
+            guard case .signedIn = phase else { return }
+            entitlement = fresh
+            cacheAccount()
+        } catch {
+            if case .signedIn = phase {
+                self.error = error as? AccountError ?? .server(message: nil)
+            }
         }
     }
 
@@ -258,6 +317,7 @@ struct PaywallRequest: Identifiable {
                 await refreshEntitlement(force: true)
                 if case .waiting = checkout, access == .free {
                     checkout = .waiting(processing: true)
+                    pollAfterCheckout()
                 }
             }
         case .checkoutCancel:
@@ -291,6 +351,77 @@ struct PaywallRequest: Identifiable {
     }
 
     // MARK: - Private
+
+    /// Runs a server call with a current access token (plan §6.3). Refreshes first when the token is about to expire,
+    /// and retries once after a refresh when the server says the token is no good. A second failure ends the session.
+    private func authorized<T: Sendable>(_ call: @escaping @Sendable (AccountTokens) async throws -> T) async throws -> T {
+        let current = try await currentTokens(forceRefresh: false)
+        do {
+            return try await call(current)
+        } catch AccountError.signedOut {
+            let renewed = try await currentTokens(forceRefresh: true)
+            do {
+                return try await call(renewed)
+            } catch AccountError.signedOut {
+                revokeSession()
+                throw AccountError.signedOut
+            }
+        }
+    }
+
+    private func currentTokens(forceRefresh: Bool) async throws -> AccountTokens {
+        guard let current = tokens else { throw AccountError.signedOut }
+        if !forceRefresh, current.accessExpiresAt >= clock().addingTimeInterval(Self.refreshWindow) {
+            return current
+        }
+        do {
+            return try await sharedRefresh(current)
+        } catch AccountError.signedOut {
+            revokeSession()
+            throw AccountError.signedOut
+        }
+    }
+
+    /// One refresh at a time. The refreshed pair is saved before anyone uses it, because the old refresh token is spent.
+    private func sharedRefresh(_ current: AccountTokens) async throws -> AccountTokens {
+        if let inFlight = refreshingTokens {
+            return try await inFlight.value
+        }
+        let service = service
+        let task = Task { try await service.refresh(tokens: current) }
+        refreshingTokens = task
+        let renewed: AccountTokens
+        do {
+            renewed = try await task.value
+        } catch {
+            refreshingTokens = nil
+            throw error
+        }
+        refreshingTokens = nil
+        if case .signedIn = phase {
+            tokens = renewed
+            try? tokenStore.save(renewed)
+        }
+        return renewed
+    }
+
+    /// While the browser is back and the server hasn't confirmed a plan, looks again at 2, 5, 10, 20 and 40 seconds.
+    private func pollAfterCheckout() {
+        pollTask?.cancel()
+        let sleep = sleep
+        let gaps: [Duration] = [.seconds(2), .seconds(3), .seconds(5), .seconds(10), .seconds(20)]
+        pollTask = Task {
+            for gap in gaps {
+                do {
+                    try await sleep(gap)
+                } catch {
+                    return
+                }
+                guard case .waiting(processing: true) = checkout else { return }
+                await refreshEntitlement(force: true)
+            }
+        }
+    }
 
     /// Runs one sign-in request. Its result is applied only if the request wasn't cancelled or superseded.
     private func perform<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T, apply: (T) -> Void) async {

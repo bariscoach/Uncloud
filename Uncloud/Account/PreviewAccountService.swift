@@ -142,13 +142,14 @@ actor PreviewAccountService: AccountService {
         persist()
     }
 
-    func checkoutURL(tokens: AccountTokens) async throws -> URL {
+    func checkoutURL(tokens: AccountTokens, renewal: Renewal) async throws -> URL {
         let email = try email(matching: tokens)
         try await simulateDelay(for: email)
         records[email]?.plan = .plus
         records[email]?.status = .active
         records[email]?.currentPeriodEnd = now().addingTimeInterval(Self.year)
-        records[email]?.cancelAtPeriodEnd = false
+        // "One year" is the same subscription, set not to renew (plan §1).
+        records[email]?.cancelAtPeriodEnd = renewal == .oneYear
         persist()
         let sessionID = "preview_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
         return URL(string: "uncloud://checkout/success?session_id=\(sessionID)")!
@@ -157,6 +158,18 @@ actor PreviewAccountService: AccountService {
     func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL {
         _ = try email(matching: tokens)
         return URL(string: "uncloud://account/refresh")!
+    }
+
+    func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement {
+        let email = try email(matching: tokens)
+        try await simulateDelay(for: email)
+        guard var record = records[email], record.plan == .plus, [.active, .pastDue].contains(record.status) else {
+            throw AccountError.noSubscription
+        }
+        record.cancelAtPeriodEnd = !autoRenew
+        records[email] = record
+        persist()
+        return Self.entitlement(record, now: now())
     }
 
     // MARK: - Helpers

@@ -33,5 +33,11 @@
 	<string>$(UNCLOUD_API_BASE_URL)</string>
 	<key>UncloudAccountMode</key>
 	<string>$(UNCLOUD_ACCOUNT_MODE)</string>
+	<key>UncloudEntitlementPublicKey</key>
+	<string>$(UNCLOUD_ENTITLEMENT_PUBLIC_KEY)</string>
+	<key>UncloudSupabasePublishableKey</key>
+	<string>$(UNCLOUD_SUPABASE_PUBLISHABLE_KEY)</string>
+	<key>UncloudSupabaseURL</key>
+	<string>$(UNCLOUD_SUPABASE_URL)</string>
 </dict>
 </plist>

@@ -27,8 +27,10 @@ enum EntitlementPolicy {
            now < periodEnd, now < entitlement.checkedAt.addingTimeInterval(offlineValidity) {
             return .plus
         }
+        // A plan that was set not to renew simply ends at the period end: no grace (plan §6.4).
+        let endedWithoutRenewal = entitlement.cancelAtPeriodEnd && status == .active && periodEnd.map { now >= $0 } == true
         // Offline past the renewal date, or a card that failed while Stripe retries it.
-        if [Entitlement.Status.active, .trialing, .pastDue].contains(status) {
+        if [Entitlement.Status.active, .trialing, .pastDue].contains(status), !endedWithoutRenewal {
             let until = (periodEnd ?? entitlement.checkedAt).addingTimeInterval(gracePeriod)
             if now < until {
                 return .plusGrace(until: until)

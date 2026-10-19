@@ -251,15 +251,27 @@ struct AccountModelTests {
         #expect(harness.model.allows(.browseBackup) == false)
     }
 
-    @Test("Build configuration: preview only in Debug, live only with an https URL")
+    @Test("Build configuration: preview only in Debug; live only with every live value, all https")
     func configurationResolves() {
-        #expect(AccountConfiguration.resolve(mode: "preview", isDebug: true, baseURL: nil).mode == .preview)
-        #expect(AccountConfiguration.resolve(mode: "preview", isDebug: false, baseURL: nil).mode == .off)
-        #expect(AccountConfiguration.resolve(mode: "off", isDebug: true, baseURL: nil).mode == .off)
-        #expect(AccountConfiguration.resolve(mode: nil, isDebug: true, baseURL: nil).mode == .off)
-        #expect(AccountConfiguration.resolve(mode: "live", isDebug: false, baseURL: "https://api.example.com").mode == .live)
-        #expect(AccountConfiguration.resolve(mode: "live", isDebug: false, baseURL: "http://api.example.com").mode == .off)
-        #expect(AccountConfiguration.resolve(mode: "live", isDebug: false, baseURL: "").mode == .off)
-        #expect(AccountConfiguration.resolve(mode: "live", isDebug: false, baseURL: nil).mode == .off)
+        let key = EntitlementVector.load().publicKey
+        func resolve(_ mode: String?, debug: Bool, base: String?, complete: Bool = true) -> AccountMode {
+            AccountConfiguration.resolve(
+                mode: mode,
+                isDebug: debug,
+                baseURL: base,
+                supabaseURL: complete ? "https://supa.example.co" : nil,
+                supabasePublishableKey: complete ? "sb_publishable_test" : nil,
+                entitlementPublicKey: complete ? key : nil
+            ).mode
+        }
+        #expect(resolve("preview", debug: true, base: nil) == .preview)
+        #expect(resolve("preview", debug: false, base: nil) == .off)
+        #expect(resolve("off", debug: true, base: nil) == .off)
+        #expect(resolve(nil, debug: true, base: nil) == .off)
+        #expect(resolve("live", debug: false, base: "https://api.example.com") == .live)
+        #expect(resolve("live", debug: false, base: "https://api.example.com", complete: false) == .off)
+        #expect(resolve("live", debug: false, base: "http://api.example.com") == .off)
+        #expect(resolve("live", debug: false, base: "") == .off)
+        #expect(resolve("live", debug: false, base: nil) == .off)
     }
 }
