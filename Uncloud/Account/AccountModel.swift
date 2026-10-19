@@ -118,6 +118,11 @@ struct PaywallRequest: Identifiable {
         mode == .off || access != .free
     }
 
+    /// Whether the full menus show. Signed out, the menus are reduced to the system items and Help (plan B.2).
+    var showsAppMenus: Bool {
+        phase == .off || phase == .signedIn
+    }
+
     /// Runs `action` if the feature is allowed. Otherwise opens the paywall; `action` runs after a successful subscribe, on Continue.
     func require(_ feature: PaidFeature, _ action: @escaping @MainActor () -> Void) {
         if allows(feature) {
@@ -167,6 +172,11 @@ struct PaywallRequest: Identifiable {
         await perform({ try await service.requestCode(email: challenge.email, intent: intent) }) { fresh in
             self.phase = .signedOut(.code(fresh, intent))
         }
+    }
+
+    /// Drops the error once the user edits the field it belongs to.
+    func clearError() {
+        error = nil
     }
 
     /// Stops the request in flight, such as on Esc. Its result is dropped and the screen stays as it was.

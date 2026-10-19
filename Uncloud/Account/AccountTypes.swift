@@ -1,5 +1,14 @@
 import Foundation
 
+/// The plan's price, in one place. Copy says "$9.99/year" before tax; Checkout adds tax. Change the price here only.
+enum PlanCopy {
+    static let price = "$9.99"
+    /// The price for the Welcome page and the paywall, e.g. "$9.99/year".
+    static let yearlyPrice = "\(price)/year"
+    /// The Welcome page's one quiet line about what is free and what costs money.
+    static let welcomePlanLine = "Export is free. Everything else is Uncloud Plus, \(yearlyPrice)."
+}
+
 /// The signed-in Uncloud account. The email is shown in Settings; the id is the server's.
 struct UncloudAccount: Codable, Equatable, Sendable {
     let id: String

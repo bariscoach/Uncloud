@@ -27,6 +27,7 @@ struct UncloudApp: App {
     @State private var settings: AutoBackupSettings
     @State private var controller: AutoBackupController
     @State private var backupTools: BackupTools
+    @State private var account: AccountModel
 
     init() {
         let model = ExportModel()
@@ -34,6 +35,9 @@ struct UncloudApp: App {
         let controller = AutoBackupController(model: model, settings: settings)
         controller.start()
         AppDelegate.model = model
+        // Accounts are off in Release builds, and in Debug they use the preview service (plan A.6).
+        let account = AccountModel(configuration: .current)
+        AppDelegate.account = account
         #if DEBUG
         HelperProbe.runIfRequested()
         #endif
@@ -41,22 +45,21 @@ struct UncloudApp: App {
         _model = State(initialValue: model)
         _settings = State(initialValue: settings)
         _controller = State(initialValue: controller)
+        _account = State(initialValue: account)
     }
 
     var body: some Scene {
         Window("Uncloud", id: "main") {
-            MainWindow()
-                .backupToolSheets()
+            RootView()
                 .environment(model)
                 .environment(backupTools)
+                .environment(account)
                 .accentVariant(AccentVariant.override)
         }
         .defaultSize(width: 1000, height: 700)
         .windowResizability(.contentMinSize)
         .commands {
-            // View › Show/Hide Sidebar comes from the system, so it's offered from the menu bar as well.
-            SidebarCommands()
-            ExportCommands(model: model, tools: backupTools)
+            ExportCommands(model: model, tools: backupTools, account: account)
         }
 
         Settings {
@@ -74,11 +77,12 @@ struct UncloudApp: App {
         .menuBarExtraStyle(.menu)
     }
 
-    /// The menu bar item shows only when the user wants it and automatic backup is on.
+    /// The menu bar item shows only when the user wants it and automatic backup is on. Never while signed out.
     private var showsMenuBarItem: Binding<Bool> {
         let settings = settings
+        let account = account
         return Binding(
-            get: { settings.showInMenuBar && settings.isEnabled },
+            get: { settings.showInMenuBar && settings.isEnabled && account.showsAppMenus },
             set: { settings.showInMenuBar = $0 }
         )
     }
@@ -89,6 +93,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static weak var model: ExportModel?
     /// How long quitting waits for the export to stop and record where it got to.
     static let exportStopTimeout: Duration = .seconds(3)
+    /// The account, for `uncloud://` links (plan D.4). Set once the app has started.
+    @MainActor static weak var account: AccountModel? {
+        didSet {
+            // A link that arrived before the account existed (a cold start) is handled now.
+            guard let account, !pendingURLs.isEmpty else { return }
+            let urls = pendingURLs
+            pendingURLs = []
+            for url in urls {
+                account.handle(url)
+            }
+        }
+    }
+    @MainActor private static var pendingURLs: [URL] = []
+
+    /// Return from Stripe Checkout and the customer portal arrives here, since the app doesn't use `.onOpenURL`.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            Task { @MainActor in
+                guard let account = Self.account else {
+                    Self.pendingURLs.append(url)
+                    return
+                }
+                if account.handle(url) {
+                    NSApp.activate()
+                }
+            }
+        }
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // While automatic backup is on, the app keeps running in the menu bar.
