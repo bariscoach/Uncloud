@@ -5,6 +5,7 @@
 export const DEFAULT_PUBLIC_BASE_URL = 'https://uncloud-api.vercel.app';
 export const PRODUCT_ID = 'uncloud_plus';
 export const DEFAULT_PRICE_LOOKUP_KEY = 'uncloud_plus_yearly';
+export const DEFAULT_WAITLIST_ORIGINS = 'https://uncloud.vercel.app';
 
 // TODO(owner): seller identity and support address appear in the static pages
 // (public/terms.html, public/privacy.html); fill them in before go-live (owner Q5).
@@ -37,6 +38,9 @@ export function loadConfig(env = process.env) {
     priceLookupKey: env.STRIPE_PRICE_LOOKUP_KEY?.trim() || DEFAULT_PRICE_LOOKUP_KEY,
     automaticTax: env.STRIPE_AUTOMATIC_TAX === 'true',
     productId: PRODUCT_ID,
+    // Exact-match origins allowed to POST /v1/waitlist (comma-separated env).
+    waitlistOrigins: (env.WAITLIST_ALLOWED_ORIGINS || DEFAULT_WAITLIST_ORIGINS)
+      .split(',').map((origin) => origin.trim()).filter(Boolean),
   };
   Object.defineProperties(config, {
     stripeSecretKey: { enumerable: true, get: () => requireEnv(env, 'STRIPE_SECRET_KEY') },

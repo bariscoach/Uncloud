@@ -86,6 +86,7 @@ export function fakeDb(seed = {}) {
     customers: [...(seed.customers ?? [])],
     entitlements: [...(seed.entitlements ?? [])],
     stripe_events: [...(seed.stripe_events ?? [])],
+    waitlist: [...(seed.waitlist ?? [])],
   };
   const calls = [];
   const rateCounts = {};
@@ -103,8 +104,10 @@ export function fakeDb(seed = {}) {
       calls.push({ op: 'select', table, filters, mode });
       return tables[table].filter((r) => matches(r, filters)).slice(0, 50).map((r) => ({ ...r }));
     },
-    async upsert(table, row, { onConflict }, mode) {
-      calls.push({ op: 'upsert', table, row, mode });
+    async upsert(table, row, { onConflict, ignoreDuplicates = false }, mode) {
+      calls.push({ op: 'upsert', table, row, mode, ignoreDuplicates });
+      // Like PostgREST resolution=ignore-duplicates: an existing row is left exactly as it is.
+      if (ignoreDuplicates && tables[table].some((r) => r[onConflict] === row[onConflict])) return;
       upsertRow(table, row, onConflict);
     },
     // Like the real admin delete: the user's customers and entitlements rows cascade away.

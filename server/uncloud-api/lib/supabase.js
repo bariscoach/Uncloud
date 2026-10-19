@@ -46,13 +46,15 @@ export function createSupabase({ url, publishableKey, secretKey, fetchFn = globa
       return rows ?? [];
     },
 
-    async upsert(table, row, { onConflict }, mode) {
+    // ignoreDuplicates: an existing row is left untouched (its created_at too) instead of merged.
+    async upsert(table, row, { onConflict, ignoreDuplicates = false }, mode) {
       const params = new URLSearchParams({ on_conflict: onConflict });
+      const resolution = ignoreDuplicates ? 'ignore-duplicates' : 'merge-duplicates';
       await send('upsert', `/rest/v1/${encodeURIComponent(table)}?${params}`, {
         ...mode,
         method: 'POST',
         body: row,
-        headers: { prefer: 'resolution=merge-duplicates,return=minimal' },
+        headers: { prefer: `resolution=${resolution},return=minimal` },
       });
     },
 

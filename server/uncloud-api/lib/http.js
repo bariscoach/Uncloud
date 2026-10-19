@@ -20,6 +20,8 @@ const DEFAULT_MESSAGES = {
   rate_limited: 'Too many requests. Try again later.',
   server_error: 'Something went wrong. Try again later.',
   method_not_allowed: 'This method is not allowed here.',
+  invalid_email: 'Enter a valid email address.',
+  forbidden_origin: 'This origin is not allowed.',
 };
 
 export function apiError(code, status, message, headers = {}) {

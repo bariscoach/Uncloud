@@ -203,3 +203,43 @@ export async function webhook(request, deps) {
   logEvent({ evt: event.type, id: event.id, result });
   return json({ received: true });
 }
+
+// POST /v1/waitlist: launch list from the landing page. The answer is the same for a new or an existing email,
+// so it cannot reveal who is already on the list. The origin check happens in lib/cors.js.
+const WAITLIST_LIMITS = {
+  perIp: { limit: 5, windowSeconds: 60 * 60 },
+  global: { limit: 300, windowSeconds: 60 * 60 },
+};
+const WAITLIST_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+const WAITLIST_SOURCE = /^[a-z0-9_-]{1,32}$/;
+
+function waitlistEmail(value) {
+  if (typeof value !== 'string') return null;
+  const email = value.normalize('NFC').trim().toLowerCase();
+  if (email.length < 3 || email.length > 254 || CONTROL_CHARACTERS.test(email) || !WAITLIST_EMAIL.test(email)) {
+    return null;
+  }
+  return email;
+}
+
+export async function waitlist(request, deps) {
+  const body = await readJSON(request);
+  // Honeypot: a filled "website" field is a bot. Answer like success, store nothing, spend no rate limit.
+  if (body.website) {
+    logEvent({ evt: 'waitlist', result: 'honeypot' });
+    return json({ ok: true });
+  }
+  const email = waitlistEmail(body.email);
+  if (email === null) {
+    logEvent({ evt: 'waitlist', result: 'invalid' });
+    throw apiError('invalid_email', 400);
+  }
+  const limits = { ...WAITLIST_LIMITS, ...deps.waitlistLimits };
+  await enforceRateLimit(deps, `waitlist:ip:${clientAddress(request)}`, limits.perIp);
+  await enforceRateLimit(deps, 'waitlist:all', limits.global);
+  const source = typeof body.source === 'string' && WAITLIST_SOURCE.test(body.source) ? body.source : 'landing';
+  await deps.db.upsert('waitlist', { email, source }, { onConflict: 'email', ignoreDuplicates: true }, { service: true });
+  logEvent({ evt: 'waitlist', result: 'ok' });
+  return json({ ok: true });
+}

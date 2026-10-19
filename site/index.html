@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uncloud: Take Your Photos Home</title>
+  <meta name="description" content="Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Coming soon to Mac.">
+  <meta name="robots" content="index,follow">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://uncloud.vercel.app/">
+
+  <meta property="og:title" content="Uncloud: Take Your Photos Home">
+  <meta property="og:description" content="Full-quality originals from iCloud, straight to your own drive. Coming soon to Mac.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://uncloud.vercel.app/">
+  <meta property="og:site_name" content="Uncloud">
+  <meta property="og:image" content="https://uncloud.vercel.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Uncloud app icon with the words “Take Your Photos Home”">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Uncloud: Take Your Photos Home">
+  <meta name="twitter:description" content="Full-quality originals from iCloud, straight to your own drive. Coming soon to Mac.">
+  <meta name="twitter:image" content="https://uncloud.vercel.app/og.png">
+
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#notify">Skip to sign-up</a>
+
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="/">
+        <img src="icon.png" width="28" height="28" alt="" decoding="async">
+        <span>Uncloud</span>
+      </a>
+      <a class="topbar-cta" href="#notify">Get Notified</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="wrap hero-inner">
+        <img class="hero-icon" src="icon@2x.png" srcset="icon.png 256w, icon@2x.png 512w" sizes="112px" width="112" height="112" alt="" decoding="async">
+        <p class="pill">Coming soon to Mac</p>
+        <h1 id="hero-title">Take Your Photos Home</h1>
+        <p class="lede">Export every photo from iCloud to your own drive. Full quality, without filling up your Mac.</p>
+
+        <div class="join" id="notify" data-join data-source="landing">
+          <p class="join-title" id="notify-title">Get notified at launch</p>
+          <form class="join-form" data-waitlist-form novalidate aria-labelledby="notify-title">
+            <div class="join-row">
+              <label class="sr-only" for="email-top">Email address</label>
+              <input class="field" id="email-top" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="254" placeholder="you@example.com" data-field>
+              <button class="btn" type="submit" data-submit>Notify Me</button>
+            </div>
+            <div class="hp" aria-hidden="true">
+              <label>Website <input name="website" tabindex="-1" autocomplete="off"></label>
+            </div>
+            <p class="micro">One email when we launch. No spam. We never share your address.</p>
+            <p class="status" id="status-top" role="status" aria-live="polite" data-status></p>
+          </form>
+          <div class="done" data-done hidden>
+            <p class="done-text" tabindex="-1" data-done-text></p>
+            <button class="link-button" type="button" data-reset hidden>Use a different email</button>
+          </div>
+          <noscript><p class="micro noscript-note">Turn on JavaScript to join the list.</p></noscript>
+        </div>
+
+        <p class="spec">For macOS Sonoma 14 or later</p>
+
+        <div class="scene" aria-hidden="true">
+          <svg viewBox="0 0 560 180" focusable="false">
+            <defs>
+              <linearGradient id="pg1" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1E6FD9"/><stop offset="1" stop-color="#2BB3A3"/>
+              </linearGradient>
+              <linearGradient id="pg2" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#4C6EF5"/><stop offset="1" stop-color="#7C5CFA"/>
+              </linearGradient>
+              <linearGradient id="pg3" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#22B8A6"/><stop offset="1" stop-color="#5BC47A"/>
+              </linearGradient>
+              <linearGradient id="pg4" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#3CA5E8"/><stop offset="1" stop-color="#1E6FD9"/>
+              </linearGradient>
+              <linearGradient id="pg5" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#2A9D8F"/><stop offset="1" stop-color="#4C6EF5"/>
+              </linearGradient>
+            </defs>
+            <path class="arc" d="M150 110 Q293 -10 436 110"/>
+            <path class="cloud" d="M46 124 A22 22 0 0 1 40 81 A30 30 0 0 1 96 66 A36 36 0 0 1 150 96 A22 22 0 0 1 146 124 Z"/>
+            <rect class="drive" x="436" y="84" width="92" height="52" rx="14"/>
+            <line class="slot" x1="452" y1="120" x2="484" y2="120"/>
+            <circle class="glow" cx="508" cy="98" r="9"/>
+            <circle class="light" cx="508" cy="98" r="4"/>
+            <g class="photo photo-1" transform="translate(184 84)"><rect x="-11" y="-9" width="22" height="18" rx="4" fill="url(#pg1)"/><circle cx="-4" cy="-4" r="2" fill="#fff" fill-opacity=".9"/><path d="M-11 5 L-5 -1 L-1 3 L3 -1 L11 5 Z" fill="#fff" fill-opacity=".55"/></g>
+            <g class="photo photo-2" transform="translate(236 60)"><rect x="-11" y="-9" width="22" height="18" rx="4" fill="url(#pg2)"/><circle cx="-4" cy="-4" r="2" fill="#fff" fill-opacity=".9"/><path d="M-11 5 L-5 -1 L-1 3 L3 -1 L11 5 Z" fill="#fff" fill-opacity=".55"/></g>
+            <g class="photo photo-3" transform="translate(293 50)"><rect x="-11" y="-9" width="22" height="18" rx="4" fill="url(#pg3)"/><circle cx="-4" cy="-4" r="2" fill="#fff" fill-opacity=".9"/><path d="M-11 5 L-5 -1 L-1 3 L3 -1 L11 5 Z" fill="#fff" fill-opacity=".55"/></g>
+            <g class="photo photo-4" transform="translate(350 60)"><rect x="-11" y="-9" width="22" height="18" rx="4" fill="url(#pg4)"/><circle cx="-4" cy="-4" r="2" fill="#fff" fill-opacity=".9"/><path d="M-11 5 L-5 -1 L-1 3 L3 -1 L11 5 Z" fill="#fff" fill-opacity=".55"/></g>
+            <g class="photo photo-5" transform="translate(402 84)"><rect x="-11" y="-9" width="22" height="18" rx="4" fill="url(#pg5)"/><circle cx="-4" cy="-4" r="2" fill="#fff" fill-opacity=".9"/><path d="M-11 5 L-5 -1 L-1 3 L3 -1 L11 5 Z" fill="#fff" fill-opacity=".55"/></g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <section class="section pain" aria-labelledby="pain-title">
+      <div class="wrap">
+        <h2 class="h2" id="pain-title">Sound familiar?</h2>
+        <ul class="pain-list">
+          <li>iCloud storage full. Again.</li>
+          <li>Your Mac is too small to hold your library.</li>
+          <li>Big exports stall halfway through.</li>
+          <li>iCloud.com deletes only 1,000 photos at a time.</li>
+        </ul>
+        <p class="pain-close">Uncloud fixes all four.</p>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="how-title">
+      <div class="wrap">
+        <h2 class="h2" id="how-title">How It Works</h2>
+        <ol class="steps">
+          <li>
+            <span class="num" aria-hidden="true">1</span>
+            <h3>Connect a drive.</h3>
+            <p>Any external drive or SSD.</p>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">2</span>
+            <h3>Pick your photos.</h3>
+            <p>iCloud Photos, or Photos on this Mac.</p>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">3</span>
+            <h3>Export.</h3>
+            <p>Full-quality originals land on your drive, organized and checked.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="features-title">
+      <div class="wrap">
+        <h2 class="h2" id="features-title">Everything Your Photos Need</h2>
+        <ul class="tiles">
+          <li class="tile">
+            <span class="badge badge-free">Free</span>
+            <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="7" y="4" width="13" height="11" rx="2"/><path d="M4 8v9a2 2 0 0 0 2 2h9"/><path d="M11 13l2.5-2.5L17 14"/></svg></span>
+            <h3>Full-Quality Originals</h3>
+            <p>The real files, never compressed copies.</p>
+          </li>
+          <li class="tile">
+            <span class="badge badge-free">Free</span>
+            <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="9" rx="3"/><path d="M6 9l2-3.5h8L18 9"/><path d="M6.5 13.5h.01"/><path d="M15 13.5h2.5"/></svg></span>
+            <h3>Skips Your Mac</h3>
+            <p>Photos go to your drive. Your Mac stays roomy.</p>
+          </li>
+          <li class="tile">
+            <span class="badge badge-free">Free</span>
+            <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/></svg></span>
+            <h3>Never Twice</h3>
+            <p>Next time, only new photos are exported.</p>
+          </li>
+          <li class="tile">
+            <span class="badge badge-free">Free</span>
+            <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4h-4"/></svg></span>
+            <h3>Picks Up Again</h3>
+            <p>Interrupted? It resumes right where it stopped.</p>
+          </li>
+          <li class="tile">
+            <span class="badge badge-free">Free</span>
+            <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+            <h3>Neatly Organized</h3>
+            <p>Folders by month, year or album.</p>
+          </li>
+          <li class="tile">
+            <span class="badge badge-plus">Plus</span>
+            <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/><path d="M3.5 4.5v3h3"/></svg></span>
+            <h3>Automatic Backups</h3>
+            <p>Plug in your drive. New photos back up.</p>
+          </li>
+          <li class="tile">
+            <span class="badge badge-plus">Plus</span>
+            <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg></span>
+            <h3>Browse Backup</h3>
+            <p>Find any photo by date or on a map.</p>
+          </li>
+          <li class="tile">
+            <span class="badge badge-plus">Plus</span>
+            <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 18h10.5a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.6 9.2 4.6 4.6 0 0 0 7 18z"/><path d="M9.5 13.5h5"/></svg></span>
+            <h3>Clean Up iCloud</h3>
+            <p>Delete backed-up photos in bulk. No 1,000 limit.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="pricing-title">
+      <div class="wrap">
+        <h2 class="h2" id="pricing-title">Simple Pricing</h2>
+        <div class="cards">
+          <article class="card" aria-labelledby="card-free">
+            <h3 id="card-free">Free</h3>
+            <p class="price">$0</p>
+            <p class="lead">Export is free.</p>
+            <ul class="checks">
+              <li>Full-quality originals</li>
+              <li>Organized folders</li>
+              <li>Only new photos next time</li>
+              <li>Resumes after interruptions</li>
+              <li>Export history</li>
+            </ul>
+          </article>
+          <article class="card card-plus" aria-labelledby="card-plus">
+            <h3 id="card-plus">Uncloud Plus</h3>
+            <p class="price">$9.99/year <span class="tax">+ tax</span></p>
+            <p class="lead">Everything in Free, plus:</p>
+            <ul class="checks">
+              <li>Automatic backups when your drive connects</li>
+              <li>New-photo reminders</li>
+              <li>Browse Backup by date, place or map</li>
+              <li>Find Duplicates</li>
+              <li>Verify Backup</li>
+              <li>Free Up Space on your Mac</li>
+              <li>Clean Up iCloud, with Recover</li>
+            </ul>
+            <p class="small">Renew every year, or buy one year at a time. Cancel anytime.</p>
+          </article>
+        </div>
+        <p class="centered muted">Both come with the app at launch.</p>
+      </div>
+    </section>
+
+    <section class="privacy" aria-labelledby="privacy-title">
+      <div class="wrap privacy-inner">
+        <svg class="lock" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+        <h2 class="h2" id="privacy-title">Your Photos Stay Yours</h2>
+        <ul class="privacy-list">
+          <li>Photos go straight from Apple to your drive.</li>
+          <li>Uncloud never sees, stores or uploads them.</li>
+          <li>No ads. No tracking. Not even on this page.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="faq-title">
+      <div class="wrap">
+        <h2 class="h2" id="faq-title">Questions</h2>
+        <div class="faq">
+          <details>
+            <summary>When does Uncloud launch?</summary>
+            <p>Soon. Join the list and we’ll email you on launch day.</p>
+          </details>
+          <details>
+            <summary>Is it really free?</summary>
+            <p>Yes. Export is free. Uncloud Plus adds extra tools for $9.99 a year.</p>
+          </details>
+          <details>
+            <summary>Can Uncloud see my photos?</summary>
+            <p>No. Photos go straight from Apple to your drive. They never pass through us.</p>
+          </details>
+          <details>
+            <summary>Will it delete anything from iCloud?</summary>
+            <p>Only if you ask. Export never deletes. Clean Up iCloud asks first, and deleted photos stay in Recently Deleted for 30 days.</p>
+          </details>
+          <details>
+            <summary>My library is huge. Will it cope?</summary>
+            <p>Yes. It works in steps, resumes after breaks and skips what’s already done.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-band" aria-labelledby="cta-title">
+      <div class="wrap">
+        <h2 class="h2" id="cta-title">Be First to Take Your Photos Home</h2>
+        <div class="join" id="notify-bottom" data-join data-source="landing-bottom">
+          <p class="join-title" id="notify-bottom-title">Get notified at launch</p>
+          <form class="join-form" data-waitlist-form novalidate aria-labelledby="notify-bottom-title">
+            <div class="join-row">
+              <label class="sr-only" for="email-bottom">Email address</label>
+              <input class="field" id="email-bottom" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="254" placeholder="you@example.com" data-field>
+              <button class="btn" type="submit" data-submit>Notify Me</button>
+            </div>
+            <div class="hp" aria-hidden="true">
+              <label>Website <input name="website" tabindex="-1" autocomplete="off"></label>
+            </div>
+            <p class="micro">One email when we launch. No spam. We never share your address.</p>
+            <p class="status" id="status-bottom" role="status" aria-live="polite" data-status></p>
+          </form>
+          <div class="done" data-done hidden>
+            <p class="done-text" tabindex="-1" data-done-text></p>
+            <button class="link-button" type="button" data-reset hidden>Use a different email</button>
+          </div>
+          <noscript><p class="micro noscript-note">Turn on JavaScript to join the list.</p></noscript>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <ul class="footer-links">
+        <li><a href="https://uncloud-api.vercel.app/terms">Terms</a></li>
+        <li><a href="https://uncloud-api.vercel.app/privacy">Privacy</a></li>
+        <li><a href="mailto:[support email]">Contact</a></li>
+      </ul>
+      <p class="copy">© 2026 Uncloud</p>
+      <p class="disclaimer">iCloud, Photos and Mac are trademarks of Apple Inc., registered in the U.S. and other countries. Uncloud is not affiliated with Apple.</p>
+    </div>
+  </footer>
+</body>
+</html>
