@@ -55,12 +55,8 @@ struct AccountSnapshotTests {
         // Settings › Account: renewing, ending, and free.
         for state in try await Self.accountStates() {
             for scheme in [ColorScheme.light, .dark] {
-                let page = Form {
-                    AccountSection()
-                }
-                .formStyle(.grouped)
-                .frame(width: 460)
-                .environment(state.model)
+                let page = AccountSettingsForm()
+                    .environment(state.model)
                 let image = try #require(await Self.renderTitledWindow(page, size: accountSize, scheme: scheme))
                 images.append(("account-\(state.name)-\(Self.name(scheme))", image))
             }
@@ -135,6 +131,207 @@ struct AccountSnapshotTests {
             try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
             try? data.write(to: scratch.appending(path: "\(name).png"))
         }
+    }
+
+    /// The account button, its popover, Settings (General and Account), the delete sheet and the sidebar button, light
+    /// and dark (account-menu plan §7.2). Gated like the others; the PNGs are attachments of the result bundle.
+    @Test func rendersAccountMenuAndSettings() async throws {
+        guard ProcessInfo.processInfo.environment["UNCLOUD_ACCOUNT_SNAPSHOTS"] != nil else { return }
+        var images: [(String, NSImage)] = []
+        let now = Date()
+        let host = try await Self.signedIn(email: "name@example.com")
+
+        // The popover, 280 pt wide, in each state the header and actions change in.
+        let popoverStates: [(String, AccountSummary)] = [
+            ("free", host.summary),
+            ("free-ended", Self.summary(.plus, status: .expired, periodEnd: now.addingTimeInterval(-86_400), now: now)),
+            ("plus-renewing", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), now: now)),
+            ("plus-ending", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), cancel: true, now: now)),
+            ("past-due", Self.summary(.plus, status: .pastDue, periodEnd: now.addingTimeInterval(-86_400), now: now)),
+            ("offline-grace", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(-86_400), now: now)),
+            ("last-checked", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), checked: now.addingTimeInterval(-3 * 86_400), error: .offline, now: now)),
+        ]
+        for (label, summary) in popoverStates {
+            let view = AccountPopover(summary: summary, isExporting: false, close: {})
+                .environment(host)
+            try await Self.render("menu-popover-\(label)", view, size: NSSize(width: 300, height: 360), into: &images)
+        }
+        let longEmail = try await Self.signedIn(email: "a.very.long.address.for.testing@example-domain.com")
+        let longPopover = AccountPopover(summary: longEmail.summary, isExporting: true, close: {})
+            .environment(longEmail)
+        try await Self.render("menu-popover-long-email", longPopover, size: NSSize(width: 300, height: 360), into: &images)
+
+        // The account button alone, 22 pt, in a 28 pt hit area.
+        let buttonStates: [(String, AccountSummary)] = [
+            ("free", host.summary),
+            ("plus", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), now: now)),
+            ("attention", Self.summary(.plus, status: .pastDue, periodEnd: now.addingTimeInterval(-86_400), now: now)),
+        ]
+        for (label, summary) in buttonStates {
+            let view = AccountAvatar(summary: summary, size: 22)
+                .frame(width: 28, height: 28)
+                .padding(Tokens.Space.s)
+            try await Self.render("menu-button-\(label)", view, size: NSSize(width: 60, height: 60), into: &images)
+        }
+
+        // Settings › Account (460 pt) in each state.
+        let accountStates = try await Self.accountTabStates()
+        for (label, model) in accountStates {
+            let view = AccountSettingsForm()
+                .environment(model)
+            try await Self.render("menu-account-\(label)", view, size: NSSize(width: 460, height: 640), into: &images)
+        }
+
+        // Delete Account (420 pt): empty, matched, deleting, error; a paid plan and a never-paid account. The deleting
+        // state needs a delete that is still running while the sheet renders, so its account's delete waits a minute.
+        let slow = try await Self.signedIn(email: "slow@example.com", deleteDelay: .seconds(60))
+        let deleting = Task { await slow.deleteAccount(confirmEmail: "slow@example.com") }
+        try await Task.sleep(for: .milliseconds(200))
+        let sheetStates = try await Self.deleteSheetStates()
+        for (label, view) in sheetStates {
+            try await Self.render("menu-delete-\(label)", view, size: NSSize(width: 420, height: 420), into: &images)
+        }
+        let deletingSheet = DeleteAccountSheet(email: "slow@example.com", isPaid: false, hadPlan: false, isExporting: false, initialConfirmation: "slow@example.com")
+            .environment(slow)
+        try await Self.render("menu-delete-deleting", deletingSheet, size: NSSize(width: 420, height: 420), into: &images)
+        deleting.cancel()
+
+        // Settings with its tabs (460 pt), signed in: General, then Account.
+        let settings = AutoBackupSettings()
+        let exportModel = ExportModel()
+        for (label, tab) in [("general", SettingsTab.general), ("account", SettingsTab.account)] {
+            UserDefaults.standard.set(tab.rawValue, forKey: SettingsTab.storageKey)
+            let view = SettingsView()
+                .environment(exportModel)
+                .environment(settings)
+                .environment(host)
+            try await Self.render("menu-settings-\(label)", view, size: NSSize(width: 460, height: 640), into: &images)
+        }
+        UserDefaults.standard.removeObject(forKey: SettingsTab.storageKey)
+
+        // The sidebar with the account button, Free and Plus, at the default and minimum window sizes.
+        let plusModel = try await Self.signedIn(email: "plus@example.com")
+        for (label, account) in [("free", host), ("plus", plusModel)] {
+            for size in [NSSize(width: 1_000, height: 700), NSSize(width: 760, height: 500)] {
+                let window = MainWindow()
+                    .environment(exportModel)
+                    .environment(BackupTools(model: exportModel))
+                    .environment(account)
+                try await Self.render("menu-sidebar-\(label)-\(Int(size.width))", window, size: size, into: &images)
+            }
+        }
+
+        for (name, image) in images {
+            Attachment.record(try Self.png(image), named: "\(name).png")
+        }
+    }
+
+    /// Renders `view` in light and dark, adding each image under `label-light` and `label-dark`.
+    private static func render<V: View>(_ label: String, _ view: V, size: NSSize, into images: inout [(String, NSImage)]) async throws {
+        for scheme in [ColorScheme.light, .dark] {
+            let image = try #require(await renderTitledWindow(view, size: size, scheme: scheme))
+            images.append(("\(label)-\(name(scheme))", image))
+        }
+    }
+
+    /// A summary for a preview account in a given plan state, through the pure rules.
+    private static func summary(
+        _ plan: Plan,
+        status: Entitlement.Status,
+        periodEnd: Date,
+        cancel: Bool = false,
+        checked: Date? = nil,
+        error: AccountError? = nil,
+        now: Date
+    ) -> AccountSummary {
+        let entitlement = Entitlement(
+            plan: plan, status: status, currentPeriodEnd: periodEnd,
+            cancelAtPeriodEnd: cancel, checkedAt: checked ?? now
+        )
+        return AccountSummary.make(
+            mode: .preview,
+            phase: .signedIn,
+            account: UncloudAccount(id: "snapshot", email: "name@example.com", createdAt: now.addingTimeInterval(-400 * 86_400)),
+            entitlement: entitlement,
+            access: EntitlementPolicy.access(entitlement, now: now),
+            lastError: error,
+            now: now
+        )
+    }
+
+    /// Settings › Account states, each reached through the model: signed out, after a delete, and the plan states.
+    private static func accountTabStates() async throws -> [(String, AccountModel)] {
+        let now = Date()
+        var states: [(String, AccountModel)] = []
+
+        states.append(("signed-out", try await signedOutModel()))
+        let deleted = try await signedIn(email: "gone@example.com")
+        await deleted.deleteAccount(confirmEmail: "gone@example.com")
+        states.append(("signed-out-deleted", deleted))
+
+        states.append(("free", try await signedIn(email: "name@example.com")))
+        states.append(("free-long-email", try await signedIn(email: "a.very.long.address.for.testing@example-domain.com")))
+        states.append(("plus-renewing", try await signedIn(email: "plus@example.com")))
+        let ending = try await signedIn(email: "plus@example.com")
+        await ending.setAutoRenew(false)
+        states.append(("plus-ending", ending))
+        states.append(("past-due", try await signedIn(email: "pastdue@example.com")))
+
+        // A free account whose renewal change was refused: the error sits under Subscription.
+        let refused = try await signedIn(email: "name@example.com")
+        await refused.setAutoRenew(true)
+        states.append(("error", refused))
+
+        // Plans the server reports, through a service that answers the plan check with a fixed entitlement.
+        let expired = Entitlement(plan: .free, status: .expired, currentPeriodEnd: now.addingTimeInterval(-86_400), cancelAtPeriodEnd: false, checkedAt: now)
+        states.append(("free-ended", try await signedIn(email: "name@example.com", plan: expired)))
+        let grace = Entitlement(plan: .plus, status: .active, currentPeriodEnd: now.addingTimeInterval(-86_400), cancelAtPeriodEnd: false, checkedAt: now)
+        states.append(("offline-grace", try await signedIn(email: "name@example.com", plan: grace)))
+        return states
+    }
+
+    /// A signed-out model on Welcome, as the app starts after sign-out.
+    private static func signedOutModel() async throws -> AccountModel {
+        let defaults = isolatedDefaults()
+        return AccountModel(mode: .preview, service: PreviewAccountService(store: PreviewAccountStore(defaults: defaults)), tokens: DefaultsAccountTokenStore(defaults: defaults), defaults: defaults)
+    }
+
+    /// Delete Account sheets: empty, matched, a refused confirmation (the error), and the two plan variants.
+    private static func deleteSheetStates() async throws -> [(String, AnyView)] {
+        let paid = try await signedIn(email: "plus@example.com")
+        let free = try await signedIn(email: "name@example.com")
+        let failed = try await signedIn(email: "name@example.com")
+        await failed.deleteAccount(confirmEmail: "other@example.com")
+
+        let sheets: [(String, AnyView)] = [
+            ("empty-free", AnyView(DeleteAccountSheet(email: "name@example.com", isPaid: false, hadPlan: false, isExporting: false).environment(free))),
+            ("empty-paid", AnyView(DeleteAccountSheet(email: "plus@example.com", isPaid: true, hadPlan: true, isExporting: false).environment(paid))),
+            ("matched-paid", AnyView(DeleteAccountSheet(email: "plus@example.com", isPaid: true, hadPlan: true, isExporting: false, initialConfirmation: "plus@example.com").environment(paid))),
+            ("error", AnyView(DeleteAccountSheet(email: "name@example.com", isPaid: false, hadPlan: false, isExporting: false, initialConfirmation: "other@example.com").environment(failed))),
+        ]
+        return sheets
+    }
+
+    /// A preview account signed in with the stub code. `plan` is what the plan check answers with; `deleteDelay` holds the
+    /// delete call for that long, so a snapshot can show the deleting state.
+    static func signedIn(email: String, plan: Entitlement? = nil, deleteDelay: Duration? = nil) async throws -> AccountModel {
+        let defaults = isolatedDefaults()
+        let base = PreviewAccountService(store: PreviewAccountStore(defaults: defaults), now: { Date() })
+        let model = AccountModel(
+            mode: .preview,
+            service: EntitlementStub(base: base, entitlement: plan, deleteDelay: deleteDelay),
+            tokens: DefaultsAccountTokenStore(defaults: defaults),
+            defaults: defaults,
+            openURL: { _ in }
+        )
+        await model.submitEmail(email, intent: .signIn)
+        await model.submitCode(PreviewAccountService.code)
+        await model.refreshEntitlement(force: true)
+        return model
+    }
+
+    static func name(_ scheme: ColorScheme) -> String {
+        scheme == .dark ? "dark" : "light"
     }
 
     struct PaywallState {
@@ -234,10 +431,6 @@ struct AccountSnapshotTests {
         ]
     }
 
-    private static func name(_ scheme: ColorScheme) -> String {
-        scheme == .dark ? "dark" : "light"
-    }
-
     private static func png(_ image: NSImage) throws -> Data {
         guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
               let data = rep.representation(using: .png, properties: [:]) else {
@@ -315,5 +508,57 @@ struct CheckoutStub: AccountService {
 
     func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement {
         try await base.setAutoRenew(autoRenew, tokens: tokens)
+    }
+
+    func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws {
+        try await base.deleteAccount(confirmEmail: confirmEmail, tokens: tokens)
+    }
+}
+
+/// The preview service, with two changes for the snapshots: the plan check can answer with a fixed entitlement (an ended
+/// plan, a plan in offline grace), and the delete call can wait first (the deleting state).
+struct EntitlementStub: AccountService {
+    let base: PreviewAccountService
+    var entitlement: Entitlement?
+    var deleteDelay: Duration?
+
+    func requestCode(email: String, intent: AuthIntent) async throws -> AuthChallenge {
+        try await base.requestCode(email: email, intent: intent)
+    }
+
+    func verify(challenge: AuthChallenge, code: String) async throws -> AuthSession {
+        try await base.verify(challenge: challenge, code: code)
+    }
+
+    func currentEntitlement(tokens: AccountTokens) async throws -> Entitlement {
+        let actual = try await base.currentEntitlement(tokens: tokens)
+        return entitlement ?? actual
+    }
+
+    func refresh(tokens: AccountTokens) async throws -> AccountTokens {
+        try await base.refresh(tokens: tokens)
+    }
+
+    func signOut(tokens: AccountTokens) async {
+        await base.signOut(tokens: tokens)
+    }
+
+    func checkoutURL(tokens: AccountTokens, renewal: Renewal) async throws -> URL {
+        try await base.checkoutURL(tokens: tokens, renewal: renewal)
+    }
+
+    func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL {
+        try await base.manageSubscriptionURL(tokens: tokens)
+    }
+
+    func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement {
+        try await base.setAutoRenew(autoRenew, tokens: tokens)
+    }
+
+    func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws {
+        if let deleteDelay {
+            try await Task.sleep(for: deleteDelay)
+        }
+        try await base.deleteAccount(confirmEmail: confirmEmail, tokens: tokens)
     }
 }

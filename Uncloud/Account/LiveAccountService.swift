@@ -85,8 +85,11 @@ actor LiveAccountService: AccountService {
         guard let user = body.user else { throw AccountError.server(message: nil) }
         let tokens = accountTokens(from: body)
         let (account, plan) = await signedInPlan(tokens: tokens)
+        let createdAt = user.createdAt.flatMap(WireDate.parse)
+        var signedIn = account ?? UncloudAccount(id: user.id, email: user.email ?? challenge.email)
+        signedIn.createdAt = createdAt
         return AuthSession(
-            account: account ?? UncloudAccount(id: user.id, email: user.email ?? challenge.email),
+            account: signedIn,
             tokens: tokens,
             entitlement: plan,
             isNewAccount: Self.isNewAccount(user)
@@ -120,6 +123,11 @@ actor LiveAccountService: AccountService {
     func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL {
         let body = try decode(URLBody.self, try await apiPost("/v1/portal", [:], tokens: tokens).data)
         return try stripeURL(body.url, host: "billing.stripe.com")
+    }
+
+    func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws {
+        // 204 on success. The server stops the plan first, then deletes the user (plan §4.2).
+        _ = try await apiPost("/v1/account/delete", ["confirmEmail": confirmEmail], tokens: tokens)
     }
 
     func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement {
@@ -225,6 +233,8 @@ actor LiveAccountService: AccountService {
             return .checkoutUnavailable
         case "rate_limited":
             return .rateLimited(retryAfter: retryAfter(reply))
+        case "confirmation_mismatch":
+            return .confirmationMismatch
         default:
             switch reply.status {
             case 401: return .signedOut
@@ -390,6 +400,7 @@ actor LiveAccountService: AccountService {
             let email: String?
             let emailConfirmedAt: String?
             let lastSignInAt: String?
+            let createdAt: String?
         }
     }
 

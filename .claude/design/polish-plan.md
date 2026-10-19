@@ -59,6 +59,10 @@ calmer Clean Up toolbar. This pass doesn't undo any of that. It finishes the job
 | Diagnostic transcripts | **diagnostic logs** | helper, transcript |
 | Organisation on disk | **Folders** (header), the options keep their titles (By Month, …) | Folder layout, Folders and Files |
 | Spelling | US English (organized, favorites). One exception: keep "Cancelled", which is already used everywhere in the app; don't mix it with "Canceled" | Organised |
+| Our account | **Uncloud account** ("Sign Out of Uncloud…", "Delete Your Uncloud Account?") | "profile", "login", "user" |
+| Apple's account | **Apple Account** (unchanged) | Apple ID, iCloud account |
+| The paid plan | **Uncloud Plus**; the free plan **Free** | Pro, Premium, subscription tier |
+| Stripe's page | **the billing page** (in sentences); button **Manage Subscription…** | Stripe portal, customer portal |
 
 Rules:
 - Use `^[\(n) photo](inflect: true)` in `Text`, or a `photos(_:)` helper for runtime strings (chunk 1 adds `Plural.photos(n)`).

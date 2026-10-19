@@ -20,4 +20,6 @@ protocol AccountService: Sendable {
     func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL
     /// Turns renewal on or off for an existing plan. Returns the plan as the server now reports it.
     func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement
+    /// Deletes the Uncloud account. `confirmEmail` must match the account's email (case and spaces ignored).
+    func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws
 }

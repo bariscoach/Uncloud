@@ -39,6 +39,14 @@ struct MainWindow: View {
             .safeAreaInset(edge: .bottom) {
                 accountFooter
             }
+            // The account button sits at the sidebar's trailing titlebar edge, clear of each pane's own toolbar (plan §1.1).
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    if account.mode != .off, account.phase == .signedIn {
+                        AccountButton()
+                    }
+                }
+            }
         } detail: {
             switch model.pane {
             case .export:
@@ -204,7 +212,7 @@ struct MainWindow: View {
         .menuIndicator(.visible)
         .padding(Tokens.Space.m)
         .accessibilityLabel("Photos from \(accountTitle), \(accountSubtitle)")
-        .help("Choose where photos come from, or change the iCloud account")
+        .help("Choose where photos come from, or change the Apple Account used for iCloud Photos")
     }
 
     /// Source changes are disabled while an export runs, so the picker can't revert under the user.

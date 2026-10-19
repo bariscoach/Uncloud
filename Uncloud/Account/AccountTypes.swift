@@ -17,6 +17,8 @@ enum PlanCopy {
 struct UncloudAccount: Codable, Equatable, Sendable {
     let id: String
     let email: String
+    /// When the account was created. Known after a sign-in; nil for accounts cached before it was stored.
+    var createdAt: Date? = nil
 }
 
 /// Sign Up and Sign In share the same two steps. The intent only changes the wording of the email.
@@ -146,6 +148,7 @@ enum AccountError: Error, Equatable, Sendable {
     case checkoutUnavailable
     case alreadySubscribed
     case noSubscription
+    case confirmationMismatch
 
     /// The sentence shown next to the field or in a banner (plan F.7).
     var message: String {
@@ -161,6 +164,7 @@ enum AccountError: Error, Equatable, Sendable {
         case .checkoutUnavailable: "Checkout isn’t available right now. Try again later."
         case .alreadySubscribed: "You already have Uncloud Plus."
         case .noSubscription: "There’s no plan to change. Get Uncloud Plus to start one."
+        case .confirmationMismatch: "The email doesn’t match your Uncloud account."
         }
     }
 }

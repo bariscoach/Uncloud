@@ -2,9 +2,22 @@ import SwiftUI
 
 /// Shared wording for plan dates and the renewal terms, so the paywall, Settings and the locked panes say the same thing.
 enum PlanText {
-    /// "October 18, 2027".
-    static func date(_ date: Date) -> String {
-        date.formatted(date: .long, time: .omitted)
+    /// "October 18, 2027". The locale and time zone are parameters so tests can pin them.
+    static func date(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        date.formatted(zoned(Date.FormatStyle(date: .long, time: .omitted), locale: locale, timeZone: timeZone))
+    }
+
+    /// The style with the locale and time zone set, for the tests' pinned output.
+    static func zoned(_ style: Date.FormatStyle, locale: Locale, timeZone: TimeZone) -> Date.FormatStyle {
+        var style = style
+        style.locale = locale
+        style.timeZone = timeZone
+        return style
+    }
+
+    /// "October 18", for the places that name a day without a year.
+    static func monthDay(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        date.formatted(zoned(Date.FormatStyle().month(.wide).day(), locale: locale, timeZone: timeZone))
     }
 
     /// The date a year from now: when a purchase made today renews or ends.

@@ -59,7 +59,8 @@ struct LiveAccountServiceTests {
         {"access_token":"access-new","refresh_token":"refresh-new","token_type":"bearer","expires_in":3600,
          "expires_at":\(expiresAt ?? now.timeIntervalSince1970 + 3600),
          "user":{"id":"\(vector.accountId)","email":"name@example.com",
-         "email_confirmed_at":"\(confirmed)","last_sign_in_at":"\(signedIn)"}}
+         "email_confirmed_at":"\(confirmed)","last_sign_in_at":"\(signedIn)",
+         "created_at":"\(newAccount ? confirmed : "2026-01-01T00:00:00Z")"}}
         """
     }
 
@@ -119,7 +120,8 @@ struct LiveAccountServiceTests {
         }
         let session = try await service.verify(challenge: Self.challenge, code: "123456")
         #expect(session.isNewAccount)
-        #expect(session.account == UncloudAccount(id: Self.vector.accountId, email: "name@example.com"))
+        #expect(session.account.id == Self.vector.accountId)
+        #expect(session.account.email == "name@example.com")
         #expect(session.entitlement.plan == .plus)
         #expect(session.entitlement.signature == Self.vector.signature)
         #expect(session.tokens.accessToken == "access-new")
@@ -325,5 +327,67 @@ struct LiveAccountServiceTests {
     func noServiceWithoutConfiguration() {
         let off = AccountConfiguration.resolve(mode: "live", isDebug: false, baseURL: "", supabaseURL: nil, supabasePublishableKey: "", entitlementPublicKey: "")
         #expect(LiveAccountService(configuration: off, verifier: EntitlementVerifier(base64PublicKey: nil)) == nil)
+    }
+
+    @Test("deleteAccount posts the typed email with the bearer token and accepts 204")
+    func deleteAccount() async throws {
+        let service = Self.service { _ in MockReply(status: 204) }
+        try await service.deleteAccount(confirmEmail: "name@example.com", tokens: Self.tokens)
+        let request = try #require(MockURLProtocol.requests.first)
+        #expect(request.method == "POST")
+        #expect(request.url.absoluteString == "https://api.test.example/v1/account/delete")
+        #expect(request.headers["Authorization"] == "Bearer \(Self.tokens.accessToken)")
+        #expect(request.json?["confirmEmail"] as? String == "name@example.com")
+    }
+
+    @Test("A mismatched confirmation is confirmationMismatch")
+    func deleteMismatch() async {
+        let service = Self.service { _ in
+            MockReply(status: 400, json: #"{"error":{"code":"confirmation_mismatch","message":"no"}}"#)
+        }
+        await #expect(throws: AccountError.confirmationMismatch) {
+            try await service.deleteAccount(confirmEmail: "other@example.com", tokens: Self.tokens)
+        }
+    }
+
+    @Test("An ended session is signedOut, and a rate limit carries its Retry-After")
+    func deleteErrors() async {
+        let unauthorized = Self.service { _ in
+            MockReply(status: 401, json: #"{"error":{"code":"unauthorized","message":"no"}}"#)
+        }
+        await #expect(throws: AccountError.signedOut) {
+            try await unauthorized.deleteAccount(confirmEmail: "name@example.com", tokens: Self.tokens)
+        }
+
+        let limited = Self.service { _ in
+            MockReply(status: 429, headers: ["Retry-After": "3600"], json: #"{"error":{"code":"rate_limited","message":"no"}}"#)
+        }
+        await #expect(throws: AccountError.rateLimited(retryAfter: Self.now.addingTimeInterval(3600))) {
+            try await limited.deleteAccount(confirmEmail: "name@example.com", tokens: Self.tokens)
+        }
+    }
+
+    @Test("Verify reads the creation date, with or without fractional seconds")
+    func verifyReadsCreatedAt() async throws {
+        let fresh = Self.service { request in
+            if request.path == "/auth/v1/verify" { return MockReply(json: Self.sessionJSON(newAccount: true)) }
+            return MockReply(json: Self.meJSON)
+        }
+        let newSession = try await fresh.verify(challenge: Self.challenge, code: "123456")
+        #expect(newSession.account.createdAt != nil)
+
+        let older = Self.service { request in
+            if request.path == "/auth/v1/verify" { return MockReply(json: Self.sessionJSON(newAccount: false)) }
+            return MockReply(json: Self.meJSON)
+        }
+        let oldSession = try await older.verify(challenge: Self.challenge, code: "123456")
+        #expect(oldSession.account.createdAt == WireDate.parse("2026-01-01T00:00:00Z"))
+    }
+
+    @Test("A cached account without a creation date still decodes, with nil")
+    func cachedAccountWithoutCreatedAt() throws {
+        let account = try JSONDecoder().decode(UncloudAccount.self, from: Data(#"{"id":"u","email":"name@example.com"}"#.utf8))
+        #expect(account.createdAt == nil)
+        #expect(account.email == "name@example.com")
     }
 }

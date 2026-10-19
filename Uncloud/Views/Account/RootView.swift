@@ -7,11 +7,21 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        @Bindable var account = account
+
         Group {
             switch account.phase {
             case .off, .signedIn:
                 MainWindow()
                     .backupToolSheets()
+                    // The one sign-out confirmation for the popover and the app menu. Settings has its own.
+                    .confirmationDialog("Sign Out of Uncloud?", isPresented: $account.isConfirmingSignOut, titleVisibility: .visible) {
+                        Button("Sign Out", role: .destructive) {
+                            Task { await account.signOut() }
+                        }
+                    } message: {
+                        Text("Your photos and backup aren’t changed. Sign in again to use Uncloud Plus.")
+                    }
             case .restoring:
                 Color(nsColor: .windowBackgroundColor)
             case let .signedOut(route):

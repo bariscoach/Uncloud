@@ -188,4 +188,33 @@ struct PreviewAccountServiceTests {
             try await service.setAutoRenew(true, tokens: session.tokens)
         }
     }
+
+    @Test("Delete Account needs the account's email, ignores case and spaces, and removes the account")
+    func deleteAccount() async throws {
+        let clock = TestClock()
+        let defaults = isolatedDefaults()
+        let service = Self.makeService(clock: clock, defaults: defaults)
+        let session = try await Self.signIn(service, email: "name@example.com")
+        await #expect(throws: AccountError.confirmationMismatch) {
+            try await service.deleteAccount(confirmEmail: "other@example.com", tokens: session.tokens)
+        }
+        #expect(PreviewAccountStore(defaults: defaults).load()["name@example.com"] != nil)
+
+        try await service.deleteAccount(confirmEmail: "  NAME@example.com ", tokens: session.tokens)
+        #expect(PreviewAccountStore(defaults: defaults).load()["name@example.com"] == nil)
+        await #expect(throws: AccountError.signedOut) {
+            try await service.currentEntitlement(tokens: session.tokens)
+        }
+        clock.advance(by: 60)
+        let again = try await Self.signIn(service, email: "name@example.com")
+        #expect(again.isNewAccount)
+    }
+
+    @Test("A new account records when it was created")
+    func recordsCreatedAt() async throws {
+        let clock = TestClock()
+        let service = Self.makeService(clock: clock)
+        let session = try await Self.signIn(service, email: "dated@example.com")
+        #expect(session.account.createdAt == clock.now)
+    }
 }

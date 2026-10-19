@@ -81,6 +81,7 @@ struct UncloudApp: App {
             MenuBarContent()
                 .environment(model)
                 .environment(settings)
+                .environment(account)
         }
         .menuBarExtraStyle(.menu)
     }

@@ -25,6 +25,11 @@ struct PaywallRequest: Identifiable {
         case code(AuthChallenge, AuthIntent)
     }
 
+    /// A one-line message for Welcome and Settings that outlives the screen it was set on.
+    enum Notice: Equatable {
+        case accountDeleted
+    }
+
     /// Progress of the paywall's checkout (plan D.1).
     enum Checkout: Equatable {
         case idle
@@ -72,6 +77,12 @@ struct PaywallRequest: Identifiable {
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     /// True while a renewal change is saving, for the Settings toggle's spinner.
     private(set) var isChangingRenewal = false
+    /// True while Delete Account is running, so the sheet's button can show progress and a second call is ignored.
+    private(set) var isDeletingAccount = false
+    /// Set by the popover and the app menu. The main window hosts the sign-out confirmation it opens.
+    var isConfirmingSignOut = false
+    /// Set after the account is deleted, cleared by the next sign-in.
+    private(set) var notice: Notice?
     /// Set when Manage Subscription opened the billing portal. The next activation of the app refreshes the plan.
     private(set) var awaitingPortalReturn = false
 
@@ -151,6 +162,14 @@ struct PaywallRequest: Identifiable {
     /// The plan's access right now. Computed from the clock, so grace and expiry move on their own.
     var access: EntitlementPolicy.Access {
         EntitlementPolicy.access(entitlement, now: clock())
+    }
+
+    /// What the account button, the popover and the Account tab show. Computed from the clock, as `access` is.
+    var summary: AccountSummary {
+        AccountSummary.make(
+            mode: mode, phase: phase, account: account, entitlement: entitlement,
+            access: access, lastError: error, now: clock()
+        )
     }
 
     /// Whether a paid feature may be used. Always true when accounts are off.
@@ -324,6 +343,38 @@ struct PaywallRequest: Identifiable {
                 self.error = error as? AccountError ?? .server(message: nil)
             }
         }
+    }
+
+    /// Deletes the account (plan §4.4). `confirmEmail` is what the user typed; it must match the account's email,
+    /// ignoring case and spaces, or nothing is sent. On success the account is forgotten on this Mac and the
+    /// signed-out screens show `notice`. Refused during an export, as sign-out is.
+    @discardableResult
+    func deleteAccount(confirmEmail raw: String) async -> Bool {
+        guard mode != .off, case .signedIn = phase, !isExportRunning(), !isDeletingAccount else { return false }
+        let typed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let accountEmail = account?.email, typed.lowercased() == accountEmail.lowercased() else {
+            error = .confirmationMismatch
+            return false
+        }
+        isDeletingAccount = true
+        error = nil
+        defer { isDeletingAccount = false }
+        let service = service
+        do {
+            try await authorized { try await service.deleteAccount(confirmEmail: typed, tokens: $0) }
+        } catch AccountError.signedOut {
+            // The session ended: `authorized` already moved the app to the signed-out screens.
+            return false
+        } catch {
+            self.error = error as? AccountError ?? .server(message: nil)
+            return false
+        }
+        forgetAccount()
+        phase = .signedOut(.welcome)
+        error = nil
+        isConfirmingSignOut = false
+        notice = .accountDeleted
+        return true
     }
 
     /// Handles a `uncloud://` link. Returns false for anything it doesn't handle (plan D.2).
@@ -503,6 +554,7 @@ struct PaywallRequest: Identifiable {
         account = session.account
         entitlement = session.entitlement
         isNewAccount = session.isNewAccount
+        notice = nil
         cacheAccount()
         phase = .signedIn
         error = nil

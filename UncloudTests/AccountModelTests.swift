@@ -280,4 +280,78 @@ struct AccountModelTests {
         #expect(resolve("live", debug: false, base: "") == .off)
         #expect(resolve("live", debug: false, base: nil) == .off)
     }
+
+    @Test("Delete Account forgets the account on this Mac and tells the signed-out screens")
+    func deleteAccountHappyPath() async {
+        let harness = Self.makeHarness()
+        await Self.signIn(harness.model)
+        let deleted = await harness.model.deleteAccount(confirmEmail: "  Name@Example.com ")
+        #expect(deleted)
+        #expect(harness.model.phase == .signedOut(.welcome))
+        #expect(harness.model.account == nil)
+        #expect(harness.model.notice == .accountDeleted)
+        #expect(harness.model.error == nil)
+        #expect(harness.model.isDeletingAccount == false)
+        #expect(harness.tokens.load() == nil)
+        #expect(harness.defaults.data(forKey: "uncloudAccount") == nil)
+        #expect(PreviewAccountStore(defaults: harness.defaults).load()["name@example.com"] == nil)
+    }
+
+    @Test("A confirmation that doesn't match is refused locally, and nothing is deleted")
+    func deleteAccountMismatch() async {
+        let harness = Self.makeHarness()
+        await Self.signIn(harness.model)
+        #expect(await harness.model.deleteAccount(confirmEmail: "other@example.com") == false)
+        #expect(harness.model.error == .confirmationMismatch)
+        #expect(harness.model.phase == .signedIn)
+        #expect(PreviewAccountStore(defaults: harness.defaults).load()["name@example.com"] != nil)
+    }
+
+    @Test("Delete Account is refused during an export")
+    func deleteAccountDuringExport() async {
+        let harness = Self.makeHarness()
+        await Self.signIn(harness.model)
+        harness.export.running = true
+        #expect(await harness.model.deleteAccount(confirmEmail: "name@example.com") == false)
+        #expect(harness.model.phase == .signedIn)
+    }
+
+    @Test("A second delete while one is running is ignored")
+    func deleteAccountOnce() async {
+        let harness = Self.makeHarness()
+        let model = harness.model
+        await Self.signIn(model, email: "slow@example.com")
+        async let first = model.deleteAccount(confirmEmail: "slow@example.com")
+        while !model.isDeletingAccount {
+            await Task.yield()
+        }
+        #expect(await model.deleteAccount(confirmEmail: "slow@example.com") == false)
+        #expect(await first)
+        #expect(model.phase == .signedOut(.welcome))
+    }
+
+    @Test("The deleted notice clears on the next sign-in")
+    func noticeClearsOnSignIn() async {
+        let harness = Self.makeHarness()
+        await Self.signIn(harness.model)
+        await harness.model.deleteAccount(confirmEmail: "name@example.com")
+        #expect(harness.model.notice == .accountDeleted)
+        harness.clock.advance(by: 60)
+        await Self.signIn(harness.model)
+        #expect(harness.model.notice == nil)
+    }
+
+    @Test("The sign-out confirmation flag round trips, and the summary follows the model")
+    func signOutFlagAndSummary() async {
+        let harness = Self.makeHarness()
+        #expect(harness.model.isConfirmingSignOut == false)
+        harness.model.isConfirmingSignOut = true
+        #expect(harness.model.isConfirmingSignOut)
+        harness.model.isConfirmingSignOut = false
+        #expect(harness.model.isConfirmingSignOut == false)
+
+        await Self.signIn(harness.model)
+        #expect(harness.model.summary.state == .free(endedOn: nil))
+        #expect(harness.model.summary.primary == .getPlus)
+    }
 }

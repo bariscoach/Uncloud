@@ -10,6 +10,8 @@ struct PreviewAccountRecord: Codable, Equatable, Sendable {
     var cancelAtPeriodEnd: Bool
     /// The current refresh token, or nil once signed out.
     var refreshToken: String?
+    /// When the account was created. Optional so records saved before it existed still load.
+    var createdAt: Date? = nil
 }
 
 /// Preview accounts in a UserDefaults suite, so they survive relaunches. Tests pass a fresh suite.
@@ -110,7 +112,7 @@ actor PreviewAccountService: AccountService {
         records[email] = record
         persist()
         return AuthSession(
-            account: UncloudAccount(id: record.id, email: email),
+            account: UncloudAccount(id: record.id, email: email, createdAt: record.createdAt),
             tokens: tokens,
             entitlement: Self.entitlement(record, now: current),
             isNewAccount: isNewAccount
@@ -154,6 +156,17 @@ actor PreviewAccountService: AccountService {
     func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL {
         _ = try email(matching: tokens)
         return URL(string: "uncloud://account/refresh")!
+    }
+
+    func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws {
+        let email = try email(matching: tokens)
+        guard let typed = EmailAddress.normalized(confirmEmail), typed == email else {
+            throw AccountError.confirmationMismatch
+        }
+        try await simulateDelay(for: email)
+        if email == "offline@example.com" { throw AccountError.offline }
+        records[email] = nil
+        persist()
     }
 
     func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement {
@@ -204,7 +217,8 @@ actor PreviewAccountService: AccountService {
             status: .none,
             currentPeriodEnd: nil,
             cancelAtPeriodEnd: false,
-            refreshToken: nil
+            refreshToken: nil,
+            createdAt: now
         )
         switch email {
         case "plus@example.com":

@@ -10,6 +10,8 @@ actor FakeLiveService: AccountService {
     var rejectAll = false
     var rejectedAccessTokens: Set<String> = []
     var checkoutError: AccountError?
+    private(set) var deletions: [String] = []
+    var deleteError: AccountError?
     var plan = Entitlement.free
     private let refreshDelay: Duration
 
@@ -73,6 +75,18 @@ actor FakeLiveService: AccountService {
             cancelAtPeriodEnd: !autoRenew,
             checkedAt: Date(timeIntervalSince1970: 1_800_000_000)
         )
+    }
+
+    func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws {
+        try check(tokens)
+        if let deleteError {
+            throw deleteError
+        }
+        deletions.append(confirmEmail)
+    }
+
+    func setDeleteError(_ value: AccountError?) {
+        deleteError = value
     }
 
     func setRejectAll(_ value: Bool) {
@@ -322,5 +336,37 @@ struct AccountModelLiveTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(log.all == [.seconds(2), .seconds(3), .seconds(5), .seconds(10), .seconds(20)])
+    }
+
+    @Test("Delete Account sends the typed email; success forgets the account")
+    func deleteAccountLive() async {
+        let service = FakeLiveService()
+        let (model, _) = Self.signedInModel(service: service)
+        #expect(await model.deleteAccount(confirmEmail: "Name@Example.com") == true)
+        #expect(await service.deletions == ["Name@Example.com"])
+        #expect(model.phase == .signedOut(.welcome))
+        #expect(model.notice == .accountDeleted)
+    }
+
+    @Test("Delete Account offline leaves the account signed in, with the offline message")
+    func deleteAccountOffline() async {
+        let service = FakeLiveService()
+        await service.setDeleteError(.offline)
+        let (model, _) = Self.signedInModel(service: service)
+        #expect(await model.deleteAccount(confirmEmail: "name@example.com") == false)
+        #expect(model.error == .offline)
+        #expect(model.phase == .signedIn)
+        #expect(model.account != nil)
+        #expect(model.isDeletingAccount == false)
+    }
+
+    @Test("A session the server revokes during delete ends sign-in")
+    func deleteAccountRevoked() async {
+        let service = FakeLiveService()
+        await service.setRejectAll(true)
+        let (model, _) = Self.signedInModel(service: service)
+        #expect(await model.deleteAccount(confirmEmail: "name@example.com") == false)
+        #expect(model.phase == .signedOut(.welcome))
+        #expect(model.error == .signedOut)
     }
 }

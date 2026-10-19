@@ -1,8 +1,51 @@
 import AppKit
 import SwiftUI
 
-/// The Settings window (⌘,): automatic backup and general options. The source and account live in the sidebar.
+/// The tabs of the Settings window. `off` builds have no tabs: they keep the single General form (plan §2.1).
+enum SettingsTab: String, CaseIterable {
+    case general, account
+
+    /// The selected tab, remembered across launches and set by Uncloud ▸ Account Settings….
+    static let storageKey = "uncloudSettingsTab"
+
+    static func showsTabs(for mode: AccountMode) -> Bool {
+        mode != .off
+    }
+}
+
+/// The Settings window (⌘,): General, and Account when accounts are on.
 struct SettingsView: View {
+    @Environment(ExportModel.self) private var model
+    @Environment(AccountModel.self) private var account
+    @AppStorage(SettingsTab.storageKey) private var tabRaw = SettingsTab.general.rawValue
+
+    var body: some View {
+        if SettingsTab.showsTabs(for: account.mode) {
+            TabView(selection: tabSelection) {
+                GeneralSettingsForm()
+                    .tabItem { Label("General", systemImage: "gearshape") }
+                    .tag(SettingsTab.general)
+
+                AccountSettingsForm(isExporting: model.isExporting || model.isEngineRunning)
+                    .tabItem { Label("Account", systemImage: "person.crop.circle") }
+                    .tag(SettingsTab.account)
+            }
+            .frame(width: 460)
+        } else {
+            GeneralSettingsForm()
+        }
+    }
+
+    private var tabSelection: Binding<SettingsTab> {
+        Binding(
+            get: { SettingsTab(rawValue: tabRaw) ?? .general },
+            set: { tabRaw = $0.rawValue }
+        )
+    }
+}
+
+/// The General tab: automatic backup, new photos and general options. Its content is the old Settings form.
+struct GeneralSettingsForm: View {
     @Environment(ExportModel.self) private var model
     @Environment(AutoBackupSettings.self) private var settings
     @Environment(AccountModel.self) private var account
@@ -13,11 +56,6 @@ struct SettingsView: View {
         let automatic = account.allows(.automaticBackups)
 
         Form {
-            // First, and absent in `off` builds, which keep the old layout exactly (plan §5.4).
-            if account.mode != .off {
-                AccountSection(isExporting: model.isExporting || model.isEngineRunning)
-            }
-
             Section("Automatic Backup") {
                 // Locked for free accounts: shown off and disabled. The saved values stay as they were (plan C.3).
                 Toggle("Export when the backup drive is connected", isOn: lockable($settings.backUpWhenDriveConnects, allowed: automatic))

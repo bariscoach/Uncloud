@@ -12,8 +12,20 @@ struct ExportCommands: Commands {
     @FocusedValue(\.gridSelection) private var grid
     /// Published by Clean Up iCloud while its grid has focus. Nil elsewhere, which disables Delete and Recover.
     @FocusedValue(\.cleanupCommand) private var cleanup
+    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // Uncloud ▸ Account Settings…, the plan action and Sign Out of Uncloud…, after Settings… (plan §1.3).
+        CommandGroup(after: .appSettings) {
+            ForEach(accountMenuItems) { item in
+                Button(item.title) {
+                    perform(item.action)
+                }
+                .disabled(!item.isEnabled)
+            }
+        }
+
         if account.showsAppMenus {
             // View › Show/Hide Sidebar comes from the system, so it's offered from the menu bar as well.
             SidebarCommands()
@@ -193,6 +205,33 @@ struct ExportCommands: Commands {
             Button("Show Diagnostic Logs in Finder") {
                 HelperTranscript.revealFolder()
             }
+        }
+    }
+
+    /// The account items for the app menu, from the same summary the popover shows.
+    private var accountMenuItems: [AccountMenuItem] {
+        AccountMenuItems.appMenu(summary: account.summary, isExporting: model.isExporting || model.isEngineRunning)
+    }
+
+    /// Opens the main window first when an action needs it, so its sheet or dialog is visible.
+    private func perform(_ action: AccountMenuAction) {
+        switch action {
+        case .accountSettings:
+            UserDefaults.standard.set(SettingsTab.account.rawValue, forKey: SettingsTab.storageKey)
+            openSettings()
+            NSApp.activate()
+        case .getPlus:
+            openWindow(id: "main")
+            NSApp.activate()
+            account.showPaywall()
+        case .manageSubscription, .updatePaymentMethod:
+            Task { await account.openManageSubscription() }
+        case .checkAgain:
+            Task { await account.refreshEntitlement(force: true) }
+        case .signOut:
+            openWindow(id: "main")
+            NSApp.activate()
+            account.isConfirmingSignOut = true
         }
     }
 

@@ -9,7 +9,13 @@ struct WelcomeView: View {
         AccountPage {
             VStack(spacing: 0) {
                 hero
-                    .padding(.bottom, Tokens.Space.xxxl)
+                    .padding(.bottom, account.notice == .accountDeleted ? Tokens.Space.m : Tokens.Space.xxxl)
+                if account.notice == .accountDeleted {
+                    Text("Your Uncloud account was deleted.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, Tokens.Space.xxxl)
+                }
                 features
                     .padding(.bottom, Tokens.Space.xxl)
                 Text(PlanCopy.welcomePlanLine)
