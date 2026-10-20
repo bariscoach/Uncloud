@@ -54,6 +54,7 @@ struct BackupToolButtons: View {
             .disabled(!tools.canOpenVerify)
             .help(help(Self.verifyHelp, .verifyBackup))
             .accessibilityHint(help(Self.verifyHelp, .verifyBackup))
+            .accessibilityValue(lockedValue(.verifyBackup))
 
             Button {
                 account.require(.findDuplicates) { tools.showDuplicates() }
@@ -63,22 +64,28 @@ struct BackupToolButtons: View {
             .disabled(!tools.canOpenDuplicates)
             .help(help(Self.duplicatesHelp, .findDuplicates))
             .accessibilityHint(help(Self.duplicatesHelp, .findDuplicates))
+            .accessibilityValue(lockedValue(.findDuplicates))
 
-            Button {
-                account.require(.freeUpSpace) { tools.showFreeUpSpace() }
-            } label: {
-                Label("Free Up Space…", systemImage: symbol(.freeUpSpace, "externaldrive.badge.minus"))
+            // Free Up Space only frees room on this Mac, so it's offered only for Photos on This Mac.
+            if model.source == .photosLibrary {
+                Button {
+                    account.require(.freeUpSpace) { tools.showFreeUpSpace() }
+                } label: {
+                    Label("Free Up Space…", systemImage: symbol(.freeUpSpace, "internaldrive"))
+                }
+                .disabled(!tools.canOpenFreeUpSpace)
+                .help(help(Self.freeUpSpaceHelp, .freeUpSpace))
+                .accessibilityHint(help(Self.freeUpSpaceHelp, .freeUpSpace))
+                .accessibilityValue(lockedValue(.freeUpSpace))
             }
-            .disabled(!tools.canOpenFreeUpSpace)
-            .help(help(freeUpSpaceHelp, .freeUpSpace))
-            .accessibilityHint(help(freeUpSpaceHelp, .freeUpSpace))
         }
         .buttonStyle(.bordered)
         .padding(.vertical, Tokens.Space.xs)
     }
 
-    private var freeUpSpaceHelp: String {
-        model.source == .photosLibrary ? Self.freeUpSpaceHelp : "Only for Photos on This Mac."
+    /// The accessibility value for a tool: "Requires Uncloud Plus" while it's locked, empty once it's allowed.
+    private func lockedValue(_ feature: PaidFeature) -> String {
+        account.allows(feature) ? "" : "Requires Uncloud Plus"
     }
 
     /// The tool's own symbol, or a lock while it's locked.

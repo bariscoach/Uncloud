@@ -8,26 +8,8 @@ struct BackupPane: View {
         if model.isSourceReady {
             form
         } else {
-            notReady
-        }
-    }
-
-    /// Shown while no source is ready: nothing to export yet, so point back to the Export pane's landing page.
-    private var notReady: some View {
-        ContentUnavailableView {
-            Label {
-                Text("Nothing to Export Yet")
-            } icon: {
-                Image(systemName: "externaldrive")
-                    .foregroundStyle(.secondary)
-            }
-        } description: {
-            Text("Sign in to iCloud or choose Photos on This Mac first.")
-        } actions: {
-            Button("Get Started") {
-                model.pane = .export
-            }
-            .buttonStyle(.borderedProminent)
+            // Until a source is ready, Backup is the place to connect one: the same landing page as first launch.
+            LandingView()
         }
     }
 
@@ -47,13 +29,21 @@ struct BackupPane: View {
             Section {
                 destinationRow
                 if let issue = model.destinationIssue {
-                    Label(issue, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
+                    Label {
+                        Text(issue)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Tokens.Status.danger)
+                    }
                 }
                 spaceNeededRow
                 if let warning = model.storageWarning {
-                    Label(warning, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                    Label {
+                        Text(warning)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Tokens.Status.warning)
+                    }
                 }
                 if model.destination != nil {
                     DriveSummaryRow(
@@ -78,14 +68,22 @@ struct BackupPane: View {
                         .foregroundStyle(.secondary)
                 }
                 if let warning = model.flatFolderWarning {
-                    Label(warning, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    Label {
+                        Text(warning)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Tokens.Status.warning)
+                    }
+                    .font(.caption)
                 }
                 if let notice = model.layoutSwitchNotice {
-                    Label(notice, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    Label {
+                        Text(notice)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Tokens.Status.warning)
+                    }
+                    .font(.caption)
                 }
 
                 VStack(alignment: .leading, spacing: Tokens.Space.xs) {
