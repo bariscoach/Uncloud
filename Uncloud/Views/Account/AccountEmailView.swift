@@ -82,43 +82,20 @@ struct AccountEmailView: View {
     }
 
     private var title: String {
-        intent == .signUp ? "Create Your Uncloud Account" : "Sign In to Uncloud"
+        "Continue with Email"
     }
 
     private var explanation: String {
-        intent == .signUp
-            ? "Enter your email and we’ll send you a 6-digit code. There’s no password to remember."
-            : "Enter the email you used for your Uncloud account and we’ll send you a code."
+        "Enter your email to get a 6-digit code. If you’re new, the code creates your Uncloud account."
     }
 
-    /// Sign Up links to the terms. Both screens offer the other one as a link.
-    @ViewBuilder
     private var footnote: some View {
-        if intent == .signUp {
-            VStack(spacing: Tokens.Space.m) {
-                Text("By creating an account, you agree to the [Terms of Use](\(AccountLinks.terms(.current).absoluteString)) and [Privacy Policy](\(AccountLinks.privacy(.current).absoluteString)).")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .tint(accent ?? .accentColor)
-                    .fixedSize(horizontal: false, vertical: true)
-                switchLink(prompt: "Already have an account?", action: "Sign In", to: .signIn)
-            }
-        } else {
-            switchLink(prompt: "New to Uncloud?", action: "Create Account", to: .signUp)
-        }
-    }
-
-    private func switchLink(prompt: String, action: String, to route: AccountModel.Route) -> some View {
-        HStack(spacing: Tokens.Space.xs) {
-            Text(prompt)
-                .foregroundStyle(.secondary)
-            Button(action) {
-                account.show(route)
-            }
-            .buttonStyle(.link)
-        }
-        .font(.callout)
+        Text("By continuing, you agree to the [Terms of Use](\(AccountLinks.terms(.current).absoluteString)) and [Privacy Policy](\(AccountLinks.privacy(.current).absoluteString)).")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .tint(accent ?? .accentColor)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func submit() {

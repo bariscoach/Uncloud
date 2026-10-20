@@ -248,7 +248,7 @@ struct PaywallSheet: View {
             .controlSize(Tokens.Sheet.footerControlSize)
             if account.checkout != .active {
                 HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.s) {
-                    Button("Already Subscribed? Refresh") {
+                    Button("Already Subscribed? Check Again") {
                         Task {
                             await account.refreshEntitlement(force: true)
                             refreshFoundNoPlan = account.access == .free
@@ -256,9 +256,9 @@ struct PaywallSheet: View {
                     }
                     .buttonStyle(.link)
                     .fixedSize()
-                    .help("Looks up your plan again.")
+                    .help("Check your plan again")
                     if refreshFoundNoPlan, case .idle = account.checkout {
-                        Text("We couldn’t find a plan for \(account.account?.email ?? "this account").")
+                        Text("No Uncloud Plus plan found for \(account.account?.email ?? "this account").")
                             .font(Tokens.Font.meta)
                             .foregroundStyle(.secondary)
                     }

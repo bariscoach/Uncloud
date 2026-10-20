@@ -10,7 +10,7 @@ enum PlanCopy {
     /// The one-year option's price, with tax: "$9.99 + tax".
     static let onePricePlusTax = "\(price) + tax"
     /// The Welcome page's one quiet line about what is free and what costs money.
-    static let welcomePlanLine = "Export is free. Everything else is Uncloud Plus, \(yearlyPrice)."
+    static let welcomePlanLine = "Export is free. Uncloud Plus is \(yearlyPrice)."
 }
 
 /// The signed-in Uncloud account. The email is shown in Settings; the id is the server's.
@@ -86,7 +86,7 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .automaticBackups: "Automatic Backups"
-        case .newPhotos: "New Photos"
+        case .newPhotos: "New Photo Reminders"
         case .browseBackup: "Browse Backup"
         case .findDuplicates: "Find Duplicates"
         case .verifyBackup: "Verify Backup"
@@ -99,18 +99,17 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .automaticBackups: "clock.arrow.circlepath"
         case .newPhotos: "bell.badge"
-        case .browseBackup: "map"
+        case .browseBackup: "photo.stack"
         case .findDuplicates: "doc.on.doc"
         case .verifyBackup: "checkmark.shield"
-        case .freeUpSpace: "externaldrive.badge.minus"
+        case .freeUpSpace: "internaldrive"
         case .cleanUpICloud: "icloud"
         }
     }
 
-    /// The name used on the paywall. New Photos is paid for its reminders only; its count stays free (owner decision 2).
-    var paywallTitle: String {
-        self == .newPhotos ? "Reminders" : title
-    }
+    /// The name used on the paywall. It is the same as `title`: New Photo Reminders is the paid part of New Photos,
+    /// and its count stays free (owner decision 2).
+    var paywallTitle: String { title }
 
     /// A second line for the locked pane, under the summary, where the feature needs one. Nil for the rest.
     var lockedNote: String? {
@@ -126,11 +125,11 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
     var summary: String {
         switch self {
         case .automaticBackups: "Exports new photos on its own when your drive connects, or once a day."
-        case .newPhotos: "Lets you know when new photos are waiting to be backed up."
-        case .browseBackup: "Look through your backup by date or on a map, no iCloud needed."
+        case .newPhotos: "Reminds you when new photos are waiting to be exported."
+        case .browseBackup: "Look through your backup by date, place or map, without iCloud."
         case .findDuplicates: "Finds photos saved more than once, so you can tidy up."
         case .verifyBackup: "Checks that every file in your backup is intact."
-        case .freeUpSpace: "Removes backed-up photos from this Mac to make room."
+        case .freeUpSpace: "Removes backed-up photos from Photos on this Mac to make room."
         case .cleanUpICloud: "Deletes backed-up photos from iCloud, and recovers them if you change your mind."
         }
     }
@@ -159,11 +158,11 @@ enum AccountError: Error, Equatable, Sendable {
         case .tooManyAttempts: "Too many tries. Send a new code and try again."
         case .rateLimited: "Too many codes requested. Try again in a few minutes."
         case .offline: "Can’t reach Uncloud. Check your internet connection and try again."
-        case .server: "Something went wrong on our side. Try again in a moment."
+        case .server: "Uncloud couldn’t finish that. Try again in a moment."
         case .signedOut: "You’ve been signed out. Sign in again to keep using Uncloud Plus."
         case .checkoutUnavailable: "Checkout isn’t available right now. Try again later."
         case .alreadySubscribed: "You already have Uncloud Plus."
-        case .noSubscription: "There’s no plan to change. Get Uncloud Plus to start one."
+        case .noSubscription: "You don’t have Uncloud Plus yet."
         case .confirmationMismatch: "The email doesn’t match your Uncloud account."
         }
     }

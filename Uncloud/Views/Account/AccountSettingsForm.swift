@@ -67,19 +67,15 @@ struct AccountSettingsForm: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            Text("Sign in to use Uncloud Plus on this Mac. Export is free without an account.")
+            Text("Export is free with a free account. Sign in to use Uncloud Plus on this Mac.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button("Sign In…") {
-                    openMain(.signIn)
-                }
-                .buttonStyle(.bordered)
-                Button("Create Account…") {
+                Button("Continue with Email…") {
                     openMain(.signUp)
                 }
-                .buttonStyle(.link)
+                .buttonStyle(.bordered)
             }
         }
     }
@@ -199,7 +195,7 @@ struct AccountSettingsForm: View {
                 }
                 .buttonStyle(.bordered)
                 Spacer()
-                Button("Already Subscribed? Refresh") {
+                Button("Already Subscribed? Check Again") {
                     Task { await account.refreshEntitlement(force: true) }
                 }
                 .buttonStyle(.link)
