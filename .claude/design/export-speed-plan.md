@@ -65,3 +65,11 @@ one was set on it (simulate by setting it with `os.setxattr` before the finish s
   Research spike first.
 - **Month folders / APFS**: a flat folder of 100k+ files on exFAT will always be slow. Offer "Reorganize into
   month folders" (moves within the drive, no re-download), and/or tell Mac-only users APFS is much faster.
+
+## Result (2026-10-19, 0.1.12)
+- Part 1 shipped (dd91c94); resumes also use the quick update when the last full check is recent.
+- Part 2: impossible inside the App Sandbox. In the sandboxed test host every file written (Data.write, createFile,
+  POSIX open, hard link, the bundled Python child) gets `com.apple.quarantine`; `removexattr`/`setxattr` return
+  EPERM even on files without the attribute; `files.user-selected.executable` changed nothing in the temp folder
+  (inconclusive for user-selected folders). Only options: leave the sandbox (Developer ID app, not App Store), or
+  clean up `._` files afterwards, or a different layout/drive format.
