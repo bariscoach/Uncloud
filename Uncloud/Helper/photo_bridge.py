@@ -36,6 +36,9 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
          {"event":"skipped","asset","rank","filename","path","paths","files"},
          {"event":"failed","asset","rank","filename","reason","paths"};
          finally {"event":"done","downloaded":N,"skipped":N,"failed":N,"cancelled":BOOL}.
+         In allExcept mode, while a long run of items passed over (IDs in "ids") is walked, also
+         {"event":"walked","rank":R} every PAGE_CHUNK items, R being the rank the walk is at; a walk over
+         known items then shows its progress without a file check per item.
          Paths are absolute and never shortened. path: the item's first file; paths: the files this
          request wrote (downloaded) or found already there (skipped); files: every file the item has on
          disk now, written or found, plus its XMP sidecar when there is one.
@@ -1026,7 +1029,7 @@ class Bridge:
                     break
                 if asset.id in ids:
                     run.set_total(run.total - 1)
-                    run.idle()
+                    run.idle(rank)
                     continue
                 run.process(asset, rank)
             return
@@ -1354,11 +1357,14 @@ class _DownloadRun(_RequestRun):
             self._announced = state
             self.channel.send({"id": self.request_id, "event": "progress", "done": self.done, "total": self.total})
 
-    def idle(self) -> None:
-        """Called for items passed over, so browsing stays answered during long scans."""
+    def idle(self, rank: Optional[int] = None) -> None:
+        """Called for items passed over, so browsing stays answered during long scans. With a rank, the walk's
+        position is reported every PAGE_CHUNK items too."""
         self._since_poll += 1
         if self._since_poll >= PAGE_CHUNK:
             self._since_poll = 0
+            if rank is not None:
+                self.channel.send({"id": self.request_id, "event": "walked", "rank": rank})
             self.bridge.serve_waiting()
 
     def process(self, asset: Any, rank: Optional[int] = None) -> None:

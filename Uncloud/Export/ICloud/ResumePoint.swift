@@ -87,6 +87,12 @@ struct ICloudResumeSettings: Sendable, Equatable {
     var pageSize = 100
     /// More items than this fraction of the library to fetch one by one: walking is cheaper.
     var maxSelectiveFraction = 0.3
+    /// How long after a full walk a quick update may stand in for one (see `ICloudQuickUpdate`).
+    var fullCheckInterval: TimeInterval = 30 * 24 * 60 * 60
+    /// How many ranks from the top a quick update scans for new items before it gives up.
+    var quickScanLimit = 5_000
+    /// More new items than this for a quick update means a full check instead.
+    var quickMaxItems = 2_000
 }
 
 /// How a whole-library bridge export proceeds.

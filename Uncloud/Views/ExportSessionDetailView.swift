@@ -226,6 +226,7 @@ struct ExportSessionDetailView: View {
                 "Continued where the last export stopped"
             }
         case .selection: "Exported only the selected photos"
+        case .quick: "Checked for new photos only"
         }
     }
 }

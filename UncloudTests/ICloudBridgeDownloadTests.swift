@@ -139,6 +139,9 @@ import Testing
                                                           paths: ["/D/A.JPG"], files: ["/D/A.JPG"])))
         let done = try event(#"{"id":3,"event":"done","downloaded":2,"skipped":5,"failed":1,"cancelled":false}"#)
         #expect(done == .done(downloaded: 2, skipped: 5, failed: 1, cancelled: false))
+        // A walk past items on the drive reports its rank; without one it's ignored.
+        #expect(try event(#"{"id":3,"event":"walked","rank":4999}"#) == .walked(rank: 4999))
+        #expect(try event(#"{"id":3,"event":"walked"}"#) == nil)
         #expect(try event(#"{"id":3,"event":"pong"}"#) == nil)
     }
 

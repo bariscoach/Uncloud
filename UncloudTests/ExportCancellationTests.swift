@@ -619,6 +619,18 @@ struct ExportCancellationTests {
         #expect(batch.entries.map(\.message) == ["Skipping 4 photos that are already backed up.", "Exported a (2 files)"])
     }
 
+    @Test func checkingProgressKeepsTheLastValueAndIsNotAnItem() {
+        var batch = ExportBatch()
+        #expect(batch.isEmpty)
+        batch.add(.checked(done: 10, total: 100))
+        batch.add(.checked(done: 40, total: 100))
+        #expect(!batch.isEmpty)
+        #expect(batch.checked?.done == 40)
+        #expect(batch.checked?.total == 100)
+        #expect(batch.processed == 0)
+        #expect(batch.entries.isEmpty)
+    }
+
     // MARK: - Pause gate
 
     /// Pausing or resuming while an observer is being cancelled used to deadlock: the gate told

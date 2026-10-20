@@ -26,6 +26,12 @@ struct ProgressCard: View {
                         .accessibilityLabel("Export progress")
                 }
                 countsLine
+                if let checking = model.checkingProgressText {
+                    Text(checking)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
             }
 
             if !hidesIdleSummary {

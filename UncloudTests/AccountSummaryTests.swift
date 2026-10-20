@@ -220,7 +220,7 @@ struct AccountSummaryTests {
 
     @Test("The initial is the first letter or digit of the local part, uppercased")
     func initials() {
-        #expect(AccountSummary.initial(for: "name@example.com") == "B")
+        #expect(AccountSummary.initial(for: "name@example.com") == "N")
         #expect(AccountSummary.initial(for: "_x@example.com") == nil)
         #expect(AccountSummary.initial(for: "9a@example.com") == "9")
         #expect(AccountSummary.initial(for: nil) == nil)
@@ -229,7 +229,7 @@ struct AccountSummaryTests {
     @Test("The avatar and the value follow the account, and the member date comes from it")
     func profileFields() {
         let summary = Self.signedIn(.free)
-        #expect(summary.initial == "B")
+        #expect(summary.initial == "N")
         #expect(summary.memberSince == Self.account.createdAt)
         #expect(summary.accessibilityValue == "name@example.com, Free")
         #expect(summary.hasAccount)

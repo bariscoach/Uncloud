@@ -246,6 +246,8 @@ struct ExportSession: Codable, Identifiable, Equatable, Sendable {
             case fullWalk
             case fromRank
             case selection
+            /// Only the new photos at the top of the library (the routine quick update).
+            case quick
         }
 
         var strategy: Strategy

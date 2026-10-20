@@ -180,6 +180,8 @@ enum ICloudBridgeDownloadEvent: Sendable, Equatable {
     case downloaded(ICloudBridgeItemResult)
     case skipped(ICloudBridgeItemResult)
     case failed(asset: String, rank: Int?, filename: String, reason: String)
+    /// The walk is at this rank while it passes over items already on the drive (allExcept only).
+    case walked(rank: Int)
     case done(downloaded: Int, skipped: Int, failed: Int, cancelled: Bool)
 
     /// Nil for messages that aren't download events.
@@ -202,6 +204,9 @@ enum ICloudBridgeDownloadEvent: Sendable, Equatable {
             guard let asset = message.asset else { return nil }
             self = .failed(asset: asset, rank: message.rank, filename: message.filename ?? asset,
                            reason: message.reason ?? "iCloud reported a problem.")
+        case "walked":
+            guard let rank = message.rank else { return nil }
+            self = .walked(rank: rank)
         case "done":
             self = .done(downloaded: message.downloaded ?? 0, skipped: message.skipped ?? 0,
                          failed: message.failed ?? 0, cancelled: message.cancelled ?? false)

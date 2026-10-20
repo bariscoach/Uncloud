@@ -11,6 +11,8 @@ enum ExportEvent: Sendable {
     case skipped
     case failed(name: String, reason: String)
     case note(String)
+    /// How far a full check has got through the library's walk, for progress that isn't items (iCloud).
+    case checked(done: Int, total: Int)
     /// How the run continues from earlier exports, for the export session (iCloud).
     case continuation(ExportSession.Continuation)
 }

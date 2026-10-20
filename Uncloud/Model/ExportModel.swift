@@ -39,6 +39,8 @@ final class ExportModel {
     private(set) var destinationIssue: String?
     private(set) var totalCount = 0
     private(set) var processedCount = 0
+    /// How far a full check of the iCloud library has walked, while it does (for progress that isn't items).
+    private(set) var checkingProgress: (done: Int, total: Int)?
     private(set) var failedCount = 0
     private(set) var hasIncompleteRun = false
     /// True when the unfinished run was Export All, as its session recorded. Resume Export continues it with everything.
@@ -471,6 +473,12 @@ final class ExportModel {
         totalCount > 0 ? Double(processedCount) / Double(totalCount) : 0
     }
 
+    /// "Checking your library: 41,000 of 93,222" while a full check walks past the photos already on the drive.
+    var checkingProgressText: String? {
+        guard let checkingProgress else { return nil }
+        return "Checking your library: \(checkingProgress.done.formatted()) of \(checkingProgress.total.formatted())"
+    }
+
     // MARK: - Export control
 
     /// True while an unfinished run waits to be resumed by hand, after it stopped, failed or was cancelled. Then the
@@ -512,6 +520,13 @@ final class ExportModel {
             return
         }
         startRun(selection: .everything)
+    }
+
+    /// Goes through the whole iCloud library, not just the new photos a routine export checks. For when the
+    /// owner wants to be sure; the quick update of new photos stays the routine path.
+    func checkWholeLibrary() {
+        guard destination != nil, source == .iCloud else { return }
+        startRun(selection: .everything, forcesFullCheck: true)
     }
 
     /// Opens the folder picker for a plain "choose folder". Clears any export that was waiting for a
@@ -602,7 +617,7 @@ final class ExportModel {
         return destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady : canStart
     }
 
-    private func startRun(selection: LibrarySelection?, resumesInterrupted: Bool = false) {
+    private func startRun(selection: LibrarySelection?, resumesInterrupted: Bool = false, forcesFullCheck: Bool = false) {
         guard canStart else { return }
         if phase == .paused {
             resume()
@@ -618,10 +633,10 @@ final class ExportModel {
                     let proceed = await (storageWarningConfirmation ?? confirmExport(despite:))(warning)
                     isConfirmingStorageWarning = false
                     guard proceed else { return }
-                    await startExport(selection: selection, resumesInterrupted: resumesInterrupted)
+                    await startExport(selection: selection, resumesInterrupted: resumesInterrupted, forcesFullCheck: forcesFullCheck)
                 }
             } else {
-                Task { await startExport(selection: selection, resumesInterrupted: resumesInterrupted) }
+                Task { await startExport(selection: selection, resumesInterrupted: resumesInterrupted, forcesFullCheck: forcesFullCheck) }
             }
         }
     }
@@ -714,13 +729,15 @@ final class ExportModel {
     /// `automatic` marks the run as started by automatic backup, once it has really started.
     /// `resumeAttempt` marks it as an automatic resume; any other run replaces a pending resume.
     /// `resumesInterrupted` marks it as Resume Export, which continues the unfinished run whatever its age.
+    /// `forcesFullCheck` makes a whole-library iCloud run a full check, not a quick update of new photos.
     /// Returns whether the run started.
     @discardableResult
     private func startExport(
         selection override: LibrarySelection? = nil,
         automatic: Bool = false,
         resumeAttempt: Int? = nil,
-        resumesInterrupted: Bool = false
+        resumesInterrupted: Bool = false,
+        forcesFullCheck: Bool = false
     ) async -> Bool {
         guard !isExporting, !isEngineRunning else { return false }
         cancelNewPhotosRefresh()
@@ -750,6 +767,7 @@ final class ExportModel {
         failedCount = 0
         exportedThisRun = 0
         skippedThisRun = 0
+        checkingProgress = nil
         estimatedTimeRemaining = nil
         clock = SessionClock()
         let isResuming = hasIncompleteRun
@@ -865,7 +883,8 @@ final class ExportModel {
                 rankHints: hints,
                 alreadyOnDrive: report?.onDrive,
                 missingItems: missing,
-                resumeSettings: iCloudResumeSettings
+                resumeSettings: iCloudResumeSettings,
+                quickUpdate: selection.isEverything && !resumesInterrupted && !forcesFullCheck
             ).start()
         }
         runTask = run.task
@@ -931,6 +950,9 @@ final class ExportModel {
         }
         totalCount += batch.totalIncrease
         processedCount += batch.processed
+        if let checked = batch.checked {
+            checkingProgress = checked
+        }
         skippedThisRun += batch.skipped
         exportedThisRun += batch.exported
         failedCount += batch.failed
@@ -959,6 +981,7 @@ final class ExportModel {
         runTask = nil
         runNumber += 1
         gate = nil
+        checkingProgress = nil
         phase = result
         if result == .completed {
             lastBackupDate = .now

@@ -626,6 +626,26 @@ class SessionsProtocolTests(unittest.TestCase):
         self.assertEqual([(i["id"], i["rank"]) for i in channel.messages[-1]["items"]],
                          [("ID03", 2), ("ID04", 3), ("ID05", 4)])
 
+    def test_a_walk_over_known_items_reports_its_rank(self):
+        """A long run of items passed over (already on the drive) sends "walked" events with the rank the walk
+        is at, so the app can show progress without a file check per item."""
+        samples = self.many(250)
+        bridge, channel, session = make_bridge(samples)
+        known = [f"N{i:04d}" for i in range(200)]
+        events = self.download(bridge, mode="allExcept", ids=known)
+        walked = [e["rank"] for e in events if e["event"] == "walked"]
+        self.assertEqual(walked, [pb.PAGE_CHUNK - 1, 2 * pb.PAGE_CHUNK - 1])
+        self.assertTrue(all(e["id"] == 9 for e in events if e["event"] == "walked"))
+        self.assertEqual([e["asset"] for e in events if e["event"] == "downloaded"],
+                         [f"N{i:04d}" for i in range(200, 250)])
+        self.assertEqual(events[-1]["event"], "done")
+
+    def test_only_mode_and_normal_walks_send_no_walked_events(self):
+        samples = self.many(250)
+        bridge, channel, session = make_bridge(samples)
+        events = self.download(bridge, mode="allExcept", ids=[])
+        self.assertEqual([e for e in events if e["event"] == "walked"], [])
+
     def test_start_rank_pages_from_that_rank_only(self):
         samples = self.many(250)
         bridge, channel, session = make_bridge(samples)

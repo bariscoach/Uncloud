@@ -31,6 +31,9 @@ struct ICloudExportEngine: Sendable {
     /// Whole-library exports in the month and flat layouts go through the bridge; false runs icloudpd instead.
     var usesBridgeForEverything = ICloudExportEngine.fullExportsUseBridge
     var resumeSettings = ICloudResumeSettings()
+    /// A whole-library export only looks for new photos at the top of the library, when a full check was
+    /// done recently enough (see `ICloudQuickUpdate`). False runs the full check, as before.
+    var quickUpdate = false
 
     /// The hidden switch for whole-library bridge exports (on unless set to false).
     static let fullExportsUseBridgeKey = "iCloudFullExportsUseBridge"
@@ -401,7 +404,7 @@ struct ICloudExportEngine: Sendable {
                 }
                 failures += 1
                 emit(.failed(name: filename, reason: reason))
-            case .done:
+            case .done, .walked:
                 break
             }
         }
@@ -527,6 +530,28 @@ extension ICloudExportEngine {
         let now = Date()
         let stored = ICloudResumePoint.load(in: destination)
         let previous = stored.flatMap { $0.account == account && $0.layout == layout.rawValue ? $0 : nil }
+        if quickUpdate {
+            let eligible = ICloudQuickUpdate.isEligible(
+                point: previous, account: account, layout: layout, known: known, missing: missingItems.subtracting(known),
+                now: now, maxAge: resumeSettings.fullCheckInterval
+            )
+            if eligible {
+                let quick = try await ICloudQuickUpdate.plan(
+                    libraryCount: libraryCount, known: known, settings: resumeSettings,
+                    fetch: { offset, limit in try await bridge.page(offset: offset, limit: limit).map(\.id) }
+                )
+                switch quick {
+                case .only(let items):
+                    try await runQuickUpdate(items, bridge: bridge, manifest: manifest, scanner: scanner, known: known, emit: emit)
+                    return
+                case .fullCheck(let reason):
+                    emit(.note(reason))
+                }
+            } else if !known.isEmpty {
+                // Nothing to look for quickly when nothing was exported before; a first export is just a full check.
+                emit(.note(ICloudQuickUpdate.reasonDue))
+            }
+        }
         let plan = try await ICloudResumePlanner.plan(
             .init(point: previous, account: account, layout: layout, now: now, libraryCount: libraryCount,
                   known: known, missing: missingItems.subtracting(known), settings: resumeSettings),
@@ -653,6 +678,8 @@ extension ICloudExportEngine {
                             sinceSave = 0
                             savePoint()
                         }
+                    case .walked(let rank):
+                        emit(.checked(done: min(rank + 1, libraryCount), total: libraryCount))
                     case .failed(let asset, _, let filename, let reason):
                         coverage.failed()
                         walkFailed = true
@@ -680,6 +707,8 @@ extension ICloudExportEngine {
                     switch event {
                     case .downloaded(let item), .skipped(let item):
                         try finished(item, downloaded: { if case .downloaded = event { true } else { false } }())
+                    case .walked(let rank):
+                        emit(.checked(done: min(rank + 1, libraryCount), total: libraryCount))
                     case .failed(let asset, _, let filename, let reason):
                         try failed(message, asset: asset, filename: filename, reason: reason)
                     default:
@@ -699,6 +728,76 @@ extension ICloudExportEngine {
             throw error
         }
         savePoint()
+        try scanner.hash(pendingHashes)
+        // Leave the run marked incomplete when items failed, so Resume retries them.
+        if failures == 0 {
+            manifest.markRunFinished()
+        }
+    }
+
+    /// A quick update: downloads the new items found at the top of the library, by ID, and nothing else. It doesn't
+    /// walk, and it never saves a resume point, so the last full check's point and `lastFullWalkAt` stay as they were.
+    private func runQuickUpdate(
+        _ items: [String: Int],
+        bridge: ICloudBridge,
+        manifest: ExportManifest,
+        scanner: ICloudChecksumScanner,
+        known: Set<String>,
+        emit: @escaping @Sendable (ExportEvent) -> Void
+    ) async throws {
+        emit(.continuation(.init(strategy: .quick, startRank: nil, fallbackReason: nil)))
+        // Progress starts from what is on the drive already, as in a full check.
+        let onDrive = max(0, alreadyOnDrive ?? known.count)
+        emit(.prepared(total: onDrive + items.count, alreadyExported: onDrive))
+        guard !items.isEmpty else {
+            emit(.note("No new photos since your last export."))
+            manifest.markRunFinished()
+            return
+        }
+        emit(.note("Looking for new photos only. Uncloud checks your whole library about once a month."))
+
+        var failures = 0
+        var pendingHashes: [String] = []
+        // Files from icloudpd runs and older versions have no ID record; the check counted them by path.
+        var legacySkips = SkipAbsorber(limit: max(0, onDrive - known.count))
+        do {
+            try await download({
+                ICloudBridgeDownloadOptions(
+                    mode: .only, ids: items.keys.sorted(), destination: destination, layout: layout == .flat ? .none : .month,
+                    writesSidecars: writesSidecars, rankHints: items, startRank: 0, stopAt: nil
+                )
+            }, bridge: bridge) { message, event in
+                switch event {
+                case .downloaded(let item):
+                    let files = relativePaths(item.files)
+                    try record(item, files: files, manifest: manifest, scanner: scanner)
+                    pendingHashes += files
+                    let bytes = ExportEngine.totalSize(of: item.paths.map { URL(filePath: $0) })
+                    emit(.exported(name: item.filename, fileCount: max(1, item.paths.count), bytes: bytes))
+                case .skipped(let item):
+                    let files = relativePaths(item.files)
+                    try record(item, files: files, manifest: manifest, scanner: scanner)
+                    pendingHashes += files
+                    if !legacySkips.absorb() {
+                        emit(.skipped)
+                    }
+                case .failed(let asset, _, let filename, let reason):
+                    try checkDestination(after: reason)
+                    let written = relativePaths(message.paths ?? [])
+                    if !written.isEmpty {
+                        scanner.exclude(written)
+                        try? manifest.recordPartialICloudItem(id: asset, paths: written)
+                    }
+                    failures += 1
+                    emit(.failed(name: filename, reason: reason))
+                default:
+                    break
+                }
+            }
+        } catch {
+            _ = try? scanner.hash(pendingHashes)
+            throw error
+        }
         try scanner.hash(pendingHashes)
         // Leave the run marked incomplete when items failed, so Resume retries them.
         if failures == 0 {

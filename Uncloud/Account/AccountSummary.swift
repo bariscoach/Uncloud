@@ -133,8 +133,10 @@ struct AccountSummary: Equatable {
         }
         if access == .plus {
             let end = anchor ?? now
-            let state: State = entitlement.cancelAtPeriodEnd ? .plusEnding(endsOn: end) : .plusRenewing(renewsOn: end)
-            return summary(state, badge: plusBadge, primary: .manage, renewalToggle: anchor != nil,
+            // A canceled plan keeps Plus until its end, but never renews.
+            let state: State = entitlement.cancelAtPeriodEnd || entitlement.status == .canceled ? .plusEnding(endsOn: end) : .plusRenewing(renewsOn: end)
+            return summary(state, badge: plusBadge, primary: .manage,
+                           renewalToggle: anchor != nil && entitlement.status != .canceled,
                            lastChecked: lastChecked, email: email, memberSince: memberSince)
         }
         let endedOn = entitlement.status != .none ? anchor : nil

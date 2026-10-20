@@ -92,11 +92,19 @@ extension ExportCancellationTests {
     }
 
     /// Starts an export and waits until it has ended, by its session (the phase may already read completed).
+    /// `fullCheck` (the default, for the walk tests below) starts it as Check Whole Library; otherwise it's a
+    /// routine export, which is a quick update when a full check was recent enough.
     @MainActor
-    private static func export(_ harness: ModelHarness, until status: Set<ExportSession.Status> = [.completed]) async -> ExportSession? {
+    private static func export(
+        _ harness: ModelHarness, until status: Set<ExportSession.Status> = [.completed], fullCheck: Bool = true
+    ) async -> ExportSession? {
         let model = harness.model
         let before = model.sessions.count { $0.kind == .export }
-        model.startOrResume()
+        if fullCheck {
+            model.checkWholeLibrary()
+        } else {
+            model.startOrResume()
+        }
         let ended = await harness.waitFor(.seconds(40)) {
             let sessions = model.sessions.filter { $0.kind == .export }
             guard sessions.count > before, let last = sessions.last, last.isFinished else { return false }
@@ -107,6 +115,78 @@ extension ExportCancellationTests {
             return nil
         }
         return model.sessions.last { $0.kind == .export }
+    }
+
+    // MARK: - Routine exports: new photos only
+
+    @Test @MainActor func aRoutineExportOnlyLooksForNewPhotosAndLeavesTheResumePointAlone() async throws {
+        let state = Self.temporaryPath("state")
+        defer { try? FileManager.default.removeItem(atPath: state) }
+        let fixture = try Fixture(bridge: ["--total", "1000", "--rate", "0", "--state", state])
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        let model = harness.model
+        try await Self.keepingLibraryCount {
+            let first = try #require(await Self.export(harness))
+            #expect(first.continuation == .init(strategy: .fullWalk, startRank: 0, fallbackReason: nil))
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination))
+
+            // Three photos taken since: only they are fetched, by ID, and nothing is walked.
+            Self.relaunchBridge(fixture, ["--rate", "0", "--state", state, "--insert-at", "0", "--insert-count", "3"])
+            let mark = fixture.launchLines.count
+            let second = try #require(await Self.export(harness, fullCheck: false))
+            Self.relaunchBridge(fixture, ["--rate", "0", "--state", state])
+            #expect(Self.downloadStarts(fixture, after: mark) == [.init(startRank: 0, mode: "only", layout: "month")])
+            #expect(second.continuation == .init(strategy: .quick, startRank: nil, fallbackReason: nil))
+            #expect(second.counts.exported == 3)
+            #expect(second.result.status == .completed)
+            #expect(fixture.files(withExtension: "JPG").count == 1003)
+            #expect(ExportManifest.iCloudItems(in: fixture.destination).count == 1003)
+            #expect(model.processedCount == 1003 && model.totalCount == 1003)
+            #expect(model.activity.contains { $0.message.hasPrefix("Looking for new photos only") })
+            // The point is the full check's, unchanged, so the next full check continues from the same anchor.
+            let after = try #require(ICloudResumePoint.load(in: fixture.destination))
+            #expect(after.anchor == point.anchor && after.coveredThrough == point.coveredThrough)
+            #expect(after.lastFullWalkAt == point.lastFullWalkAt)
+
+            // Nothing new since: no download at all.
+            let quietMark = fixture.launchLines.count
+            let third = try #require(await Self.export(harness, fullCheck: false))
+            #expect(Self.downloadStarts(fixture, after: quietMark).isEmpty)
+            #expect(third.continuation?.strategy == .quick)
+            #expect(third.counts.exported == 0)
+            #expect(model.activity.contains { $0.message == "No new photos since your last export." })
+        }
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func aRoutineExportAfterAStaleFullCheckChecksTheWholeLibraryAndSaysWhy() async throws {
+        let state = Self.temporaryPath("state")
+        defer { try? FileManager.default.removeItem(atPath: state) }
+        let fixture = try Fixture(bridge: ["--total", "1000", "--rate", "0", "--state", state])
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        let model = harness.model
+        try await Self.keepingLibraryCount {
+            #expect(await Self.export(harness)?.result.status == .completed)
+            // The last full check was over a month ago, so the routine export can't stand in for one.
+            var point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            point.lastFullWalkAt = Date().addingTimeInterval(-31 * 24 * 60 * 60)
+            try point.save(in: fixture.destination)
+
+            Self.relaunchBridge(fixture, ["--rate", "0", "--state", state, "--insert-at", "0", "--insert-count", "3"])
+            let mark = fixture.launchLines.count
+            let second = try #require(await Self.export(harness, fullCheck: false))
+            Self.relaunchBridge(fixture, ["--rate", "0", "--state", state])
+            #expect(Self.downloadStarts(fixture, after: mark) == [
+                .init(startRank: 0, mode: "only", layout: "month"),
+                .init(startRank: 0, mode: "allExcept", layout: "month", stopAt: "asset-999"),
+            ])
+            #expect(second.continuation == .init(strategy: .fromRank, startRank: 1003, fallbackReason: nil))
+            #expect(second.counts.exported == 3)
+            #expect(model.activity.contains { $0.message == ICloudQuickUpdate.reasonDue })
+            let again = try #require(ICloudResumePoint.load(in: fixture.destination))
+            #expect(try #require(again.lastFullWalkAt) > point.lastFullWalkAt!)
+        }
+        await harness.tearDown()
     }
 
     // MARK: - Continuing from the anchor

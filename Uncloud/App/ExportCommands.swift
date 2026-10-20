@@ -129,6 +129,14 @@ struct ExportCommands: Commands {
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(!model.canExportAll)
 
+                // Every photo in the iCloud library, not just the new ones a routine export checks. Takes longer.
+                if model.source == .iCloud {
+                    Button("Check Whole Library") {
+                        model.checkWholeLibrary()
+                    }
+                    .disabled(!model.canExportAll || model.destination == nil)
+                }
+
                 Divider()
 
                 Button(model.phase == .paused ? "Resume Export" : "Pause Export") {
