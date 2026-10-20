@@ -17,7 +17,7 @@ final class ExportModel {
         case failed(String)
     }
 
-    /// The sidebar pane of the main window: the Export grid or the Backup pane.
+    /// The sidebar pane of the main window. `export` is the Library grid (shown as "Library"); `backup` is the home pane.
     enum Pane: Hashable {
         case export
         case backup
@@ -32,7 +32,8 @@ final class ExportModel {
         var id: Self { self }
     }
 
-    var pane: Pane = .export
+    /// Backup is the home pane. Nothing persists the selected pane, so every launch starts here.
+    var pane: Pane = .backup
     private(set) var phase: Phase = .idle
     private(set) var authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     private(set) var destination: Destination?
@@ -226,10 +227,6 @@ final class ExportModel {
         restoreDestination()
         observeSignIn()
         updateBrowser()
-
-        // An unfinished export opens on the Backup pane, where it can be resumed.
-        let unfinished = isSourceReady && (destination.map { ExportManifest.hasIncompleteRun(in: $0.url) } ?? false)
-        pane = unfinished ? .backup : .export
     }
 
     /// New installs use iCloud. An install that already exports from the Photos library keeps doing so.

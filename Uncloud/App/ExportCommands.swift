@@ -76,13 +76,13 @@ struct ExportCommands: Commands {
 
         CommandGroup(before: .sidebar) {
             if account.showsAppMenus {
-                Button("Export") {
-                    model.pane = .export
+                Button("Backup") {
+                    model.pane = .backup
                 }
                 .keyboardShortcut("1")
 
-                Button("Backup") {
-                    model.pane = .backup
+                Button("Library") {
+                    model.pane = .export
                 }
                 .keyboardShortcut("2")
 

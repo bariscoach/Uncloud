@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The main window: a sidebar with the Export and Backup panes, and the selected pane in the detail.
+/// The main window: a sidebar with the Backup, Library, Browse Backup and Clean Up panes, and the selected pane in the detail.
 struct MainWindow: View {
     @Environment(ExportModel.self) private var model
     @Environment(BackupTools.self) private var backupTools
@@ -13,9 +13,7 @@ struct MainWindow: View {
 
         NavigationSplitView {
             List(selection: paneSelection) {
-                Label("Export", systemImage: "photo.on.rectangle")
-                    .tag(ExportModel.Pane.export)
-
+                // Backup is the home pane, so it comes first.
                 Label("Backup", systemImage: "externaldrive")
                     .badge(progressBadge ?? model.newPhotosBadgeText)
                     // Increased prominence makes the percentage a coloured capsule while an export runs.
@@ -23,6 +21,9 @@ struct MainWindow: View {
                     // Badges may not be spoken, so the value carries the same news for VoiceOver.
                     .accessibilityValue(backupAccessibilityValue)
                     .tag(ExportModel.Pane.backup)
+
+                Label("Library", systemImage: "photo.on.rectangle")
+                    .tag(ExportModel.Pane.export)
 
                 // Locked for free accounts: the row stays, with a lock, and choosing it shows the locked view (plan C.3).
                 LockableSidebarRow(title: "Browse Backup", symbol: "photo.stack", isLocked: !account.allows(.browseBackup))
@@ -51,7 +52,7 @@ struct MainWindow: View {
             switch model.pane {
             case .export:
                 ExportView()
-                    .navigationTitle("Export")
+                    .navigationTitle(model.source.title)
             case .backup:
                 BackupPane()
                     .navigationTitle("Backup")
