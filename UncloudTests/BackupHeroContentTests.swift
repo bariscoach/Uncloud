@@ -72,6 +72,25 @@ struct BackupHeroContentTests {
         #expect(content == BackupHeroContent(kind: .waiting, symbol: "clock", title: "Waiting to resume", subtitle: nil, tone: .warning))
     }
 
+    @Test func row2WaitingToResumeShowsTheTimeWhenKnown() {
+        let resumeAt = Self.now.addingTimeInterval(14 * 60)
+        let content = BackupHeroContent.make(
+            phase: .idle, hasDestination: true, hasAutoResume: true, offersResumeExport: false, failedCount: 0,
+            newPhotos: nil, lastExport: nil, readySummary: nil, resumeAt: resumeAt, now: Self.now
+        )
+        #expect(content.title == "Waiting to resume")
+        #expect(content.subtitle == "Resumes at \(ExportModel.resumeTimeText(resumeAt)).")
+    }
+
+    @Test func row2WaitingForTheDriveAsksToConnectIt() {
+        let content = BackupHeroContent.make(
+            phase: .idle, hasDestination: true, hasAutoResume: true, offersResumeExport: false, failedCount: 0,
+            newPhotos: nil, lastExport: nil, readySummary: nil, resumeAt: Self.now, isWaitingForDestination: true, now: Self.now
+        )
+        #expect(content.title == "Waiting to resume")
+        #expect(content.subtitle == "Connect your backup drive to continue.")
+    }
+
     @Test func row3InterruptedRunOffersResume() {
         let content = make(offersResumeExport: true)
         #expect(content == BackupHeroContent(kind: .interrupted, symbol: "arrow.clockwise.circle", title: "Your last export didn’t finish", subtitle: nil, tone: .warning))
