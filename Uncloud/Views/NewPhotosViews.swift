@@ -27,7 +27,7 @@ extension ExportModel {
     }
 }
 
-/// Settings › Automatic Backup: the new-photos reminder and how often it can appear.
+/// Settings › Backups: the new-photo reminder and how often it can appear.
 struct NewPhotosReminderSection: View {
     @Bindable var reminder: NewPhotosReminderSettings
     /// False without Uncloud Plus: the reminder is shown off and locked. The count itself stays free.
@@ -35,7 +35,7 @@ struct NewPhotosReminderSection: View {
     var onGetPlus: () -> Void = {}
 
     var body: some View {
-        Section("New Photos") {
+        Section("New Photo Reminders") {
             Toggle("Remind me about new photos", isOn: Binding(
                 get: { isAllowed && reminder.isEnabled },
                 set: { value in
@@ -44,8 +44,8 @@ struct NewPhotosReminderSection: View {
                 }
             ))
             .disabled(!isAllowed)
-            .help("Uncloud checks every six hours while it runs, which automatic backups or the menu bar keeps it doing.")
-            .accessibilityHint("Uncloud checks every six hours while it runs, which automatic backups or the menu bar keeps it doing.")
+            .help("Checks every 6 hours while Uncloud is running")
+            .accessibilityHint("Checks every 6 hours while Uncloud is running")
             Picker("How often", selection: $reminder.frequency) {
                 ForEach(NewPhotosReminderFrequency.allCases, id: \.self) { frequency in
                     Text(frequency.title).tag(frequency)
@@ -56,7 +56,7 @@ struct NewPhotosReminderSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if !isAllowed {
-                LockedSettingRow(text: "Reminders are part of Uncloud Plus.", action: onGetPlus)
+                LockedSettingRow(text: "New photo reminders are part of Uncloud Plus.", action: onGetPlus)
             }
         }
     }
