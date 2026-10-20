@@ -10,7 +10,7 @@ struct AccountCodeView: View {
     @State private var code = ""
     /// True once the current six digits have been sent, so they aren't sent again until they change.
     @State private var sentCurrentCode = false
-    /// Counts resends, so the "We sent a new code" line shows for a few seconds after each one.
+    /// Counts resends, so the "New code sent" line shows for a few seconds after each one.
     @State private var resendCount = 0
     @State private var showsResendNotice = false
     @FocusState private var isFocused: Bool
@@ -25,7 +25,7 @@ struct AccountCodeView: View {
                     Text("Check Your Email")
                         .font(.title.weight(.semibold))
                         .accessibilityAddTraits(.isHeader)
-                    (Text("Enter the 6-digit code we sent to ") + Text(challenge.email).fontWeight(.semibold) + Text("."))
+                    (Text("Enter the 6-digit code sent to ") + Text(challenge.email).fontWeight(.semibold) + Text("."))
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -52,7 +52,7 @@ struct AccountCodeView: View {
                             AccountErrorText(error: error)
                         }
                         if showsResendNotice {
-                            Text("We sent a new code.")
+                            Text("New code sent.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }

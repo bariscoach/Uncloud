@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The first page a signed-out user sees: what Uncloud does, what Uncloud Plus adds, and the two ways in (plan F.1).
+/// The first page a signed-out user sees: what Uncloud does, what Uncloud Plus adds, and the one way in (plan F.1).
 struct WelcomeView: View {
     @Environment(AccountModel.self) private var account
     @Environment(\.uncloudAccent) private var accent
@@ -51,7 +51,7 @@ struct WelcomeView: View {
                     .font(.largeTitle.weight(.bold))
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
-                Text("Export full-quality originals from iCloud to your own drive, then keep your backup safe, tidy and easy to browse.")
+                Text("Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac.")
                     .font(.title3)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -61,55 +61,61 @@ struct WelcomeView: View {
         }
     }
 
-    /// Two columns in the order of the Export pane and the Backup tools. Export is first and carries the Free badge.
+    /// Three rows: the free feature first, then the two Plus groups.
     private var features: some View {
-        LazyVGrid(
-            columns: [GridItem(.flexible(), spacing: Tokens.Space.xxl, alignment: .top), GridItem(.flexible(), alignment: .top)],
-            alignment: .leading,
-            spacing: Tokens.Space.l
-        ) {
+        VStack(alignment: .leading, spacing: Tokens.Space.l) {
             FeatureRow(
                 title: "Export",
                 symbol: "photo.on.rectangle.angled",
-                summary: "Copy full-quality originals from iCloud Photos or Photos on this Mac to any drive.",
+                summary: "Full-quality originals from iCloud Photos or Photos on this Mac, to any drive.",
                 badge: "Free"
             )
-            ForEach(PaidFeature.allCases) { feature in
-                FeatureRow(title: feature.title, symbol: feature.symbol, summary: feature.summary)
-            }
+            FeatureRow(
+                title: "Stay Up to Date",
+                symbol: "clock.arrow.circlepath",
+                summary: "Automatic backups, and reminders when new photos are waiting.",
+                badge: "Plus"
+            )
+            FeatureRow(
+                title: "Keep It Tidy",
+                symbol: "sparkles",
+                summary: "Browse, verify and find duplicates in your backup. Free up space on this Mac and in iCloud.",
+                badge: "Plus"
+            )
         }
+        .frame(maxWidth: 440)
     }
 
-    /// Create Account is the one prominent action and the default button. Sign In is the bordered alternative.
+    /// One button names the method and is the default, so Return starts it. A caption says what happens next.
     private var buttons: some View {
         VStack(spacing: Tokens.Space.m) {
             if account.error == .signedOut, let message = account.error?.message {
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(Tokens.Status.warning)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, Tokens.Space.s)
-            }
-            HStack(spacing: Tokens.Space.m) {
-                Button {
-                    account.show(.signUp)
-                } label: {
-                    Text("Create Account")
-                        .frame(minWidth: 120)
+                Label {
+                    Text(message)
+                        .foregroundStyle(.primary)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(Tokens.Status.warning)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-
-                Button {
-                    account.show(.signIn)
-                } label: {
-                    Text("Sign In")
-                        .frame(minWidth: 120)
-                }
-                .buttonStyle(.bordered)
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, Tokens.Space.s)
             }
+            Button {
+                account.show(.signUp)
+            } label: {
+                Text("Continue with Email")
+                    .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+
+            Text("New or returning, Uncloud emails you a sign-in code. No password needed.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
     }
 

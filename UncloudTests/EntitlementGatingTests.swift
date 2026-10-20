@@ -102,9 +102,9 @@ struct EntitlementGatingTests {
         #expect(harness.model.awaitingPortalReturn == false)
     }
 
-    @Test("Reminders are the paid part of New Photos, under the paywall's name")
+    @Test("New Photo Reminders is the paid part of New Photos, under the paywall's name")
     func newPhotosPaywallName() {
-        #expect(PaidFeature.newPhotos.paywallTitle == "Reminders")
+        #expect(PaidFeature.newPhotos.paywallTitle == "New Photo Reminders")
         #expect(PaidFeature.browseBackup.paywallTitle == "Browse Backup")
     }
 
