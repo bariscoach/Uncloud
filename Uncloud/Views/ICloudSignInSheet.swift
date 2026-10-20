@@ -65,7 +65,7 @@ struct ICloudSignInSheet: View {
                 }
                 .formStyle(.grouped)
 
-                Text("Your password goes only to Apple, through icloudpd, the open-source tool built into Uncloud.")
+                Text("Your password goes only to Apple. Uncloud never sees it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -133,9 +133,13 @@ struct ICloudSignInSheet: View {
     }
 
     private func errorLabel(_ message: String) -> some View {
-        Label(message, systemImage: "exclamationmark.triangle")
-            .foregroundStyle(.red)
-            .fixedSize(horizontal: false, vertical: true)
+        Label {
+            Text(message)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Tokens.Status.danger)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var cancelButton: some View {

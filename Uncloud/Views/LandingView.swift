@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The landing page: shown whenever no source is ready, including the first launch. One centred
-/// column: the icon, the headline, the two ways to connect, three static benefit lines, then the privacy line.
+/// The landing page: shown whenever no source is ready, including the first launch, and in the Backup pane until
+/// one is. One centred column: the icon, the task headline, the two ways to connect, then the privacy line.
 struct LandingView: View {
     @Environment(ExportModel.self) private var model
 
@@ -29,7 +29,6 @@ struct LandingView: View {
                     hero
                     actions
                 }
-                highlights
             }
             footer
         }
@@ -38,13 +37,13 @@ struct LandingView: View {
 
     private var hero: some View {
         VStack(spacing: Tokens.Space.s) {
-            AppLogo(size: 96)
+            AppLogo(size: 64)
                 .padding(.bottom, Tokens.Space.m)
                 .accessibilityHidden(true)
-            Text("Your Photos, on Your Own Drive")
+            Text("Connect Your Photos")
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
-            Text("Full-size originals go from iCloud straight to your external drive, without filling up your Mac.")
+            Text("Choose where Uncloud exports from. You can change it later in the File menu.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -72,26 +71,13 @@ struct LandingView: View {
                 .buttonStyle(.link)
 
                 // Downloads in this mode can pass through the Photos library, unlike the iCloud sign-in above.
-                Text("Photos may download to this Mac first.")
+                Text("Photos stored only in iCloud may download to this Mac first.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-    }
-
-    /// Three static lines, in place of the old auto-advancing carousel. Nothing on this page moves on its own.
-    private var highlights: some View {
-        VStack(spacing: Tokens.Space.s) {
-            Label("Full-quality originals", systemImage: "camera.aperture")
-            Label("Organized by month or album", systemImage: "rectangle.3.group")
-            Label("Verified, and automatic when your drive connects", systemImage: "checkmark.shield")
-        }
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        .accessibilityElement(children: .contain)
     }
 
     /// One quiet line on privacy, with a way into Getting Started for the full story.

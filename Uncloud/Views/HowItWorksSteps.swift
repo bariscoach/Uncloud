@@ -13,22 +13,22 @@ struct HowItWorksStep: Identifiable {
             id: 0,
             symbol: "person.crop.circle",
             tint: .blue,
-            title: "Sign In",
-            caption: "Use your Apple Account, or Photos on this Mac."
+            title: "Connect Your Photos",
+            caption: "Sign in to iCloud Photos, or use Photos on this Mac."
         ),
         HowItWorksStep(
             id: 1,
-            symbol: "checkmark.square",
-            tint: .purple,
-            title: "Choose Photos",
-            caption: "Export everything, or pick the ones you want."
+            symbol: "folder",
+            tint: .teal,
+            title: "Choose a Backup Folder",
+            caption: "Pick a folder on your external drive, then export."
         ),
         HowItWorksStep(
             id: 2,
-            symbol: "folder",
-            tint: .teal,
-            title: "Choose a Drive",
-            caption: "Choose an external drive or folder, then export."
+            symbol: "checkmark.square",
+            tint: .purple,
+            title: "Choose Photos",
+            caption: "Export everything, or pick the ones you want in Library."
         ),
     ]
 }
@@ -56,11 +56,12 @@ struct HowItWorksSteps: View {
 /// A step as a compact column: the icon and title on one line, then the caption.
 private struct HowItWorksColumn: View {
     let step: HowItWorksStep
+    @Environment(\.uncloudAccent) private var accent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                IconTile(symbol: step.symbol, tint: step.tint, size: Tokens.Tile.feature)
+                IconTile(symbol: step.symbol, tint: accent ?? .accentColor, size: Tokens.Tile.feature)
                 Text(step.title)
                     .font(.headline)
             }
@@ -76,10 +77,11 @@ private struct HowItWorksColumn: View {
 
 private struct HowItWorksRow: View {
     let step: HowItWorksStep
+    @Environment(\.uncloudAccent) private var accent
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            IconTile(symbol: step.symbol, tint: step.tint)
+            IconTile(symbol: step.symbol, tint: accent ?? .accentColor)
             VStack(alignment: .leading, spacing: 4) {
                 Text(step.title)
                     .font(.headline)

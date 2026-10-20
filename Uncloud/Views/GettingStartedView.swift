@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Help › Getting Started: the same three steps, benefits and privacy note as the landing page.
+/// Help › Getting Started: the three steps, the benefits and the privacy note. Reachable from the landing page too.
 /// The benefits are a plain list here.
 struct GettingStartedView: View {
     @Environment(ExportModel.self) private var model

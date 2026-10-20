@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One of the five reasons to use Uncloud. Written as what the app does, not as a comparison with other services.
-/// Shown as a list in Getting Started. The landing page shows three static lines instead.
+/// Shown as a list in Getting Started. The landing page doesn't show them.
 struct Benefit: Identifiable {
     let title: String
     /// The full sentence, shown in Getting Started.
@@ -26,7 +26,7 @@ struct Benefit: Identifiable {
         ),
         Benefit(
             title: "Built for Huge Libraries",
-            caption: "Handles tens of thousands of photos. Pause, resume, and next time copy only what’s new.",
+            caption: "Handles tens of thousands of photos. Pause, resume, and next time export only what’s new.",
             symbol: "arrow.triangle.2.circlepath",
             tint: .pink
         ),
@@ -48,10 +48,11 @@ struct Benefit: Identifiable {
 /// One benefit as an icon with its title and caption, for the Getting Started list.
 struct BenefitRow: View {
     let benefit: Benefit
+    @Environment(\.uncloudAccent) private var accent
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            IconTile(symbol: benefit.symbol, tint: benefit.tint, size: Tokens.Tile.feature)
+            IconTile(symbol: benefit.symbol, tint: accent ?? .accentColor, size: Tokens.Tile.feature)
             VStack(alignment: .leading, spacing: 2) {
                 Text(benefit.title)
                     .font(.headline)
@@ -74,7 +75,7 @@ struct PrivacyNote: View {
     var body: some View {
         VStack(spacing: 8) {
             Label {
-                Text("Your photos go straight to your own drive. Your password goes only to Apple, through icloudpd, the open-source tool built into Uncloud, and is saved in your keychain only if you choose.")
+                Text("Your photos go straight to your own drive. Your password goes only to Apple and is saved in your keychain only if you choose. Uncloud uses icloudpd, an open-source tool, to talk to iCloud.")
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
