@@ -32,6 +32,10 @@ struct ICloudResumePoint: Codable, Equatable, Sendable {
     /// waits for a periodic full walk, because every run that reaches the end of the library is one.
     var lastFullWalkAt: Date?
     var updatedAt: Date
+    /// The library's count beyond the items the walk can list, from the last complete walk with nothing failed:
+    /// iCloud counts them, but they never come up in a listing, so they can't be exported. Nil when unknown (a
+    /// point from before this was kept, or no complete walk yet). "To go" leaves them out.
+    var unlistedCount: Int?
 
     static let fileName = "resume.json"
 
@@ -269,7 +273,8 @@ struct ICloudCoverage: Sendable {
 
     /// The point to save now, or nil when this run has nothing to say (keep the old one). `visitedEverything`
     /// is when this run started, once it has visited every rank of the library (its walk and closing walk).
-    func point(account: String, layout: FolderLayout, previous: ICloudResumePoint?, visitedEverything: Date?, now: Date) -> ICloudResumePoint? {
+    func point(account: String, layout: FolderLayout, previous: ICloudResumePoint?, visitedEverything: Date?,
+               unlistedCount: Int? = nil, now: Date) -> ICloudResumePoint? {
         guard let anchor = end ?? last ?? base, anchor.rank >= 0 else { return nil }
         return ICloudResumePoint(
             account: account,
@@ -278,7 +283,8 @@ struct ICloudCoverage: Sendable {
             coveredThrough: anchor.rank + 1,
             anchor: anchor,
             lastFullWalkAt: visitedEverything ?? previous?.lastFullWalkAt,
-            updatedAt: now
+            updatedAt: now,
+            unlistedCount: unlistedCount
         )
     }
 }

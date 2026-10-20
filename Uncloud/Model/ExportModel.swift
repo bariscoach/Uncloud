@@ -583,12 +583,11 @@ final class ExportModel {
             isEverything: selection.isEverything,
             hasNewPhotosStatus: newPhotosStatus != nil,
             backedUpCount: newOnlyBackedUpCount,
-            notBackedUpCount: newOnlyNotBackedUpCount,
             fallback: exportTitle(total: total)
         )
     }
 
-    /// True when the primary action exports new photos only (the title's "Export N New Photos" family), so the help and
+    /// True when the primary action exports new photos only (the title's "Export New Photos"), so the help and
     /// the subtitle can say so. It reads the manifest's counts, not the watermark, so it holds for any history.
     var offersNewPhotosOnly: Bool {
         NewPhotosTitle.offersNewOnly(
@@ -615,8 +614,8 @@ final class ExportModel {
         isExporting || isEngineRunning ? 0 : (onDriveCount ?? 0)
     }
 
-    /// Not backed up, for the title's number. Nil during a run, and when the iCloud count is approximate or unknown.
-    private var newOnlyNotBackedUpCount: Int? {
+    /// Not backed up, exactly. Nil during a run, and when the iCloud count is approximate or unknown.
+    var newOnlyNotBackedUpCount: Int? {
         isExporting || isEngineRunning || isOnDriveCountApproximate ? nil : toGoCount
     }
 
@@ -1575,7 +1574,13 @@ final class ExportModel {
         layout: FolderLayout? = nil,
         records: [String: [String]]? = nil
     ) -> (progress: LibraryProgress, isApproximate: Bool) {
-        let total = selection.selectedCount(total: ICloudLibrary.cachedLibraryCount ?? 0)
+        // Items iCloud counts but never lists can't be exported, so "everything" leaves them out (for the layout the
+        // point was saved in). A selection of only some photos is unchanged.
+        var libraryCount = ICloudLibrary.cachedLibraryCount ?? 0
+        if case .allExcept = selection, let layout, let point = ICloudResumePoint.load(in: destination), point.layout == layout.rawValue {
+            libraryCount = max(0, libraryCount - (point.unlistedCount ?? 0))
+        }
+        let total = selection.selectedCount(total: libraryCount)
         let items = ICloudItemCount.count(records: records ?? ExportManifest.records(in: destination), selection: selection,
                                           layout: layout == .album ? nil : layout)
         let progress = LibraryProgress(

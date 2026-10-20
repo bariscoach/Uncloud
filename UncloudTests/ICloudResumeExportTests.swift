@@ -492,6 +492,67 @@ extension ExportCancellationTests {
         await harness.tearDown()
     }
 
+    @Test @MainActor func aCompleteWalkRemembersTheCountTheLibraryCannotList() async throws {
+        let state = Self.temporaryPath("state")
+        defer { try? FileManager.default.removeItem(atPath: state) }
+        let fixture = try Fixture(bridge: ["--total", "1000", "--rate", "0", "--state", state, "--hidden", "298"])
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        try await Self.keepingLibraryCount {
+            let session = try #require(await Self.export(harness))
+            #expect(session.result.status == .completed)
+            #expect(ICloudLibrary.cachedLibraryCount == 1_298)
+            #expect(ExportManifest.iCloudItems(in: fixture.destination).count == 1_000)
+            #expect(ICloudResumePoint.load(in: fixture.destination)?.unlistedCount == 298)
+        }
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func aRunWithAFailureKeepsTheCountItRemembered() async throws {
+        let state = Self.temporaryPath("state")
+        defer { try? FileManager.default.removeItem(atPath: state) }
+        let fixture = try Fixture(bridge: ["--total", "1000", "--rate", "0", "--state", state, "--hidden", "298"])
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        try await Self.keepingLibraryCount {
+            #expect(await Self.export(harness)?.result.status == .completed)
+            #expect(ICloudResumePoint.load(in: fixture.destination)?.unlistedCount == 298)
+
+            // A new Live Photo at the top whose movie fails: the walk finishes, but a failure means nothing is
+            // recorded as the gap now (the next complete walk without failures does that).
+            try Self.editLibrary(state: state) { order, next in
+                _ = Self.insert(1, at: 0, into: &order, next: &next)
+            }
+            let failing = ["--rate", "0", "--state", state, "--hidden", "298", "--live-every", "100", "--movie-fails-at", "1000"]
+            Self.relaunchBridge(fixture, failing)
+            let session = try #require(await Self.export(harness))
+            #expect(session.result.status == .completedWithFailures)
+            #expect(ICloudResumePoint.load(in: fixture.destination)?.unlistedCount == 298)
+        }
+        await harness.tearDown()
+    }
+
+    @Test func everythingLeavesOutTheCountICloudNeverLists() throws {
+        try withTemporaryDirectory { folder in
+            let point = ICloudResumePoint(
+                account: "acct", layout: "month", libraryCount: 1_000, coveredThrough: 1_000,
+                anchor: .init(id: "asset-999", rank: 999), lastFullWalkAt: nil, updatedAt: Date(), unlistedCount: 298
+            )
+            try point.save(in: folder)
+            let key = "icloudLibraryCount"
+            let old = UserDefaults.standard.object(forKey: key)
+            UserDefaults.standard.set(1_298, forKey: key)
+            defer { UserDefaults.standard.set(old, forKey: key) }
+
+            let everything = ExportModel.iCloudProgress(toward: folder, selection: .everything, layout: .month, records: [:])
+            #expect(everything.progress.total == 1_000)
+            // Another layout's point doesn't apply, and a selection of some photos is counted as before.
+            let flat = ExportModel.iCloudProgress(toward: folder, selection: .everything, layout: .flat, records: [:])
+            #expect(flat.progress.total == 1_298)
+            let some = LibrarySelection.only(["asset-1"])
+            let picked = ExportModel.iCloudProgress(toward: folder, selection: some, layout: .month, records: [:])
+            #expect(picked.progress.total == some.selectedCount(total: 1_298))
+        }
+    }
+
     // MARK: - All in One Folder
 
     @Test @MainActor func allInOneFolderSavesIcloudpdsNamesAndNeverRecordsTheUsersOwnFiles() async throws {

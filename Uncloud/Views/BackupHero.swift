@@ -5,7 +5,7 @@ import SwiftUI
 struct BackupHeroContent: Equatable {
     enum Kind: Equatable {
         case exporting, waiting, interrupted, needsFolder, finishedWithProblems, stopped, cancelled
-        case complete, newPhotos, upToDate, ready
+        case complete, newPhotos, upToDate, notBackedUp, ready
     }
 
     enum Tone: Equatable {
@@ -31,6 +31,8 @@ struct BackupHeroContent: Equatable {
     let tone: Tone
 
     /// Works out the hero from plain values, so every row of the table can be tested without a model.
+    /// `notBackedUpCount` is the exact count of photos not backed up (nil when unknown or approximate); it matters only
+    /// when New Photos finds nothing, since photos that were never exported are missed by it.
     static func make(
         phase: ExportModel.Phase,
         hasDestination: Bool,
@@ -43,6 +45,8 @@ struct BackupHeroContent: Equatable {
         fraction: Double? = nil,
         resumeAt: Date? = nil,
         isWaitingForDestination: Bool = false,
+        notBackedUpCount: Int? = nil,
+        source: LibrarySource = .iCloud,
         now: Date
     ) -> BackupHeroContent {
         switch phase {
@@ -96,6 +100,13 @@ struct BackupHeroContent: Equatable {
                     kind: .newPhotos, symbol: "photo.badge.plus", title: NewPhotosText.countPhrase(newPhotos),
                     subtitle: "Since your last export \(when).", tone: .accent
                 )
+            }
+            if let notBackedUpCount, notBackedUpCount > 0 {
+                let title = notBackedUpCount == 1 ? "1 photo isn’t backed up" : "\(notBackedUpCount.formatted()) photos aren’t backed up"
+                let subtitle = source == .iCloud
+                    ? "Older photos that weren’t exported. Check Whole Library exports them."
+                    : "Older photos that weren’t exported. Export All Photos picks them up."
+                return BackupHeroContent(kind: .notBackedUp, symbol: "exclamationmark.circle", title: title, subtitle: subtitle, tone: .warning)
             }
             return BackupHeroContent(kind: .upToDate, symbol: "checkmark.circle", title: "Your backup is up to date", subtitle: "Last export \(day.text).", tone: .success)
         }
@@ -159,6 +170,8 @@ struct BackupHero: View {
             fraction: model.fractionComplete,
             resumeAt: model.autoResume?.resumeAt,
             isWaitingForDestination: model.autoResume?.isWaitingForDestination == true,
+            notBackedUpCount: model.newOnlyNotBackedUpCount,
+            source: model.source,
             now: .now
         )
         let tint = content.tone.color(accent: accent ?? .accentColor)
@@ -172,11 +185,11 @@ struct BackupHero: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .center, spacing: Tokens.Space.m) {
                         BackupHeroHeader(content: content)
-                        primaryButton(isUpToDate: content.kind == .upToDate)
+                        actionButton(for: content)
                     }
                     VStack(alignment: .leading, spacing: Tokens.Space.m) {
                         BackupHeroHeader(content: content)
-                        primaryButton(isUpToDate: content.kind == .upToDate)
+                        actionButton(for: content)
                     }
                 }
             } else {
@@ -192,6 +205,22 @@ struct BackupHero: View {
         .padding(.vertical, Tokens.Space.s)
         .animation(Tokens.Motion.animation(reduceMotion), value: content.kind)
         .listRowBackground(heroBackground(tint))
+    }
+
+    /// The action for the hero's state. Photos that New Photos can't find are checked with Check Whole Library, as in the
+    /// menu; elsewhere it's the primary action.
+    @ViewBuilder
+    private func actionButton(for content: BackupHeroContent) -> some View {
+        if content.kind == .notBackedUp, model.source == .iCloud {
+            Button("Check Whole Library") {
+                model.checkWholeLibrary()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!model.canExportAll || model.destination == nil)
+        } else {
+            primaryButton(isUpToDate: content.kind == .upToDate)
+        }
     }
 
     /// The primary action. When everything is exported it stays available but stops shouting, which is the only style rule here.

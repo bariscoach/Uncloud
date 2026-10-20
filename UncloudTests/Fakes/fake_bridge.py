@@ -41,6 +41,8 @@ Fake options:
                       throttled: the run ends with "stopped":"throttled", as Apple's 503 ends it. Later requests go through.
   --delete-fail-every K  items whose number is divisible by K (K > 0) fail to delete with a server error
   --trash-first N     without a --state file, the first N items start in Recently Deleted instead of the library
+  --hidden N          the library's count is N larger than the items it lists: iCloud counts N items that no
+                      listing or walk reaches, so they can never be downloaded
 
 Speaks the bridge's JSON-lines protocol (page, count, albums, download, stats, cancel, pause, resume,
 ping) closely enough for the app: "ready" after signing in, downloads write DEST/YYYY/MM files through
@@ -88,7 +90,8 @@ def parse(argv):
             "chunks": 1, "chunk_delay": 0.0, "stuck": False, "remove_dest_at": None,
             "state": None, "insert_at": None, "insert_count": 1, "delete_at": None, "throttle_after": None,
             "live_every": 0, "movie_fails_at": None, "same_name_every": 0,
-            "delete_batch_delay": 0.0, "delete_throttle_after": None, "delete_fail_every": 0, "trash_first": 0}
+            "delete_batch_delay": 0.0, "delete_throttle_after": None, "delete_fail_every": 0, "trash_first": 0,
+            "hidden": 0}
     own = argv[:argv.index("--")] if "--" in argv else []
     index = 0
     while index < len(own):
@@ -135,6 +138,8 @@ def parse(argv):
             fake["trash_first"] = int(own[index + 1]); index += 2
         elif flag == "--delete-fail-every":
             fake["delete_fail_every"] = int(own[index + 1]); index += 2
+        elif flag == "--hidden":
+            fake["hidden"] = int(own[index + 1]); index += 2
         else:
             index += 1
     return fake
@@ -321,7 +326,8 @@ class Bridge:
                 self.channel.send({"id": request_id, "event": "error", "kind": "badRequest",
                                    "message": "album must be library or recentlyDeleted."})
                 return
-            self.channel.send({"id": request_id, "event": "count", "count": len(rows)})
+            hidden = self.fake["hidden"] if request.get("album") in (None, "library") else 0
+            self.channel.send({"id": request_id, "event": "count", "count": len(rows) + hidden})
         elif command == "albums":
             self.channel.send({"id": request_id, "event": "albums", "albums": ["Trip"]})
         elif command == "page":
@@ -634,7 +640,7 @@ def main(argv):
     sys.stderr.write("fake bridge: Authenticating...\n")
     time.sleep(fake["auth_delay"])
     sys.stderr.write("fake bridge: Authentication completed successfully\n")
-    channel.send({"event": "ready", "count": len(order)})
+    channel.send({"event": "ready", "count": len(order) + fake["hidden"]})
     return Bridge(channel, fake, order, trash).serve()
 
 

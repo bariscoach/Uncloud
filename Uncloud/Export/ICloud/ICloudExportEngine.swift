@@ -599,9 +599,11 @@ extension ICloudExportEngine {
         let destination = destination
         let layout = layout
         var visitedEverything: Date?
+        // The last complete walk's gap (see `ICloudResumePoint.unlistedCount`); kept until this run completes one.
+        var unlistedCount = previous?.unlistedCount
         func savePoint() {
             guard let point = coverage.point(account: account, layout: layout, previous: previous,
-                                             visitedEverything: visitedEverything, now: Date()) else { return }
+                                             visitedEverything: visitedEverything, unlistedCount: unlistedCount, now: Date()) else { return }
             try? point.save(in: destination)
         }
 
@@ -726,6 +728,10 @@ extension ICloudExportEngine {
             savePoint()
             _ = try? scanner.hash(pendingHashes)
             throw error
+        }
+        // A complete walk with nothing failed: the count beyond what the library lists is what can never be exported.
+        if visitedEverything != nil, failures == 0 {
+            unlistedCount = max(0, libraryCount - Self.knownItems(in: destination, layout: layout).count)
         }
         savePoint()
         try scanner.hash(pendingHashes)

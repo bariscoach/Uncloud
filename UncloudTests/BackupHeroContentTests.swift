@@ -19,7 +19,9 @@ struct BackupHeroContentTests {
         newPhotos: NewPhotosStatus? = nil,
         lastExport: Date? = nil,
         readySummary: String? = nil,
-        fraction: Double? = nil
+        fraction: Double? = nil,
+        notBackedUpCount: Int? = nil,
+        source: LibrarySource = .iCloud
     ) -> BackupHeroContent {
         BackupHeroContent.make(
             phase: phase,
@@ -31,6 +33,8 @@ struct BackupHeroContentTests {
             lastExport: lastExport,
             readySummary: readySummary,
             fraction: fraction,
+            notBackedUpCount: notBackedUpCount,
+            source: source,
             now: Self.now
         )
     }
@@ -141,6 +145,41 @@ struct BackupHeroContentTests {
     @Test func row9NoNewPhotosIsUpToDate() {
         let content = make(newPhotos: newPhotos(0))
         #expect(content == BackupHeroContent(kind: .upToDate, symbol: "checkmark.circle", title: "Your backup is up to date", subtitle: "Last export 3 days ago.", tone: .success))
+    }
+
+    @Test func row9bNoNewPhotosButPhotosMissingIsNotBackedUp() {
+        let content = make(newPhotos: newPhotos(0), notBackedUpCount: 298)
+        #expect(content == BackupHeroContent(
+            kind: .notBackedUp, symbol: "exclamationmark.circle", title: "298 photos aren’t backed up",
+            subtitle: "Older photos that weren’t exported. Check Whole Library exports them.", tone: .warning
+        ))
+    }
+
+    @Test func row9bSinglePhotoIsNotBackedUp() {
+        let content = make(newPhotos: newPhotos(0), notBackedUpCount: 1)
+        #expect(content.kind == .notBackedUp)
+        #expect(content.title == "1 photo isn’t backed up")
+    }
+
+    @Test func row9bNoneMissingIsStillUpToDate() {
+        #expect(make(newPhotos: newPhotos(0), notBackedUpCount: 0).kind == .upToDate)
+        #expect(make(newPhotos: newPhotos(0), notBackedUpCount: nil).kind == .upToDate)
+    }
+
+    @Test func row9bNewPhotosWinOverMissingPhotos() {
+        let content = make(newPhotos: newPhotos(3), notBackedUpCount: 298)
+        #expect(content.kind == .newPhotos)
+    }
+
+    @Test func row9bWithoutAWatermarkMissingPhotosDoNotApply() {
+        let content = make(readySummary: "9,207 backed up · 298 to go", notBackedUpCount: 298)
+        #expect(content.kind == .ready)
+    }
+
+    @Test func row9bPhotosLibraryNamesTheExportInsteadOfTheCheck() {
+        let content = make(newPhotos: newPhotos(0), notBackedUpCount: 298, source: .photosLibrary)
+        #expect(content.kind == .notBackedUp)
+        #expect(content.subtitle == "Older photos that weren’t exported. Export All Photos picks them up.")
     }
 
     @Test func row10CompletedIsExportComplete() {

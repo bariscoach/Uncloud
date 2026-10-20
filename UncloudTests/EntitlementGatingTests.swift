@@ -153,7 +153,7 @@ struct EntitlementGatingTests {
         #expect(NewPhotosTitle.offersNewOnly(isPaused: false, hasInterruptedRun: false, needsFolder: false,
                                              isEverything: true, hasNewPhotosStatus: false, backedUpCount: 9_207))
         #expect(NewPhotosTitle.primary(isPaused: false, hasInterruptedRun: false, needsFolder: false, isEverything: true,
-                                       hasNewPhotosStatus: false, backedUpCount: 9_207, notBackedUpCount: 1_243,
-                                       fallback: "Export All Photos") == "Export 1,243 New Photos")
+                                       hasNewPhotosStatus: false, backedUpCount: 9_207,
+                                       fallback: "Export All Photos") == "Export New Photos")
     }
 }

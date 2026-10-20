@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The Backup pane's drive row: what the backup holds for the current selection, when it was last checked, and
-/// Check Now. While a check runs it shows progress and Cancel instead.
+/// Check Backup Folder. While a check runs it shows progress and Cancel instead.
 struct DriveSummaryRow: View {
     /// `ExportModel.onDriveSummaryText`, such as "9,207 already on this drive · 83,808 to go".
     let summary: String?
@@ -50,7 +50,7 @@ struct DriveSummaryRow: View {
                     }
                 }
                 Spacer()
-                Button("Check Now", action: onCheck)
+                Button("Check Backup Folder", action: onCheck)
                     .disabled(!canCheck)
                     .accessibilityHint("Finds missing and damaged files. Damaged files are moved to a separate folder, never deleted.")
             }
@@ -64,7 +64,7 @@ extension DriveCheckReport: Identifiable {
     var id: String { "\(filesListed)-\(onDrive)-\(seconds)" }
 }
 
-/// The result of a manual Check Now, in plain language: what was missing or damaged, what was done about it, and
+/// The result of a manual check, in plain language: what was missing or damaged, what was done about it, and
 /// what was only counted. Presented by the Backup pane when a manual check finishes.
 struct CheckDriveResultsSheet: View {
     let report: DriveCheckReport

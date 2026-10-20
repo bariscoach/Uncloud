@@ -209,6 +209,28 @@ struct ICloudResumePlannerTests {
         }
     }
 
+    @Test func theUnlistedCountIsOptionalAndRoundTrips() throws {
+        try withTemporaryDirectory { folder in
+            // A point saved before the count was kept has no field, and reads with none.
+            try Self.point(coveredThrough: 60, library: Self.library(100)).save(in: folder)
+            #expect(ICloudResumePoint.load(in: folder)?.unlistedCount == nil)
+
+            var point = Self.point(coveredThrough: 60, library: Self.library(100))
+            point.unlistedCount = 298
+            try point.save(in: folder)
+            #expect(ICloudResumePoint.load(in: folder)?.unlistedCount == 298)
+        }
+    }
+
+    @Test func coverageCarriesTheUnlistedCountIntoThePoint() throws {
+        var coverage = ICloudCoverage(libraryCount: 1000, base: nil)
+        coverage.finished(asset: "a9", rank: 9)
+        let kept = try #require(coverage.point(account: "x", layout: .month, previous: nil, visitedEverything: nil, unlistedCount: 298, now: Date()))
+        #expect(kept.unlistedCount == 298)
+        let unset = try #require(coverage.point(account: "x", layout: .month, previous: nil, visitedEverything: nil, now: Date()))
+        #expect(unset.unlistedCount == nil)
+    }
+
     @Test func itemsCountOnlyInTheLayoutTheyWereSavedIn() {
         let records = [
             "icloud-id:A": ["2024/07/IMG_1.JPG", "2024/07/IMG_1.MOV"],
