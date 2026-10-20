@@ -87,6 +87,9 @@ struct MainWindow: View {
         .sheet(isPresented: $model.isShowingICloudSignIn) {
             ICloudSignInSheet()
         }
+        .sheet(isPresented: $model.isChoosingExportSince) {
+            ExportSinceSheet()
+        }
         .sheet(item: $model.introSheet) { sheet in
             switch sheet {
             case .gettingStarted:

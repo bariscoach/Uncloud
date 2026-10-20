@@ -56,6 +56,8 @@ final class ExportModel {
     /// The space the destination's volume has for new files, or nil when unknown.
     private(set) var destinationFreeBytes: Int64?
     var isChoosingDestination = false
+    /// Shows the Export New Photos sheet, which exports the photos added since a date the owner picks.
+    var isChoosingExportSince = false
     /// Set by the primary button when no folder is chosen yet: export as soon as the folder is picked.
     @ObservationIgnored private var startsAfterChoosingDestination = false
     /// The selection override for the export that waits for a folder, such as Export All Photos.
@@ -545,13 +547,31 @@ final class ExportModel {
         isChoosingDestination = true
     }
 
-    /// The primary action of the Library toolbar and the Export menu: picks a folder first when none is set.
+    /// The primary action of the Library toolbar and the Export menu: picks a folder first when none is set. With new
+    /// photos only, it opens the sheet that exports the photos added since a date, instead of starting at once.
     func performPrimaryAction() {
         if destination == nil {
             chooseFolderThenExport()
+        } else if opensExportSince {
+            isChoosingExportSince = true
         } else {
             startOrResume()
         }
+    }
+
+    /// True when the primary action opens the Export New Photos sheet: it offers new photos only, and can start now.
+    var opensExportSince: Bool {
+        offersNewPhotosOnly && canStart
+    }
+
+    /// Exports the photos added since `date`, as counted by the sheet (`items`, by ID with rank). The saved selection
+    /// stays as it was, and no drive check runs first: the engine skips what the backup already has.
+    func exportSince(_ date: Date, items: [String: Int]) {
+        isChoosingExportSince = false
+        guard canStart, !items.isEmpty else { return }
+        let verb = source == .iCloud ? "added" : "taken"
+        record(.info, "Exporting photos \(verb) since \(date.formatted(date: .abbreviated, time: .shortened)).")
+        startRun(selection: .only(Set(items.keys)), skipsDriveCheck: true, rankHints: items)
     }
 
     /// Title of the primary action, shared by the Library toolbar and the Export menu.
@@ -614,7 +634,13 @@ final class ExportModel {
         return destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady : canStart
     }
 
-    private func startRun(selection: LibrarySelection?, resumesInterrupted: Bool = false, forcesFullCheck: Bool = false) {
+    private func startRun(
+        selection: LibrarySelection?,
+        resumesInterrupted: Bool = false,
+        forcesFullCheck: Bool = false,
+        skipsDriveCheck: Bool = false,
+        rankHints: [String: Int]? = nil
+    ) {
         guard canStart else { return }
         if phase == .paused {
             resume()
@@ -630,10 +656,24 @@ final class ExportModel {
                     let proceed = await (storageWarningConfirmation ?? confirmExport(despite:))(warning)
                     isConfirmingStorageWarning = false
                     guard proceed else { return }
-                    await startExport(selection: selection, resumesInterrupted: resumesInterrupted, forcesFullCheck: forcesFullCheck)
+                    await startExport(
+                        selection: selection,
+                        resumesInterrupted: resumesInterrupted,
+                        forcesFullCheck: forcesFullCheck,
+                        skipsDriveCheck: skipsDriveCheck,
+                        rankHints: rankHints
+                    )
                 }
             } else {
-                Task { await startExport(selection: selection, resumesInterrupted: resumesInterrupted, forcesFullCheck: forcesFullCheck) }
+                Task {
+                    await startExport(
+                        selection: selection,
+                        resumesInterrupted: resumesInterrupted,
+                        forcesFullCheck: forcesFullCheck,
+                        skipsDriveCheck: skipsDriveCheck,
+                        rankHints: rankHints
+                    )
+                }
             }
         }
     }
@@ -727,6 +767,7 @@ final class ExportModel {
     /// `resumeAttempt` marks it as an automatic resume; any other run replaces a pending resume.
     /// `resumesInterrupted` marks it as Resume Export, which continues the unfinished run whatever its age.
     /// `forcesFullCheck` makes a whole-library iCloud run a full check, not a quick update of new photos.
+    /// `skipsDriveCheck` starts the run without the drive check. `rankHints` replaces the browser's rank hints (iCloud).
     /// Returns whether the run started.
     @discardableResult
     private func startExport(
@@ -734,7 +775,9 @@ final class ExportModel {
         automatic: Bool = false,
         resumeAttempt: Int? = nil,
         resumesInterrupted: Bool = false,
-        forcesFullCheck: Bool = false
+        forcesFullCheck: Bool = false,
+        skipsDriveCheck: Bool = false,
+        rankHints rankHintOverride: [String: Int]? = nil
     ) async -> Bool {
         guard !isExporting, !isEngineRunning else { return false }
         cancelNewPhotosRefresh()
@@ -802,7 +845,7 @@ final class ExportModel {
         // folder can take many minutes, and the quick update doesn't need its counts. The engine's own note says so.
         await stopDriveCheck()
         var report: DriveCheckReport?
-        let skipsDriveCheck = source == .iCloud && selection.isEverything && !forcesFullCheck
+        let skipsCheck = skipsDriveCheck || (source == .iCloud && selection.isEverything && !forcesFullCheck
             && appleID.map { account in
                 ICloudQuickUpdate.skipsDriveCheck(
                     point: ICloudResumePoint.load(in: destination.url),
@@ -811,8 +854,8 @@ final class ExportModel {
                     now: Date(),
                     maxAge: iCloudResumeSettings.fullCheckInterval
                 )
-            } == true
-        if number == runNumber, phase == .preparing, !skipsDriveCheck {
+            } == true)
+        if number == runNumber, phase == .preparing, !skipsCheck {
             let mode: DriveInventory.Mode = layout == .flat ? .full : .quick
             let folder = recorder.map { SessionStore.baseName(for: $0.session) } ?? Self.checkFolderName()
             // Held in driveCheckTask, so Cancel stops it.
@@ -872,7 +915,9 @@ final class ExportModel {
             } else if !missing.isEmpty {
                 hintIDs = missing
             }
-            if let hintIDs, let browser {
+            if let rankHintOverride {
+                hints = rankHintOverride
+            } else if let hintIDs, let browser {
                 hints = await browser.rankHints(for: hintIDs)
                 // Cancelled while the browser looked up rank hints: don't start the engine at all.
                 guard number == runNumber, phase == .preparing else {
