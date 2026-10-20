@@ -2,8 +2,8 @@ import Foundation
 
 /// The public links the paywall and Settings show. Derived from the API base URL, so the server owns the pages.
 enum AccountLinks {
-    /// Support for email changes and refund requests. TODO: replace with the real support address once the domain is set.
-    static let supportEmail = "support@example.com"
+    /// Support for email changes and refund requests. The owner's address until a domain email exists.
+    static let supportEmail = "barishiz@gmail.com"
 
     static var support: URL {
         URL(string: "mailto:\(supportEmail)") ?? fallback
