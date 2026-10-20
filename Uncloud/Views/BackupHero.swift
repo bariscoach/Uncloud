@@ -41,6 +41,8 @@ struct BackupHeroContent: Equatable {
         lastExport: Date?,
         readySummary: String?,
         fraction: Double? = nil,
+        resumeAt: Date? = nil,
+        isWaitingForDestination: Bool = false,
         now: Date
     ) -> BackupHeroContent {
         switch phase {
@@ -58,7 +60,15 @@ struct BackupHeroContent: Equatable {
         }
 
         if hasAutoResume {
-            return BackupHeroContent(kind: .waiting, symbol: "clock", title: "Waiting to resume", subtitle: nil, tone: .warning)
+            let subtitle: String?
+            if isWaitingForDestination {
+                subtitle = "Connect your backup drive to continue."
+            } else if let resumeAt {
+                subtitle = "Resumes at \(ExportModel.resumeTimeText(resumeAt))."
+            } else {
+                subtitle = nil
+            }
+            return BackupHeroContent(kind: .waiting, symbol: "clock", title: "Waiting to resume", subtitle: subtitle, tone: .warning)
         }
         if offersResumeExport {
             return BackupHeroContent(kind: .interrupted, symbol: "arrow.clockwise.circle", title: "Your last export didn’t finish", subtitle: nil, tone: .warning)
@@ -147,6 +157,8 @@ struct BackupHero: View {
             lastExport: model.lastBackupDate,
             readySummary: model.onDriveSummaryText,
             fraction: model.fractionComplete,
+            resumeAt: model.autoResume?.resumeAt,
+            isWaitingForDestination: model.autoResume?.isWaitingForDestination == true,
             now: .now
         )
         let tint = content.tone.color(accent: accent ?? .accentColor)

@@ -25,7 +25,7 @@ struct MenuBarContent: View {
             }
         }
 
-        Button("Export Now") {
+        Button("Export New Photos") {
             model.backUpAutomatically(reason: "from the menu bar")
         }
         .disabled(!model.canBackUpAutomatically)

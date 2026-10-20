@@ -115,26 +115,26 @@ struct ExportCommands: Commands {
 
         if account.showsAppMenus {
             CommandMenu("Backup") {
-                // The same title and action as the primary button: the selection, or a folder first.
-                Button(model.primaryExportTitle(total: model.browser?.count)) {
-                    model.performPrimaryAction()
-                }
-                .keyboardShortcut("r")
-                .disabled(!model.primaryExportEnabled(total: model.browser?.count))
-
-                // Exports the whole library and ignores the saved selection, which stays as it was.
-                Button("Export All Photos") {
-                    model.exportAll()
-                }
-                .keyboardShortcut("r", modifiers: [.command, .option])
-                .disabled(!model.canExportAll)
-
-                // Every photo in the iCloud library, not just the new ones a routine export checks. Takes longer.
-                if model.source == .iCloud {
-                    Button("Check Whole Library") {
-                        model.checkWholeLibrary()
+                if model.destination == nil {
+                    // No folder yet: File already offers Choose Backup Folder, so this stays a disabled Export All Photos
+                    // rather than a second folder item.
+                    Button("Export All Photos") {}
+                        .keyboardShortcut("r", modifiers: [.command, .option])
+                        .disabled(true)
+                } else {
+                    // The same title and action as the primary button: the selection, or a folder first.
+                    Button(model.primaryExportTitle(total: model.browser?.count)) {
+                        model.performPrimaryAction()
                     }
-                    .disabled(!model.canExportAll || model.destination == nil)
+                    .keyboardShortcut("r")
+                    .disabled(!model.primaryExportEnabled(total: model.browser?.count))
+
+                    // Exports the whole library and ignores the saved selection, which stays as it was.
+                    Button("Export All Photos") {
+                        model.exportAll()
+                    }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+                    .disabled(!model.canExportAll)
                 }
 
                 Divider()
@@ -157,10 +157,18 @@ struct ExportCommands: Commands {
 
                 Divider()
 
-                Button("Check Now") {
+                Button("Check Backup Folder") {
                     model.checkDrive(full: true)
                 }
                 .disabled(!model.canCheckDrive)
+
+                // Every photo in the iCloud library, not just the new ones a routine export checks. Takes longer.
+                if model.source == .iCloud {
+                    Button("Check Whole Library") {
+                        model.checkWholeLibrary()
+                    }
+                    .disabled(!model.canExportAll || model.destination == nil)
+                }
 
                 Button("Verify Backup…") {
                     account.require(.verifyBackup) { tools.showVerify() }
@@ -205,9 +213,18 @@ struct ExportCommands: Commands {
                 Button("Getting Started") {
                     model.introSheet = .gettingStarted
                 }
-
-                Divider()
             }
+
+            // Support and the website stay available when signed out, so people can ask for help before they sign in.
+            Button("Uncloud Website") {
+                NSWorkspace.shared.open(AccountLinks.website)
+            }
+
+            Button("Contact Support…") {
+                NSWorkspace.shared.open(AccountLinks.support)
+            }
+
+            Divider()
 
             // Redacted transcripts of the last iCloud helper runs; they stay on this Mac.
             Button("Show Diagnostic Logs in Finder") {

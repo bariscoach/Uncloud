@@ -81,9 +81,13 @@ private struct ExportToolbar: ToolbarContent {
                 Button {
                     model.pane = .backup
                 } label: {
-                    Label("Waiting to Resume", systemImage: "clock")
-                        .labelStyle(.titleAndIcon)
-                        .foregroundStyle(.orange)
+                    Label {
+                        Text("Waiting to Resume")
+                    } icon: {
+                        // Only the icon carries the warning colour; the title stays the toolbar's normal colour.
+                        Image(systemName: "clock")
+                            .foregroundStyle(.orange)
+                    }
                 }
                 .help("Resumes on its own. Click to see why.")
                 .accessibilityLabel("Export waiting to resume. Show Backup.")
@@ -119,7 +123,7 @@ private struct LibraryBrowserView: View {
             switch browser.state {
             case .signInRequired:
                 ContentUnavailableView {
-                    Label("Sign In Again", systemImage: "person.crop.circle.badge.exclamationmark")
+                    Label("Sign In to iCloud Again", systemImage: "person.crop.circle.badge.exclamationmark")
                 } description: {
                     Text("Your iCloud sign-in has expired.")
                 } actions: {

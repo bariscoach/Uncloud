@@ -106,7 +106,7 @@ struct BrowseBackupView: View {
         } description: {
             Text("Export some photos, then see where they were taken.")
         } actions: {
-            Button("Show Backup") {
+            Button("Go to Backup") {
                 model.pane = .backup
             }
             .buttonStyle(.borderedProminent)
