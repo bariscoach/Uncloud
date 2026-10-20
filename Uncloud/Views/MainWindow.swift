@@ -24,8 +24,8 @@ struct MainWindow: View {
                     .accessibilityValue(backupAccessibilityValue)
                     .tag(ExportModel.Pane.backup)
 
-                // Locked for free accounts: the row stays, with a lock, and choosing it opens the paywall (plan C.3).
-                LockableSidebarRow(title: "Browse Backup", symbol: "map", isLocked: !account.allows(.browseBackup))
+                // Locked for free accounts: the row stays, with a lock, and choosing it shows the locked view (plan C.3).
+                LockableSidebarRow(title: "Browse Backup", symbol: "photo.stack", isLocked: !account.allows(.browseBackup))
                     .tag(ExportModel.Pane.browse)
 
                 // The one destructive pane sits apart from the two backup panes.
@@ -79,15 +79,6 @@ struct MainWindow: View {
             PaywallSheet(request: request)
                 .environment(account)
                 .accentVariant(AccentVariant.override)
-        }
-        .onChange(of: model.pane) { _, pane in
-            // Choosing a locked pane shows its lock and opens the paywall at once (plan C.3).
-            if pane == .browse, !account.allows(.browseBackup) {
-                account.require(.browseBackup) {}
-            }
-            if pane == .cleanup, !account.allows(.cleanUpICloud) {
-                account.require(.cleanUpICloud) {}
-            }
         }
         .fileImporter(isPresented: $model.isChoosingDestination, allowedContentTypes: [.folder]) { result in
             model.chooseDestination(result)
