@@ -30,7 +30,26 @@ enum ICloudQuickUpdate {
         now: Date,
         maxAge: TimeInterval = ICloudResumeSettings().fullCheckInterval
     ) -> Bool {
-        guard !known.isEmpty, missing.isEmpty, let point, point.account == account, point.layout == layout.rawValue,
+        guard !known.isEmpty, missing.isEmpty else { return false }
+        return hasRecentFullCheck(point: point, account: account, layout: layout, now: now, maxAge: maxAge)
+    }
+
+    /// Whether the run is going to try a quick update, judged from the resume point alone: the same account and
+    /// layout, and a full check within `maxAge`. The drive check before a routine run can be skipped on this.
+    static func skipsDriveCheck(
+        point: ICloudResumePoint?,
+        account: String,
+        layout: FolderLayout,
+        now: Date,
+        maxAge: TimeInterval = ICloudResumeSettings().fullCheckInterval
+    ) -> Bool {
+        hasRecentFullCheck(point: point, account: account, layout: layout, now: now, maxAge: maxAge)
+    }
+
+    private static func hasRecentFullCheck(
+        point: ICloudResumePoint?, account: String, layout: FolderLayout, now: Date, maxAge: TimeInterval
+    ) -> Bool {
+        guard let point, point.account == account, point.layout == layout.rawValue,
               let lastFullWalkAt = point.lastFullWalkAt else {
             return false
         }

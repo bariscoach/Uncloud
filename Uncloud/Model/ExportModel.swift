@@ -798,9 +798,21 @@ final class ExportModel {
         )
 
         // Check the drive first, so the run starts from what is already there. An idle check gives way.
+        // An iCloud run of everything that will be a quick update (new photos only), a resume included, skips it: the drive check of a flat
+        // folder can take many minutes, and the quick update doesn't need its counts. The engine's own note says so.
         await stopDriveCheck()
         var report: DriveCheckReport?
-        if number == runNumber, phase == .preparing {
+        let skipsDriveCheck = source == .iCloud && selection.isEverything && !forcesFullCheck
+            && appleID.map { account in
+                ICloudQuickUpdate.skipsDriveCheck(
+                    point: ICloudResumePoint.load(in: destination.url),
+                    account: ExportSession.accountHash(appleID: account),
+                    layout: layout,
+                    now: Date(),
+                    maxAge: iCloudResumeSettings.fullCheckInterval
+                )
+            } == true
+        if number == runNumber, phase == .preparing, !skipsDriveCheck {
             let mode: DriveInventory.Mode = layout == .flat ? .full : .quick
             let folder = recorder.map { SessionStore.baseName(for: $0.session) } ?? Self.checkFolderName()
             // Held in driveCheckTask, so Cancel stops it.
@@ -881,7 +893,7 @@ final class ExportModel {
                 alreadyOnDrive: report?.onDrive,
                 missingItems: missing,
                 resumeSettings: iCloudResumeSettings,
-                quickUpdate: selection.isEverything && !resumesInterrupted && !forcesFullCheck
+                quickUpdate: selection.isEverything && !forcesFullCheck
             ).start()
         }
         runTask = run.task

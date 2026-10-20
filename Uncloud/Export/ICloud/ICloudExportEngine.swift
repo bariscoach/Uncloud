@@ -754,7 +754,7 @@ extension ICloudExportEngine {
             manifest.markRunFinished()
             return
         }
-        emit(.note("Looking for new photos only. Uncloud checks your whole library about once a month."))
+        emit(.note("Looking for new photos only. Your backup folder is checked in full about once a month."))
 
         var failures = 0
         var pendingHashes: [String] = []

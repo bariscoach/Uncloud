@@ -115,6 +115,27 @@ struct ICloudQuickUpdateTests {
         #expect(!eligible(Self.point(lastFullWalk: current + Self.day)))
     }
 
+    @Test func theDriveCheckIsSkippedOnlyWhenARecentFullCheckOfTheSameAccountAndLayoutExists() {
+        let current = Date()
+        func skips(_ point: ICloudResumePoint?, account: String = Self.account, layout: FolderLayout = .flat,
+                   now: Date = current) -> Bool {
+            ICloudQuickUpdate.skipsDriveCheck(point: point, account: account, layout: layout, now: now, maxAge: 30 * Self.day)
+        }
+        // Fresh: fresh point of the same account and layout (flat is the layout of the owner's slow drive).
+        #expect(skips(Self.point(lastFullWalk: current - Self.day, layout: "flat")))
+        // Exactly at the interval still counts; a day past it doesn't.
+        #expect(skips(Self.point(lastFullWalk: current - 30 * Self.day, layout: "flat")))
+        #expect(!skips(Self.point(lastFullWalk: current - 31 * Self.day, layout: "flat")))
+        // No point, no last full walk, another account, another layout, or a clock that went backwards.
+        #expect(!skips(nil))
+        #expect(!skips(Self.point(lastFullWalk: nil, layout: "flat")))
+        #expect(!skips(Self.point(lastFullWalk: current - Self.day, account: "other", layout: "flat")))
+        #expect(!skips(Self.point(lastFullWalk: current - Self.day, layout: "month"), layout: .flat))
+        #expect(!skips(Self.point(lastFullWalk: current + Self.day, layout: "flat")))
+        // Known items and missing items don't matter here: the drive check is what would supply them.
+        #expect(skips(Self.point(lastFullWalk: current - Self.day, layout: "month"), layout: .month))
+    }
+
     @Test func theDefaultsAreAMonthAndTheDocumentedLimits() {
         let defaults = ICloudResumeSettings()
         #expect(defaults.fullCheckInterval == 30 * 24 * 60 * 60)
