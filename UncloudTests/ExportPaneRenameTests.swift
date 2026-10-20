@@ -4,8 +4,8 @@ import Testing
 @MainActor
 @Suite("ExportPaneRename")
 struct ExportPaneRenameTests {
-    @Test("The first pane is Export, the photo grid")
-    func defaultPaneIsExport() {
-        #expect(ExportModel().pane == .export)
+    @Test("The first pane is Backup, the home screen")
+    func defaultPaneIsBackup() {
+        #expect(ExportModel().pane == .backup)
     }
 }
