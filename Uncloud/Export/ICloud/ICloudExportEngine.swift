@@ -404,7 +404,7 @@ struct ICloudExportEngine: Sendable {
                 }
                 failures += 1
                 emit(.failed(name: filename, reason: reason))
-            case .done, .walked:
+            case .done, .walked, .listed:
                 break
             }
         }
@@ -598,6 +598,12 @@ extension ICloudExportEngine {
 
         let destination = destination
         let layout = layout
+        // The local catalog follows this run's walks (R12g): the walk's pages are written as they arrive, and a
+        // walk that visits everything proves deletions.
+        let catalogWrites = CatalogWriteQueue(catalog: ICloudCatalogStore.shared(appleID: appleID))
+        catalogWrites.enqueue { catalog in
+            try await catalog.beginFullWalk(at: now)
+        }
         var visitedEverything: Date?
         // The last complete walk's gap (see `ICloudResumePoint.unlistedCount`); kept until this run completes one.
         var unlistedCount = previous?.unlistedCount
@@ -682,6 +688,8 @@ extension ICloudExportEngine {
                         }
                     case .walked(let rank):
                         emit(.checked(done: min(rank + 1, libraryCount), total: libraryCount))
+                    case .listed(_, let items):
+                        catalogWrites.listed(items, libraryCount: libraryCount)
                     case .failed(let asset, _, let filename, let reason):
                         coverage.failed()
                         walkFailed = true
@@ -711,6 +719,8 @@ extension ICloudExportEngine {
                         try finished(item, downloaded: { if case .downloaded = event { true } else { false } }())
                     case .walked(let rank):
                         emit(.checked(done: min(rank + 1, libraryCount), total: libraryCount))
+                    case .listed(_, let items):
+                        catalogWrites.listed(items, libraryCount: libraryCount)
                     case .failed(let asset, _, let filename, let reason):
                         try failed(message, asset: asset, filename: filename, reason: reason)
                     default:
@@ -723,12 +733,21 @@ extension ICloudExportEngine {
             let finalCount = closingStop == nil ? endCount : ((try? await bridge.count()) ?? -1)
             if finalCount == libraryCount && endCount == libraryCount {
                 visitedEverything = now
+                // Every rank was visited since `now`: rows the walk didn't see are gone from the library (R12g).
+                let walkStart = now
+                let unlisted = unlistedCount
+                catalogWrites.enqueue { catalog in
+                    _ = try await catalog.completeFullWalk(startedAt: walkStart, libraryCount: libraryCount,
+                                                           unlistedCount: unlisted)
+                }
             }
         } catch {
             savePoint()
             _ = try? scanner.hash(pendingHashes)
+            await catalogWrites.drain()
             throw error
         }
+        await catalogWrites.drain()
         // A complete walk with nothing failed: the count beyond what the library lists is what can never be exported.
         if visitedEverything != nil, failures == 0 {
             unlistedCount = max(0, libraryCount - Self.knownItems(in: destination, layout: layout).count)

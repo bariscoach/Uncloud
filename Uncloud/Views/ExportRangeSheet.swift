@@ -15,6 +15,9 @@ struct ExportRangeSheet: View {
     @State private var counted: Counted = .counting
     /// Bumped by Try Again, which counts again.
     @State private var attempt = 0
+    /// The account's catalog once it has been topped up and checked for this sheet (R12e); nil when it isn't trusted.
+    @State private var rangeCatalog: ICloudCatalog?
+    @State private var rangeCatalogChecked = false
 
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Uncloud", category: "export")
 
@@ -185,11 +188,43 @@ struct ExportRangeSheet: View {
 
     /// The iCloud fetcher for the sheet's walks. Waits for the bridge to sign in first: the first walk after launch
     /// used to fail while the bridge wasn't ready. Nil without an Apple ID.
-    private func iCloudFetcher() async throws -> ICloudBridgeFetcher? {
+    private func iCloudFetcher() async throws -> (any ICloudPageFetching)? {
         guard let appleID = ICloudAccount.appleID else { return nil }
         let bridge = ICloudBridge.shared(appleID: appleID)
         try await bridge.ready()
-        return ICloudBridgeFetcher(bridge: bridge)
+        return CatalogFeedingFetcher(
+            base: ICloudBridgeFetcher(bridge: bridge),
+            catalog: ICloudCatalogStore.shared(appleID: appleID)
+        )
+    }
+
+    /// The account's catalog, topped up and checked once per sheet (R12e), so each From-date change is a local query.
+    /// Nil when the catalog isn't trusted or can't be checked: the walks then run as before.
+    private func rangeCatalogIfTrusted() async throws -> ICloudCatalog? {
+        if rangeCatalogChecked {
+            return rangeCatalog
+        }
+        guard let appleID = ICloudAccount.appleID, let catalog = ICloudCatalogStore.shared(appleID: appleID) else {
+            rangeCatalogChecked = true
+            return nil
+        }
+        let bridge = ICloudBridge.shared(appleID: appleID)
+        try await bridge.ready()
+        let trusted: Bool
+        do {
+            trusted = try await CatalogTopUp.trustedAfterTopUp(
+                fetcher: ICloudBridgeFetcher(bridge: bridge),
+                catalog: catalog,
+                recentlyDeleted: ICloudBridgeFetcher(bridge: bridge, album: .recentlyDeleted)
+            )
+        } catch {
+            // A cancelled sheet stops here, and asks again next time; any other failure falls back to the walks.
+            try Task.checkCancellation()
+            trusted = false
+        }
+        rangeCatalogChecked = true
+        rangeCatalog = trusted ? catalog : nil
+        return rangeCatalog
     }
 
     /// The date of the newest backed-up photo, for the start of the range. Nil when none can be found.
@@ -198,6 +233,9 @@ struct ExportRangeSheet: View {
         case .iCloud:
             do {
                 guard let fetcher = try await iCloudFetcher() else { return nil }
+                if let catalog = try await rangeCatalogIfTrusted() {
+                    return try await ExportSince.iCloudSuggestedDate(known: known, catalog: catalog)
+                }
                 return try await ExportSince.iCloudSuggestedDate(known: known, fetcher: fetcher)
             } catch {
                 guard !Task.isCancelled else { return nil }
@@ -223,7 +261,12 @@ struct ExportRangeSheet: View {
                 guard let fetcher = try await iCloudFetcher() else {
                     return .failed("Sign in to iCloud Photos first.")
                 }
-                let result = try await ExportSince.iCloudItems(takenFrom: from, to: to, fetcher: fetcher)
+                let result: (items: [String: Int], isAtLeast: Bool)
+                if let catalog = try await rangeCatalogIfTrusted() {
+                    result = try await ExportSince.iCloudItems(takenFrom: from, to: to, catalog: catalog)
+                } else {
+                    result = try await ExportSince.iCloudItems(takenFrom: from, to: to, fetcher: fetcher)
+                }
                 return found(result.items, isAtLeast: result.isAtLeast)
             } catch {
                 guard !Task.isCancelled else { return .counting }

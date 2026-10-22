@@ -10,6 +10,8 @@ struct LibraryItem: Identifiable, Hashable, Sendable {
     let filename: String
     let created: Date?
     let isVideo: Bool
+    /// From the local catalog, shown while the live page loads (R12f). A placeholder can't be selected.
+    var isPlaceholder = false
 }
 
 /// Browses the whole library of the current source, newest first, a page at a time.
@@ -51,6 +53,8 @@ final class LibraryBrowser {
     }
 
     private var pages: [Int: [LibraryItem]] = [:]
+    /// Pages that hold catalog placeholders until their live page arrives (R12f).
+    @ObservationIgnored private var placeholderPageIndices: Set<Int> = []
     @ObservationIgnored private var pageUse: [Int: UInt64] = [:]
     @ObservationIgnored private var useClock: UInt64 = 0
     @ObservationIgnored private var loadingPages: Set<Int> = []
@@ -89,6 +93,7 @@ final class LibraryBrowser {
         countTask = nil
         count = nil
         pages = [:]
+        placeholderPageIndices = []
         pageUse = [:]
         loadingPages = []
         failedPages = [:]
@@ -102,6 +107,11 @@ final class LibraryBrowser {
         countTask = Task {
             if resettingBackend {
                 await backend.reset()
+            }
+            // The catalog's count shows at once; the live count replaces it when it arrives, whatever it is (R12f).
+            if let placeholder = await backend.placeholderCount(), generation == self.generation, count == nil {
+                count = placeholder
+                state = .ready
             }
             var attempt = 0
             while true {
@@ -139,6 +149,10 @@ final class LibraryBrowser {
         if let page = pages[pageIndex] {
             useClock += 1
             pageUse[pageIndex] = useClock
+            // A placeholder page keeps asking for its live page until that arrives.
+            if placeholderPageIndices.contains(pageIndex) {
+                loadPage(pageIndex)
+            }
             let offset = index - pageIndex * Self.pageSize
             return offset < page.count ? page[offset] : nil
         }
@@ -146,11 +160,18 @@ final class LibraryBrowser {
         return nil
     }
 
+    /// The item at `index` when it can be selected: nil while its page loads, and for a catalog placeholder, which
+    /// becomes selectable when its live page arrives (R12f).
+    func selectableItem(at index: Int) -> LibraryItem? {
+        guard let item = item(at: index), !item.isPlaceholder else { return nil }
+        return item
+    }
+
     /// Loads a page ahead of need, such as the one after the visible rows.
     func prefetch(around index: Int) {
         guard let count, index >= 0, index < count else { return }
         let pageIndex = index / Self.pageSize
-        if pages[pageIndex] == nil {
+        if pages[pageIndex] == nil || placeholderPageIndices.contains(pageIndex) {
             loadPage(pageIndex)
         }
     }
@@ -163,6 +184,12 @@ final class LibraryBrowser {
         loadingPages.insert(pageIndex)
         let generation = generation
         Task {
+            // Until the live page arrives, the catalog's page shows (R12f).
+            if pages[pageIndex] == nil,
+               let placeholder = await backend.placeholderPage(pageIndex, pageSize: Self.pageSize),
+               generation == self.generation, pages[pageIndex] == nil {
+                store(placeholder, at: pageIndex, isPlaceholder: true)
+            }
             do {
                 let items = try await backend.loadPage(pageIndex, pageSize: Self.pageSize)
                 guard generation == self.generation else { return }
@@ -187,8 +214,19 @@ final class LibraryBrowser {
         }
     }
 
-    private func store(_ items: [LibraryItem], at pageIndex: Int) {
-        pages[pageIndex] = items
+    private func store(_ items: [LibraryItem], at pageIndex: Int, isPlaceholder: Bool = false) {
+        pages[pageIndex] = isPlaceholder
+            ? items.map { item in
+                var placeholder = item
+                placeholder.isPlaceholder = true
+                return placeholder
+            }
+            : items
+        if isPlaceholder {
+            placeholderPageIndices.insert(pageIndex)
+        } else {
+            placeholderPageIndices.remove(pageIndex)
+        }
         useClock += 1
         pageUse[pageIndex] = useClock
         while pages.count > Self.maxPages,
@@ -247,6 +285,15 @@ protocol LibraryBrowserBackend: AnyObject {
     func knownBytes() async -> [String: Int64]
     /// Forgets cached pages and the count.
     func reset() async
+    /// The library's count from a local catalog, shown before the live count loads (R12f). Nil when there is none.
+    func placeholderCount() async -> Int?
+    /// A page from a local catalog, shown while the live page loads (R12f). Nil when there is none.
+    func placeholderPage(_ index: Int, pageSize: Int) async -> [LibraryItem]?
+}
+
+extension LibraryBrowserBackend {
+    func placeholderCount() async -> Int? { nil }
+    func placeholderPage(_ index: Int, pageSize: Int) async -> [LibraryItem]? { nil }
 }
 
 /// Carries Photos objects that are safe to read from any thread but aren't marked Sendable.
@@ -360,11 +407,19 @@ enum PhotoKitBrowserError: LocalizedError {
 @MainActor
 final class ICloudBrowserBackend: LibraryBrowserBackend {
     private let cache: ICloudPageCache
+    /// The library's local catalog, for placeholders (R12f). Nil for Recently Deleted.
+    private let catalog: ICloudCatalog?
 
     init(appleID: String, album: ICloudBridgeAlbum = .library) {
         let directory = ICloudLibrary.browserThumbnailDirectory
+        // The library's pages feed the local catalog (R12c); Recently Deleted never does.
+        let bridgeFetcher = ICloudBridgeFetcher(bridge: .shared(appleID: appleID), album: album)
+        let catalog = album == .library ? ICloudCatalogStore.shared(appleID: appleID) : nil
+        self.catalog = catalog
         cache = ICloudPageCache(
-            fetcher: ICloudBridgeFetcher(bridge: .shared(appleID: appleID), album: album),
+            fetcher: album == .library
+                ? CatalogFeedingFetcher(base: bridgeFetcher, catalog: catalog)
+                : bridgeFetcher,
             thumbnailDirectory: directory,
             pageSize: LibraryBrowser.pageSize,
             maxPages: LibraryBrowser.maxPages
@@ -384,6 +439,19 @@ final class ICloudBrowserBackend: LibraryBrowserBackend {
         try await cache.page(index).map {
             LibraryItem(id: $0.id, filename: $0.filename, created: $0.created, isVideo: $0.isVideo)
         }
+    }
+
+    func placeholderCount() async -> Int? {
+        guard let catalog, let status = try? await catalog.status() else { return nil }
+        return status.libraryCount
+    }
+
+    /// The catalog's page at `index`, in the library's order (rank hints). Nil without a catalog or a known count.
+    func placeholderPage(_ index: Int, pageSize: Int) async -> [LibraryItem]? {
+        guard let catalog, index >= 0, let count = await placeholderCount(),
+              let rows = try? await catalog.page(offset: index * pageSize, limit: pageSize, libraryCount: count)
+        else { return nil }
+        return rows.map { LibraryItem(id: $0.id, filename: $0.filename, created: $0.created, isVideo: $0.isVideo) }
     }
 
     func thumbnail(for item: LibraryItem, pixelSize: CGSize) async -> NSImage? {

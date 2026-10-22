@@ -16,8 +16,9 @@ information only (for example, iCloud is still indexing the library), and nothin
 Requests, each with an "id" that every reply carries. Ranks are positions in icloudpd's walk: rank 0
 is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting every other rank by one.
   {"cmd":"page","offset":O,"limit":L}  -> {"event":"page","offset":O,"items":[...]}
-      items in icloudpd's order from rank O: {id, rank, filename, created, added, type, size, bytes, thumbURL}
-      (size: the original's bytes; bytes: what a download writes, see stats)
+      items in icloudpd's order from rank O: {id, rank, filename, created, added, type, size, bytes, thumbURL,
+      master, lat, lon, tz} (size: the original's bytes; bytes: what a download writes, see stats; master: the
+      CPLMaster record name; lat and lon: the location, null when unknown; tz: timeZoneOffset in seconds, or null)
   {"cmd":"count"}                     -> {"event":"count","count":N}
   {"cmd":"albums"}                    -> {"event":"albums","albums":[names]}  (no smart albums)
   {"cmd":"download","mode":"only"|"allExcept","ids":[...],"dest":DIR,"layout":"month"|"album"|"none",
@@ -31,6 +32,9 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
       above it while it runs doesn't make it miss the item that moves up past a page boundary.
       A finished file is moved to its name without ever replacing a file that appeared there
       meanwhile; that item fails instead (FileAppeared) and the next run names it again.
+      -> {"event":"listed","offset":O,"items":[...]} for each page a walk accepts (allExcept, and the closing walk of
+         only): the items as in a stats page, with ranks, so the app can keep its local catalog up to date. Nothing
+         else changes for it. Older apps ignore it.
       -> {"event":"progress","done":D,"total":T} whenever either changes, then per item one of
          {"event":"downloaded","asset","rank","filename","path","paths","files"},
          {"event":"skipped","asset","rank","filename","path","paths","files"},
@@ -50,9 +54,9 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
       partial download. Browsing (page, count, albums) is answered between chunks too, at most every 0.25 s;
       the other requests wait for the download to end.
   {"cmd":"stats","offset":O,"prefetch":N}  walks the library from O (icloudpd's order) a page at a time
-      -> {"event":"statsProgress","done":D,"total":T,"bytes":B,"sizes":{id: bytes},"unsized":[ids]}
-         per page, where D and B count this request's items so far, sizes holds the page's items and
-         unsized the page's items without a size; finally
+      -> {"event":"statsProgress","done":D,"total":T,"bytes":B,"sizes":{id: bytes},"unsized":[ids],"items":[...]}
+         per page, where D and B count this request's items so far, sizes holds the page's items, unsized the page's
+         items without a size, and items the page's items as in a page reply (without thumbURL) plus "rank"; finally
          {"event":"stats","done":D,"total":T,"bytes":B,"complete":BOOL,"cancelled":BOOL,"timing":{...}}.
          prefetch (optional, default 1 = off, at most 4) fetches that many pages ahead on worker threads.
          A throttle switches the session back to 1 page at a time.
@@ -111,6 +115,7 @@ class _Value:
 multiprocessing.Lock = threading.Lock
 multiprocessing.RawValue = _Value
 
+import base64  # noqa: E402
 import builtins  # noqa: E402
 import copy  # noqa: E402
 import datetime  # noqa: E402
@@ -118,6 +123,7 @@ import errno  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
 import os  # noqa: E402
+import plistlib  # noqa: E402
 import queue  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
@@ -137,6 +143,9 @@ MAX_PAGE_LIMIT = 500
 HINT_FRACTION = 0.3
 # Ranks closer than this are fetched in one window.
 HINT_GAP = 25
+# Each hinted window reaches this many ranks further on both sides (R12b): a hint that is a little off still finds
+# its item without a walk.
+HINT_SLACK = 25
 # A download checks for cancel, pause and pings after each chunk of this many bytes.
 DOWNLOAD_CHUNK = 32 * 1024
 # Items per CloudKit modify request, the largest allowed, and the pause between two of them.
@@ -184,6 +193,8 @@ LISTING_KEYS = [
     "resOriginalVidComplRes", "resOriginalVidComplFileType", "resJPEGFullRes", "resJPEGFullFileType",
     "resJPEGMedRes", "resJPEGMedFileType", "resJPEGThumbRes", "resJPEGThumbFileType",
     "resVidMedRes", "resVidMedFileType", "resVidSmallRes", "resVidSmallFileType",
+    # The location and time zone the local catalog keeps (R12b); a listing gets them with the rest.
+    "locationEnc", "locationLatitude", "locationLongitude", "timeZoneOffset",
 ]
 # Session files (pyicloud's session and cookie files) are rewritten by every request; this lock keeps two writes apart.
 _SESSION_FILE_LOCK = threading.Lock()
@@ -923,6 +934,7 @@ class PageReader:
 
 def walk(
     album: Any, start: int = 0, depth: int = 1, eager: bool = True, ahead_allowed: Optional[Callable[[], bool]] = None,
+    on_page: Optional[Callable[[int, List[Any]], None]] = None,
 ) -> Iterable[tuple]:
     """(rank, asset) for every item of an album from rank `start` on, PAGE_CHUNK items per query.
 
@@ -935,7 +947,10 @@ def walk(
     cached) keeps its offset and can be walked again.
 
     `depth` pages are fetched ahead while the caller handles the current one (see PageReader). The next
-    page starts WALK_OVERLAP items before the end of this one, so that is where the predictions point."""
+    page starts WALK_OVERLAP items before the end of this one, so that is where the predictions point.
+
+    `on_page(low, page)`, when given, is called on this thread with each page the walk accepts, from its rank `low`
+    (the catalog feed; a page's overlap with the one before may be sent twice)."""
     start = max(0, start)
     offset = start
     seen: set = set()
@@ -956,6 +971,8 @@ def walk(
                 # More than `back` items above were removed (or the last ones visited were): look further back.
                 pages.drop()
                 back *= 4
+            if on_page is not None:
+                on_page(low, page)
             first = 0 if hit is None else hit + 1
             # A download (eager False) prefetches only while the walk is passing over known items: the pages it
             # would skip are cheap to fetch ahead, and the items it downloads aren't held up by queries.
@@ -1039,6 +1056,7 @@ def describe(asset: Any) -> Dict[str, Any]:
         size: Optional[int] = int(asset.size)
     except (KeyError, TypeError, ValueError):
         size = None
+    lat, lon = catalog_location(asset)
     return {
         "id": asset.id,
         "filename": asset.filename,
@@ -1048,7 +1066,80 @@ def describe(asset: Any) -> Dict[str, Any]:
         "size": size,
         "bytes": download_bytes(asset),
         "thumbURL": thumb_url(asset),
+        "master": catalog_master(asset),
+        "lat": lat,
+        "lon": lon,
+        "tz": catalog_timezone(asset),
     }
+
+
+def compact(asset: Any, rank: int) -> Dict[str, Any]:
+    """What a `listed` or `statsProgress` item carries: describe() without the thumbnail URL, plus the rank."""
+    item = describe(asset)
+    del item["thumbURL"]
+    return {**item, "rank": rank}
+
+
+def _record_fields(asset: Any, record: str) -> Dict[str, Any]:
+    try:
+        return getattr(asset, record)["fields"]
+    except (AttributeError, KeyError, TypeError):
+        return {}
+
+
+def _field_value(fields: Dict[str, Any], name: str) -> Any:
+    try:
+        return fields[name]["value"]
+    except (KeyError, TypeError):
+        return None
+
+
+def catalog_master(asset: Any) -> Optional[str]:
+    """The CPLMaster record name of an item (its master), or None."""
+    try:
+        return str(asset._master_record["recordName"])
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def catalog_timezone(asset: Any) -> Optional[int]:
+    """The item's time zone offset in seconds (`timeZoneOffset`), or None when the record doesn't say."""
+    value = _field_value(_record_fields(asset, "_asset_record"), "timeZoneOffset")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _valid_coordinates(lat: Any, lon: Any) -> Optional[Tuple[float, float]]:
+    """(lat, lon) when they are numbers in range and not the (0, 0) that means no fix; None otherwise."""
+    for value in (lat, lon):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180 or (lat == 0 and lon == 0):
+        return None
+    return float(lat), float(lon)
+
+
+def catalog_location(asset: Any) -> Tuple[Optional[float], Optional[float]]:
+    """(lat, lon) of an item: from its `locationEnc` binary plist (read as icloudpd's xmp_sidecar does), or else
+    from the plain `locationLatitude` and `locationLongitude` fields. (None, None) when neither is usable."""
+    fields = _record_fields(asset, "_asset_record")
+    try:
+        encoded = _field_value(fields, "locationEnc")
+        if isinstance(encoded, str):
+            location = plistlib.loads(base64.b64decode(encoded), fmt=plistlib.FMT_BINARY)
+            coordinates = _valid_coordinates(location.get("lat"), location.get("lon"))
+            if coordinates is not None:
+                return coordinates
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        coordinates = _valid_coordinates(
+            _field_value(fields, "locationLatitude"), _field_value(fields, "locationLongitude"),
+        )
+    except Exception:  # noqa: BLE001
+        coordinates = None
+    return coordinates if coordinates is not None else (None, None)
 
 
 def hint_windows(ranks: Iterable[int]) -> List[range]:
@@ -1065,6 +1156,21 @@ def hint_windows(ranks: Iterable[int]) -> List[range]:
     if start is not None and end is not None:
         windows.append(range(start, end + 1))
     return windows
+
+
+def _slacked_windows(windows: List[range], floor: int = 0) -> List[range]:
+    """Each window widened by HINT_SLACK ranks on both sides (never below `floor`), with overlaps merged."""
+    widened = sorted(
+        (range(max(floor, window.start - HINT_SLACK), window.stop + HINT_SLACK) for window in windows),
+        key=lambda window: window.start,
+    )
+    merged: List[range] = []
+    for window in widened:
+        if merged and window.start <= merged[-1].stop:
+            merged[-1] = range(merged[-1].start, max(merged[-1].stop, window.stop))
+        else:
+            merged.append(window)
+    return merged
 
 
 # MARK: - Timing
@@ -1302,11 +1408,12 @@ class Bridge:
         in_page = 0
         complete = True
         cancelled = False
+        items: List[Dict[str, Any]] = []
 
         def report() -> None:
             self.channel.send({
                 "id": request_id, "event": "statsProgress", "done": done, "total": total,
-                "bytes": total_bytes, "sizes": sizes, "unsized": unsized,
+                "bytes": total_bytes, "sizes": sizes, "unsized": unsized, "items": items,
             })
 
         try:
@@ -1318,13 +1425,14 @@ class Bridge:
                     break
                 if len(page) == PAGE_CHUNK:
                     pages.ahead((position + PAGE_CHUNK * ahead, PAGE_CHUNK) for ahead in range(1, depth + 1))
-                for asset in page:
+                for index, asset in enumerate(page):
                     size = download_bytes(asset)
                     if size is not None:
                         sizes[asset.id] = size
                         total_bytes += size
                     else:
                         unsized.append(asset.id)
+                    items.append(compact(asset, position + index))
                     done += 1
                     in_page += 1
                     if in_page < PAGE_CHUNK:
@@ -1332,6 +1440,7 @@ class Bridge:
                     report()
                     sizes = {}
                     unsized = []
+                    items = []
                     in_page = 0
                     if self.channel.is_cancelled(request_id):
                         cancelled, complete, walking = True, False, False
@@ -1415,7 +1524,8 @@ class Bridge:
     ) -> None:
         if mode == "allExcept":
             run.set_total(max(0, len(album) - start_rank))
-            for rank, asset in walk(album, start_rank, depth, eager=False, ahead_allowed=run.mostly_idle):
+            for rank, asset in walk(album, start_rank, depth, eager=False, ahead_allowed=run.mostly_idle,
+                                    on_page=run.listed):
                 if run.should_stop():
                     break
                 if stop_at is not None and asset.id == stop_at:
@@ -1439,7 +1549,8 @@ class Bridge:
             # Membership is only known by walking the album; the total grows with each match.
             run.set_total(0)
         if remaining and not run.should_stop():
-            for rank, asset in walk(album, start_rank, depth, eager=False, ahead_allowed=run.mostly_idle):
+            for rank, asset in walk(album, start_rank, depth, eager=False, ahead_allowed=run.mostly_idle,
+                                    on_page=run.listed):
                 if run.should_stop():
                     break
                 if asset.id in remaining:
@@ -1472,7 +1583,7 @@ class Bridge:
             return
         if len(ranks) > library_size * HINT_FRACTION:
             return
-        for window in hint_windows(ranks):
+        for window in _slacked_windows(hint_windows(ranks), start_rank):
             if run.should_stop():
                 return
             for offset, asset in enumerate(fetch_assets(album, window.start, len(window))):
@@ -1759,6 +1870,14 @@ class _DownloadRun(_RequestRun):
         self._served_at = now
         # At most two requests, and about a second: the rest wait for the next interval, so a slow page can't stall the file.
         self.bridge.serve_waiting(limit=BROWSE_REQUESTS_PER_CHUNK, seconds=BROWSE_SECONDS_PER_CHUNK)
+
+    def listed(self, low: int, page: List[Any]) -> None:
+        """A walk's page, for the app's local catalog (R12b): `listed` carries its items with their ranks. It changes
+        no count, progress or activity of the download."""
+        self.channel.send({
+            "id": self.request_id, "event": "listed", "offset": low,
+            "items": [compact(asset, low + index) for index, asset in enumerate(page)],
+        })
 
     def set_total(self, total: int) -> None:
         self.total = max(0, total)

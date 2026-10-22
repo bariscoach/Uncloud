@@ -102,7 +102,7 @@ struct LibraryGrid: View {
         focusedIndex = index
         if extendsRange, let anchor {
             selectRange(from: anchor, to: index)
-        } else if let item = browser.item(at: index) {
+        } else if let item = browser.selectableItem(at: index) {
             selection.toggle(item.id)
         }
         anchor = index
@@ -121,7 +121,7 @@ struct LibraryGrid: View {
                 var ids: [String] = []
                 var missing: [Int] = []
                 for index in pending {
-                    if let item = browser.item(at: index) {
+                    if let item = browser.selectableItem(at: index) {
                         ids.append(item.id)
                     } else {
                         missing.append(index)

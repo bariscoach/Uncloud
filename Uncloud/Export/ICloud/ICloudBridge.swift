@@ -60,6 +60,12 @@ struct ICloudBridgeMessage: Decodable, Sendable {
         /// What a download writes for the item: the original plus any Live Photo movie.
         let bytes: Int64?
         let thumbURL: String?
+        /// The CPLMaster record name, the location (nil when unknown) and the time zone offset in seconds, for the
+        /// local catalog (R12b). Nil from a bridge too old to say.
+        var master: String?
+        var lat: Double?
+        var lon: Double?
+        var tz: Int?
     }
 
     let id: Int?
@@ -200,6 +206,8 @@ enum ICloudBridgeDownloadEvent: Sendable, Equatable {
     case failed(asset: String, rank: Int?, filename: String, reason: String)
     /// The walk is at this rank while it passes over items already on the drive (allExcept only).
     case walked(rank: Int)
+    /// A page a walk accepted, with its items and their ranks, for the local catalog (R12g). Counts and progress don't change.
+    case listed(offset: Int, items: [ICloudBridgeMessage.Item])
     case done(downloaded: Int, skipped: Int, failed: Int, cancelled: Bool)
 
     /// Nil for messages that aren't download events.
@@ -225,6 +233,8 @@ enum ICloudBridgeDownloadEvent: Sendable, Equatable {
         case "walked":
             guard let rank = message.rank else { return nil }
             self = .walked(rank: rank)
+        case "listed":
+            self = .listed(offset: message.offset ?? 0, items: message.items ?? [])
         case "done":
             self = .done(downloaded: message.downloaded ?? 0, skipped: message.skipped ?? 0,
                          failed: message.failed ?? 0, cancelled: message.cancelled ?? false)
@@ -1145,7 +1155,11 @@ extension ICloudBridgeMessage.Item {
             isVideo: type == "movie",
             thumbnailURL: thumbURL.flatMap(URL.init(string:)),
             bytes: bytes ?? size,
-            added: added.flatMap { try? Date($0, strategy: .iso8601) }
+            added: added.flatMap { try? Date($0, strategy: .iso8601) },
+            master: master,
+            latitude: lat,
+            longitude: lon,
+            timeZoneOffset: tz
         )
     }
 }
