@@ -6,7 +6,8 @@
 # --account-mode live builds against the Uncloud Plus server (sign-in and paywall on) and names the image
 # Uncloud-<version>-test.dmg. Without it, Release uses the mode in project.yml.
 #
-# Without --identity the app is signed ad hoc: it runs on this Mac, but on other Macs
+# For test builds on this Mac, use --identity "Uncloud Local Signing" (scripts/make-local-signing-identity.sh) so
+# keychain access survives updates. Without --identity the app is signed ad hoc: it runs on this Mac, but on other Macs
 # Gatekeeper blocks the first launch until the user chooses Open Anyway in
 # System Settings > Privacy & Security. Sign with a Developer ID and notarize to avoid that.
 set -euo pipefail
@@ -29,6 +30,9 @@ xcodegen generate --quiet
 BUILD_DIR="$REPO_ROOT/build/release"
 # No get-task-allow: a build for other people shouldn't let debuggers attach.
 SIGNING=(CODE_SIGN_IDENTITY="$IDENTITY" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO)
+# Only a Developer ID has a team ID for the hardened runtime's library validation; ad hoc and the self-signed
+# local identity (scripts/make-local-signing-identity.sh) run without it.
+case "$IDENTITY" in "Developer ID"*) ;; *) SIGNING+=(ENABLE_HARDENED_RUNTIME=NO) ;; esac
 case "$ACCOUNT_MODE" in
     "") SUFFIX="" ;;
     off|live) SIGNING+=(UNCLOUD_ACCOUNT_MODE="$ACCOUNT_MODE"); SUFFIX=$([ "$ACCOUNT_MODE" = live ] && echo "-test" || echo "") ;;

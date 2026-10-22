@@ -77,10 +77,10 @@ targets:
           SRC="$SRCROOT/Vendor/icloudpd-runtime"
           DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime"
           IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
-          # Hardened runtime only with a real identity: Python loads its own extension modules,
-          # and ad hoc signatures have no team ID for library validation to match.
+          # Hardened runtime only with a Developer ID: Python loads its own extension modules, and ad hoc or
+          # self-signed (scripts/make-local-signing-identity.sh) signatures have no team ID for library validation.
           RUNTIME=""
-          if [ "$IDENTITY" != "-" ]; then RUNTIME="--options runtime"; fi
+          case "$IDENTITY" in "Developer ID"*) RUNTIME="--options runtime" ;; esac
           if [ ! -f "$SRC/.stamp" ]; then
               echo "error: $SRC is missing; run scripts/build-icloudpd.sh" >&2
               exit 1
