@@ -79,6 +79,40 @@ struct DriveInventoryTests {
         }
     }
 
+    @Test func fullAndQuickAgreeOnAFixtureTreeWithHiddenPartialAndSymlinkEntries() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/IMG_0001.HEIC", in: destination)
+            try writeFile("b", to: "notes.txt", in: destination)
+            try writeFile("hidden", to: "2024/07/.DS_Store", in: destination)
+            try writeFile("hidden", to: ".secret/inside.jpg", in: destination)
+            try writeFile("partial", to: "2024/07/IMG_0002.HEIC.part", in: destination)
+            try FileManager.default.createSymbolicLink(
+                at: destination.appending(path: "link.jpg"),
+                withDestinationURL: destination.appending(path: "notes.txt")
+            )
+            try FileManager.default.createSymbolicLink(
+                at: destination.appending(path: "2024/linked-folder"),
+                withDestinationURL: destination.appending(path: "2024/07")
+            )
+            try backdate(in: destination)
+
+            let full = try await DriveInventory.run(destination: destination, mode: .full)
+
+            #expect(full.files.keys.sorted() == ["2024/07/IMG_0001.HEIC", "notes.txt"])
+            #expect(full.files["2024/07/IMG_0001.HEIC"]?.size == 1)
+            #expect(full.partialFileCount == 1)
+            #expect(full.directories.keys.sorted() == ["", "2024", "2024/07"])
+            #expect(full.relistedDirectories == ["", "2024", "2024/07"])
+
+            let quick = try await DriveInventory.run(destination: destination, mode: .quick, previous: full.snapshot)
+
+            #expect(quick.relistedDirectories.isEmpty)
+            #expect(quick.files == full.files)
+            #expect(quick.directories == full.directories)
+            #expect(quick.partialFileCount == 0, "unchanged folders are not listed again, so their partial files aren't counted")
+        }
+    }
+
     @Test func missingDestinationThrows() async throws {
         let missing = FileManager.default.temporaryDirectory.appending(path: "uncloud-missing-\(UUID().uuidString)")
         await #expect(throws: DriveInventory.InventoryError.destinationMissing) {

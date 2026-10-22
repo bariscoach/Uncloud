@@ -1,0 +1,3 @@
+readbench: times the ways Uncloud lists a folder (readdir, getattrlistbulk, FileManager, lstat). Read-only; not part of the app.
+Build and run: swiftc -O Tools/ReadBench/readbench.swift -o /tmp/readbench && /tmp/readbench <folder> [all|readdir|bulk|fm|statall|lstat N|lstatlast N]
+"all" also checks that the visible counts match and that the bulk byte total equals the lstat sum.
