@@ -50,7 +50,7 @@ struct VerifyBackupSheet: View {
         switch verification.state {
         case .ready:
             VStack(alignment: .leading, spacing: 12) {
-                Text("Uncloud checks the files in “\(destinationName)” against their export records. Large backups take a while.")
+                Text("Uncloud checks the files in “\(destinationName)” against their export records.")
                     .fixedSize(horizontal: false, vertical: true)
                 CheckChoice(
                     title: "Quick Check",
@@ -110,7 +110,7 @@ struct VerifyBackupSheet: View {
     private var fullDetail: String {
         switch verification.savedCheck {
         case let .resumable(percentDone, _):
-            "Continues where it stopped, \(percentDone) % done. Reads the files and compares them with their checksums."
+            "Continues where it stopped, \(percentDone)% done. Reads the files and compares them with their checksums."
         default:
             "Reads every file and compares it with its checksum. Takes hours on a large backup. You can stop and continue later."
         }
@@ -284,7 +284,9 @@ private struct QuickResults: View {
                 if !report.missingFiles.isEmpty {
                     VerifyFinding(
                         title: "\(countText(report.missingFiles.count, "file")) missing",
-                        detail: "They’re recorded in the export but aren’t in the backup folder.",
+                        detail: report.missingFiles.count == 1
+                            ? "It’s recorded in the export but isn’t in the backup folder."
+                            : "They’re recorded in the export but aren’t in the backup folder.",
                         systemImage: "xmark.octagon.fill",
                         color: .red
                     )
@@ -292,7 +294,9 @@ private struct QuickResults: View {
                 if !report.emptyFiles.isEmpty {
                     VerifyFinding(
                         title: "\(countText(report.emptyFiles.count, "file")) empty",
-                        detail: "They have no content, so they can’t be right.",
+                        detail: report.emptyFiles.count == 1
+                            ? "It has no content, so it can’t be right."
+                            : "They have no content, so they can’t be right.",
                         systemImage: "xmark.octagon.fill",
                         color: .red
                     )
@@ -300,7 +304,9 @@ private struct QuickResults: View {
                 if !report.changedFiles.isEmpty {
                     VerifyFinding(
                         title: "\(countText(report.changedFiles.count, "file")) changed since export",
-                        detail: "Their size or date no longer matches the export record.",
+                        detail: report.changedFiles.count == 1
+                            ? "Its size or date no longer matches the export record."
+                            : "Their size or date no longer matches the export record.",
                         systemImage: "exclamationmark.triangle.fill",
                         color: .orange
                     )
@@ -308,7 +314,9 @@ private struct QuickResults: View {
                 if !report.sizeMismatchItemIDs.isEmpty {
                     VerifyFinding(
                         title: "\(countText(report.sizeMismatchItemIDs.count, "photo")) may be incomplete",
-                        detail: "Their files add up to less than the library recorded. A download may have been cut short.",
+                        detail: report.sizeMismatchItemIDs.count == 1
+                            ? "Its files add up to less than the library recorded. A download may have been cut short."
+                            : "Their files add up to less than the library recorded. A download may have been cut short.",
                         systemImage: "exclamationmark.triangle.fill",
                         color: .orange
                     )
