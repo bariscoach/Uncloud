@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The outcome of checking exported files against their recorded checksums.
 struct VerificationReport: Sendable {
@@ -15,6 +16,17 @@ struct VerificationReport: Sendable {
     var checkpointRestartReason: String?
 }
 
+/// Bytes read so far in one verify run, shared with the caller's UI. Safe to update from the verifier's detached work.
+final class VerifyByteCount: Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: Int64(0))
+
+    var value: Int64 { state.withLock { $0 } }
+
+    func add(_ bytes: Int64) {
+        state.withLock { $0 += bytes }
+    }
+}
+
 enum BackupVerifier {
     /// Re-reads exported files and compares them with the recorded checksums.
     /// - itemIDs: limit to these items (nil = every item in the manifest, checked in the order they were first exported).
@@ -22,16 +34,19 @@ enum BackupVerifier {
     /// - checkpoint: for a full pass (`itemIDs` nil), where to keep progress so an interrupted pass can continue. A pass
     ///   with `itemIDs` never uses a checkpoint.
     /// - progress: called with (filesChecked, totalFiles) after each file.
+    /// - bytes: when given, gets the bytes of every file read in this run.
     static func verify(
         destination: URL,
         itemIDs: Set<String>? = nil,
         libraryIDs: Set<String>? = nil,
         checkpoint: VerifyCheckpointStore? = nil,
+        bytes: VerifyByteCount? = nil,
         progress: @escaping @Sendable (Int, Int) -> Void
     ) async throws -> VerificationReport {
         let work = Task.detached(priority: .utility) {
             try verifySynchronously(
-                destination: destination, itemIDs: itemIDs, libraryIDs: libraryIDs, checkpoint: checkpoint, progress: progress
+                destination: destination, itemIDs: itemIDs, libraryIDs: libraryIDs, checkpoint: checkpoint, bytes: bytes,
+                progress: progress
             )
         }
         return try await withTaskCancellationHandler {
@@ -46,6 +61,7 @@ enum BackupVerifier {
         itemIDs: Set<String>?,
         libraryIDs: Set<String>?,
         checkpoint: VerifyCheckpointStore?,
+        bytes: VerifyByteCount?,
         progress: @Sendable (Int, Int) -> Void
     ) throws -> VerificationReport {
         // Items only partly downloaded (`icloud-partial:`) aren't backed up, so they aren't verified as items.
@@ -147,6 +163,10 @@ enum BackupVerifier {
                         itemMissing.append(path)
                         isDamaged = true
                         continue
+                    }
+                    if let bytes, let attributes = try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false)),
+                       let size = attributes[.size] as? NSNumber {
+                        bytes.add(size.int64Value)
                     }
                     guard let expected = checksums[path] else {
                         isUnverifiable = true
