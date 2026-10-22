@@ -564,13 +564,12 @@ final class ExportModel {
         offersNewPhotosOnly && canStart
     }
 
-    /// Exports the photos added since `date`, as counted by the sheet (`items`, by ID with rank). The saved selection
-    /// stays as it was, and no drive check runs first: the engine skips what the backup already has.
-    func exportSince(_ date: Date, items: [String: Int]) {
+    /// Exports the photos taken from `from` to `to`, as counted by the sheet (`items`, by ID with rank). The saved
+    /// selection stays as it was, and no drive check runs first: the engine skips what the backup already has.
+    func exportRange(from: Date, to: Date, items: [String: Int]) {
         isChoosingExportSince = false
         guard canStart, !items.isEmpty else { return }
-        let verb = source == .iCloud ? "added" : "taken"
-        record(.info, "Exporting photos \(verb) since \(date.formatted(date: .abbreviated, time: .shortened)).")
+        record(.info, "Exporting photos taken from \(from.formatted(date: .abbreviated, time: .shortened)) to \(to.formatted(date: .abbreviated, time: .shortened)).")
         startRun(selection: .only(Set(items.keys)), skipsDriveCheck: true, rankHints: items)
     }
 

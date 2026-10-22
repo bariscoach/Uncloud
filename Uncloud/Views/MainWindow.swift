@@ -88,7 +88,7 @@ struct MainWindow: View {
             ICloudSignInSheet()
         }
         .sheet(isPresented: $model.isChoosingExportSince) {
-            ExportSinceSheet()
+            ExportRangeSheet()
         }
         .sheet(item: $model.introSheet) { sheet in
             switch sheet {

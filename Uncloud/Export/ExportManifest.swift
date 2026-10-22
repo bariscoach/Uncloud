@@ -228,6 +228,17 @@ final class ExportManifest {
         return records
     }
 
+    /// The last `limit` records of `exported.tsv`, oldest first: each item's ID and relative paths. The journal is
+    /// append-only, so these are the most recent exports.
+    static func recentRecords(in destination: URL, limit: Int) -> [(id: String, paths: [String])] {
+        let url = folder(in: destination).appending(path: journalName)
+        return readLines(at: url).lines.suffix(limit).compactMap { line in
+            let fields = line.split(separator: "\t").map(String.init)
+            guard let id = fields.first else { return nil }
+            return (id, Array(fields.dropFirst()))
+        }
+    }
+
     /// The line each record's first export is on in `exported.tsv`, so records can be ordered by when they were first exported.
     static func firstRecordPositions(in destination: URL) -> [String: Int] {
         var positions: [String: Int] = [:]
