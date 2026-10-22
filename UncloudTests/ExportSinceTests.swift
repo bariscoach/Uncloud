@@ -208,6 +208,52 @@ struct ExportSinceTests {
         }
     }
 
+    /// The per-file version `newestExportedPhoto` had before the bulk listing, kept to compare the two.
+    private static func perFileNewestExportedPhoto(in destination: URL, limit: Int) -> ExportSince.ExportedPhoto? {
+        var newest: ExportSince.ExportedPhoto?
+        for record in ExportManifest.recentRecords(in: destination, limit: limit) {
+            for path in record.paths where ExportManifest.isSafeRelativePath(path) {
+                let url = destination.appending(path: path)
+                guard let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else {
+                    continue
+                }
+                if let current = newest, current.taken >= modified { continue }
+                newest = ExportSince.ExportedPhoto(fileName: url.lastPathComponent, taken: modified)
+            }
+        }
+        return newest
+    }
+
+    @Test func newestPhotoMatchesThePerFileVersionOnAFixture() throws {
+        try withTemporaryDirectory { destination in
+            try Self.writeFile("2024/07/a.HEIC", modified: 1_700_000_000, in: destination)
+            // A tie: the earlier record keeps the title.
+            try Self.writeFile("2024/07/b.HEIC", modified: 1_700_000_000, in: destination)
+            try Self.writeFile("2026/10/c.mov", modified: 1_750_000_000.25, in: destination)
+            try Self.writeFile("IMG_root.jpg", modified: 1_740_000_000, in: destination)
+            try FileManager.default.createDirectory(
+                at: destination.appending(path: "2026/10/folder.HEIC", directoryHint: .isDirectory),
+                withIntermediateDirectories: true
+            )
+            try Self.writeJournal([
+                "icloud-id:A\t2024/07/a.HEIC",
+                "icloud-id:B\t2024/07/b.HEIC",
+                "icloud-id:C\t2026/10/c.mov",
+                "icloud-id:D\tIMG_root.jpg",
+                "icloud-id:E\t2024/07/missing.HEIC",
+                "icloud-id:F\t../escape.jpg",
+                "icloud-id:G\t2026/10/folder.HEIC",
+            ], in: destination)
+
+            for limit in [1, 2, 3, 500] {
+                let bulk = ExportSince.newestExportedPhoto(in: destination, limit: limit)
+                let perFile = Self.perFileNewestExportedPhoto(in: destination, limit: limit)
+                #expect(bulk?.fileName == perFile?.fileName, "limit \(limit)")
+                #expect(bulk?.taken.timeIntervalSince1970 == perFile?.taken.timeIntervalSince1970, "limit \(limit)")
+            }
+        }
+    }
+
     // MARK: - Last export
 
     private static func session(

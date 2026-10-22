@@ -107,19 +107,39 @@ enum ExportSince {
     /// so its tail holds the latest exports), the file with the newest modification date. icloudpd and the PhotoKit
     /// export set that date to when the photo was taken. Nil when no recorded file can be read.
     static func newestExportedPhoto(in destination: URL, limit: Int = 500) -> ExportedPhoto? {
-        var newest: ExportedPhoto?
-        for record in ExportManifest.recentRecords(in: destination, limit: limit) {
+        let records = ExportManifest.recentRecords(in: destination, limit: limit)
+        // Each folder is listed once, in one bulk pass, for the modification dates. A lookup per file is slow on exFAT.
+        var datesByFolder: [String: [String: Double]] = [:]
+        for record in records {
             for path in record.paths where ExportManifest.isSafeRelativePath(path) {
-                let url = destination.appending(path: path)
-                guard let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else {
+                let folder = (path as NSString).deletingLastPathComponent
+                if datesByFolder[folder] == nil {
+                    datesByFolder[folder] = modificationDates(inFolder: folder, in: destination)
+                }
+            }
+        }
+
+        var newest: ExportedPhoto?
+        for record in records {
+            for path in record.paths where ExportManifest.isSafeRelativePath(path) {
+                let folder = (path as NSString).deletingLastPathComponent
+                let name = (path as NSString).lastPathComponent
+                guard let modified = datesByFolder[folder]?[name] else { continue }
+                let taken = Date(timeIntervalSince1970: modified)
+                if let current = newest, current.taken >= taken {
                     continue
                 }
-                if let current = newest, current.taken >= modified {
-                    continue
-                }
-                newest = ExportedPhoto(fileName: url.lastPathComponent, taken: modified)
+                newest = ExportedPhoto(fileName: name, taken: taken)
             }
         }
         return newest
+    }
+
+    /// The modification time of each entry in `folder` (a relative path, `""` for the destination), by name. Empty
+    /// when the folder can't be listed, so its files are skipped as missing.
+    private static func modificationDates(inFolder folder: String, in destination: URL) -> [String: Double] {
+        let url = folder.isEmpty ? destination : destination.appending(path: folder, directoryHint: .isDirectory)
+        guard let entries = try? BulkDirectoryLister.list(url) else { return [:] }
+        return Dictionary(entries.map { ($0.name, $0.modified) }, uniquingKeysWith: { first, _ in first })
     }
 }

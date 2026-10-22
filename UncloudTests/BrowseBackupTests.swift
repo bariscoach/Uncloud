@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import ImageIO
 import Testing
@@ -285,6 +286,180 @@ struct BrowseBackupTests {
             )
             // One save at 1,000 files, one at the end.
             #expect(saves.counts == [1_000, 1_050])
+        }
+    }
+
+    @Test func persistWaitsForTheSaveIntervalWhenTheClockStandsStill() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            var keys: [String] = []
+            for index in 0..<3_000 {
+                let path = "2024/07/IMG_\(index).jpg"
+                try writeFile("x", to: path, in: destination)
+                keys.append(path)
+            }
+            try ExportManifest.appendRecords(keys.map { (key: "icloud-id:\($0)", paths: [$0]) }, in: destination)
+            let saves = SaveCounter()
+            let clock = FakeClock(start: 0, step: 0)
+            _ = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { saves.record($0.count) },
+                clock: { clock.read() }
+            )
+            // The first 1,000 mark saves. The next marks come less than 30 s later, so they don't. The end always saves.
+            #expect(saves.counts == [1_000, 3_000])
+        }
+    }
+
+    @Test func persistRunsAtEachMarkWhenTheIntervalHasPassed() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            var keys: [String] = []
+            for index in 0..<3_000 {
+                let path = "2024/07/IMG_\(index).jpg"
+                try writeFile("x", to: path, in: destination)
+                keys.append(path)
+            }
+            try ExportManifest.appendRecords(keys.map { (key: "icloud-id:\($0)", paths: [$0]) }, in: destination)
+            let saves = SaveCounter()
+            // Each read of the clock is 40 s later than the last, so every mark is due.
+            let clock = FakeClock(start: 0, step: 40)
+            _ = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { saves.record($0.count) },
+                clock: { clock.read() }
+            )
+            #expect(saves.counts == [1_000, 2_000, 3_000, 3_000])
+        }
+    }
+
+    @Test func changedSizeIsReadAgainEvenWhenTheTimeIsTheSame() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("one", to: "2024/07/IMG_2.jpg", in: destination)
+            try ExportManifest.appendRecords([(key: "icloud-id:B", paths: ["2024/07/IMG_2.jpg"])], in: destination)
+            let reads = ReadCounter()
+            var previous = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in reads.record(); return BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(reads.count == 1)
+            // The stored size is off, so the listed size differs even though the time matches.
+            previous["2024/07/IMG_2.jpg"]?.size = 999
+
+            _ = try await BrowseIndexer.update(
+                destination: destination, previous: previous,
+                read: { _ in reads.record(); return BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(reads.count == 2)
+        }
+    }
+
+    @Test func removedFileIsDroppedFromTheIndex() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/kept.jpg", in: destination)
+            let removed = try writeFile("b", to: "2024/07/removed.jpg", in: destination)
+            try ExportManifest.appendRecords([
+                (key: "icloud-id:A", paths: ["2024/07/kept.jpg"]),
+                (key: "icloud-id:B", paths: ["2024/07/removed.jpg"]),
+            ], in: destination)
+            let first = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(Set(first.keys) == ["2024/07/kept.jpg", "2024/07/removed.jpg"])
+
+            try FileManager.default.removeItem(at: removed)
+            let second = try await BrowseIndexer.update(
+                destination: destination, previous: first,
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(Set(second.keys) == ["2024/07/kept.jpg"])
+        }
+    }
+
+    @Test func xmpSidecarFallbackStillWorksThroughTheListing() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            let photo = destination.appending(path: "2024/07/IMG_3.jpg")
+            try FileManager.default.createDirectory(at: photo.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try writeImage(at: photo, type: UTType.jpeg.identifier)
+            let metadata = AssetMetadata(
+                localIdentifier: "C", creationDate: nil, modificationDate: nil, latitude: 10.25, longitude: -20.5,
+                altitude: nil, isFavorite: false, isHidden: false, albums: []
+            )
+            try Data(XMPSidecar.xml(for: metadata).utf8).write(to: photo.deletingLastPathComponent().appending(path: "IMG_3.xmp"))
+            try ExportManifest.appendRecords([(key: "icloud-id:C", paths: ["2024/07/IMG_3.jpg"])], in: destination)
+
+            // No `read` closure: the indexer's own read, with its sidecar check taken from the listing.
+            let entries = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+
+            let latitude = try #require(entries["2024/07/IMG_3.jpg"]?.latitude)
+            #expect(abs(latitude - 10.25) < 1e-5)
+        }
+    }
+
+    @Test func entriesStampedByFileManagerAreNotReadAgainAfterTheListingChange() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            let photo = try writeFile("one", to: "2024/07/IMG_4.jpg", in: destination)
+            // A timestamp whose microseconds round, which is where a naive conversion would differ from FileManager.
+            var times = [timespec(tv_sec: 1_700_000_000, tv_nsec: 123_456_789), timespec(tv_sec: 1_700_000_000, tv_nsec: 123_456_789)]
+            #expect(utimensat(AT_FDCWD, photo.path(percentEncoded: false), &times, 0) == 0)
+            try ExportManifest.appendRecords([(key: "icloud-id:D", paths: ["2024/07/IMG_4.jpg"])], in: destination)
+            // The index as it was written before the listing: each stamp came from FileManager.
+            let stamp = try #require(BrowseIndexer.fileStamp(of: photo))
+            let previous = ["2024/07/IMG_4.jpg": BrowseEntry(
+                path: "2024/07/IMG_4.jpg", size: stamp.size, modified: stamp.modified,
+                latitude: 1, longitude: 2, date: nil, camera: nil
+            )]
+            let reads = ReadCounter()
+
+            let updated = try await BrowseIndexer.update(
+                destination: destination, previous: previous,
+                read: { _ in reads.record(); return BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+
+            #expect(reads.count == 0)
+            #expect(updated["2024/07/IMG_4.jpg"]?.latitude == 1)
+        }
+    }
+
+    @Test func unlistableFolderKeepsItsEntriesWithoutReadingThem() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("one", to: "2024/07/IMG_1.jpg", in: destination)
+            try writeFile("two", to: "2024/08/IMG_2.jpg", in: destination)
+            try ExportManifest.appendRecords([
+                (key: "icloud-id:A", paths: ["2024/07/IMG_1.jpg"]),
+                (key: "icloud-id:B", paths: ["2024/08/IMG_2.jpg"]),
+            ], in: destination)
+            let first = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata(latitude: 1, longitude: 2) },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(first.count == 2)
+
+            // EACCES on one folder: its files can't be listed, but they still exist.
+            let locked = destination.appending(path: "2024/07", directoryHint: .isDirectory)
+            #expect(chmod(locked.path(percentEncoded: false), 0) == 0)
+            defer { _ = chmod(locked.path(percentEncoded: false), 0o755) }
+            let reads = ReadCounter()
+
+            let second = try await BrowseIndexer.update(
+                destination: destination, previous: first,
+                read: { _ in reads.record(); return BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+
+            #expect(second["2024/07/IMG_1.jpg"] == first["2024/07/IMG_1.jpg"], "the locked folder's entry is kept")
+            #expect(second["2024/08/IMG_2.jpg"] == first["2024/08/IMG_2.jpg"])
+            #expect(reads.count == 0)
         }
     }
 
@@ -658,6 +833,26 @@ struct FakeNamer: PlaceNaming {
     func placeNamed(latitude: Double, longitude: Double) async throws -> PlaceResolver.Place {
         if offline { throw PlaceLookupError.unavailable }
         return answers[PlaceResolver.cellKey(latitude: latitude, longitude: longitude)] ?? PlaceResolver.Place()
+    }
+}
+
+/// A monotonic clock for the index's save throttle. Each read returns the time, then moves it on by `step`.
+final class FakeClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var now: TimeInterval
+    private let step: TimeInterval
+
+    init(start: TimeInterval, step: TimeInterval) {
+        self.now = start
+        self.step = step
+    }
+
+    func read() -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        let value = now
+        now += step
+        return value
     }
 }
 

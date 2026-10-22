@@ -14,10 +14,15 @@ struct BrowseMetadata: Equatable, Sendable {
 
     /// Reads the file's own metadata: ImageIO for photos (HEIC, JPEG, PNG and RAW), AVFoundation for movies. The
     /// `.xmp` sidecar fills in a missing location or date, since Uncloud writes its GPS values there too.
-    static func read(of url: URL) async -> BrowseMetadata {
+    /// `sidecarExists` says whether a sidecar is there. The default looks it up. The indexer passes a check against a
+    /// folder listing it already has.
+    static func read(
+        of url: URL,
+        sidecarExists: @Sendable (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
+    ) async -> BrowseMetadata {
         var metadata = isMovie(url) ? await movieMetadata(url) : imageMetadata(url)
         if !metadata.hasLocation || metadata.date == nil,
-           let sidecar = sidecarURLs(for: url).first(where: { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }),
+           let sidecar = sidecarURLs(for: url).first(where: sidecarExists),
            let data = try? Data(contentsOf: sidecar), let xmp = BrowseXMP.parse(data) {
             if !metadata.hasLocation, let latitude = xmp.latitude, let longitude = xmp.longitude {
                 metadata.latitude = latitude

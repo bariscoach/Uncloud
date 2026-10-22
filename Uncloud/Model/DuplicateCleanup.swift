@@ -159,16 +159,46 @@ final class DuplicateCleanup {
         let order = ExportManifest.firstRecordPositions(in: destination)
 
         let paths = Array(Set(records.values.joined())).sorted()
-        var sizes: [String: Int64] = [:]
-        for (index, path) in paths.enumerated() {
-            try Task.checkCancellation()
-            if let url = BackupFiles.containedURL(for: path, in: destination),
-               let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-                sizes[path] = Int64(size)
-            }
-            progress(index + 1, paths.count)
-        }
+        let sizes = try recordedSizes(for: paths, in: destination, progress: progress)
         return DuplicateFinder.findGroups(records: records, checksums: checksums, sizes: sizes, exportOrder: order)
+    }
+
+    /// The size of each recorded regular file, from one bulk listing per folder rather than one lookup per file. A path
+    /// that isn't a regular file in the listing has no size, as a missing file never had one.
+    nonisolated static func recordedSizes(
+        for paths: [String],
+        in destination: URL,
+        progress: (Int, Int) -> Void
+    ) throws -> [String: Int64] {
+        var sizes: [String: Int64] = [:]
+        let folders = Dictionary(grouping: paths) { ($0 as NSString).deletingLastPathComponent }
+        var done = 0
+        for folder in folders.keys.sorted() {
+            try Task.checkCancellation()
+            let group = folders[folder] ?? []
+            // Every path in a group shares its folder, so the first path's folder is the one to list.
+            if let sample = BackupFiles.containedURL(for: group[0], in: destination),
+               let entries = try? BulkDirectoryLister.list(sample.deletingLastPathComponent()) {
+                var sizeByName: [String: Int64] = [:]
+                for entry in entries where entry.kind == .file {
+                    sizeByName[entry.name] = entry.size
+                }
+                for path in group {
+                    if let size = sizeByName[(path as NSString).lastPathComponent] {
+                        sizes[path] = size
+                    }
+                    done += 1
+                    if done % 1_000 == 0 {
+                        try Task.checkCancellation()
+                        progress(done, paths.count)
+                    }
+                }
+            } else {
+                done += group.count
+            }
+            progress(done, paths.count)
+        }
+        return sizes
     }
 
     // MARK: - Removing

@@ -79,6 +79,78 @@ struct DriveInventoryTests {
         }
     }
 
+    @Test func fullAndQuickAgreeOnAFixtureTreeWithHiddenPartialAndSymlinkEntries() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/IMG_0001.HEIC", in: destination)
+            try writeFile("b", to: "notes.txt", in: destination)
+            try writeFile("hidden", to: "2024/07/.DS_Store", in: destination)
+            try writeFile("hidden", to: ".secret/inside.jpg", in: destination)
+            try writeFile("partial", to: "2024/07/IMG_0002.HEIC.part", in: destination)
+            try FileManager.default.createSymbolicLink(
+                at: destination.appending(path: "link.jpg"),
+                withDestinationURL: destination.appending(path: "notes.txt")
+            )
+            try FileManager.default.createSymbolicLink(
+                at: destination.appending(path: "2024/linked-folder"),
+                withDestinationURL: destination.appending(path: "2024/07")
+            )
+            try backdate(in: destination)
+
+            let full = try await DriveInventory.run(destination: destination, mode: .full)
+
+            #expect(full.files.keys.sorted() == ["2024/07/IMG_0001.HEIC", "notes.txt"])
+            #expect(full.files["2024/07/IMG_0001.HEIC"]?.size == 1)
+            #expect(full.partialFileCount == 1)
+            #expect(full.directories.keys.sorted() == ["", "2024", "2024/07"])
+            #expect(full.relistedDirectories == ["", "2024", "2024/07"])
+
+            let quick = try await DriveInventory.run(destination: destination, mode: .quick, previous: full.snapshot)
+
+            #expect(quick.relistedDirectories.isEmpty)
+            #expect(quick.files == full.files)
+            #expect(quick.directories == full.directories)
+            #expect(quick.partialFileCount == 0, "unchanged folders are not listed again, so their partial files aren't counted")
+        }
+    }
+
+    @Test func hiddenFlaggedEntriesAreSkippedLikeDotNames() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/IMG_0001.HEIC", in: destination)
+            try writeFile("b", to: "System Volume Information/IMG_0002.HEIC", in: destination)
+            try writeFile("c", to: "2024/07/flagged.jpg", in: destination)
+            let flaggedFile = destination.appending(path: "2024/07/flagged.jpg")
+            let flaggedFolder = destination.appending(path: "$RECYCLE.BIN", directoryHint: .isDirectory)
+            try writeFile("d", to: "$RECYCLE.BIN/IMG_0003.HEIC", in: destination)
+            #expect(chflags(flaggedFile.path(percentEncoded: false), UInt32(UF_HIDDEN)) == 0)
+            #expect(chflags(flaggedFolder.path(percentEncoded: false), UInt32(UF_HIDDEN)) == 0)
+            defer {
+                _ = chflags(flaggedFile.path(percentEncoded: false), 0)
+                _ = chflags(flaggedFolder.path(percentEncoded: false), 0)
+            }
+
+            let result = try await DriveInventory.run(destination: destination, mode: .full)
+
+            // The flagged file and the flagged folder are gone; the unflagged "System Volume Information" is not hidden.
+            #expect(Set(result.files.keys) == ["2024/07/IMG_0001.HEIC", "System Volume Information/IMG_0002.HEIC"])
+            #expect(!result.directories.keys.contains("$RECYCLE.BIN"))
+        }
+    }
+
+    @Test func unreadableSubfolderIsSkippedAndTheScanContinues() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/IMG_0001.HEIC", in: destination)
+            try writeFile("b", to: "2025/01/IMG_0002.HEIC", in: destination)
+            let locked = destination.appending(path: "2025/01", directoryHint: .isDirectory)
+            #expect(chmod(locked.path(percentEncoded: false), 0) == 0)
+            defer { _ = chmod(locked.path(percentEncoded: false), 0o755) }
+
+            let result = try await DriveInventory.run(destination: destination, mode: .full)
+
+            #expect(Set(result.files.keys) == ["2024/07/IMG_0001.HEIC"])
+            #expect(!result.relistedDirectories.contains("2025/01"))
+        }
+    }
+
     @Test func missingDestinationThrows() async throws {
         let missing = FileManager.default.temporaryDirectory.appending(path: "uncloud-missing-\(UUID().uuidString)")
         await #expect(throws: DriveInventory.InventoryError.destinationMissing) {

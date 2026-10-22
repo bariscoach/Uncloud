@@ -70,10 +70,6 @@ enum DriveInventory {
 
     // MARK: - Scanning
 
-    private static let listedKeys: [URLResourceKey] = [
-        .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey,
-    ]
-
     private static func scan(
         destination: URL,
         mode: Mode,
@@ -103,63 +99,77 @@ enum DriveInventory {
         var relisted: Set<String> = []
         var partialFileCount = 0
         var listed = 0
-        var pending = [""]
+        // A folder's modification time comes with it when its parent's listing already had it. Otherwise it is read.
+        var pending: [(folder: String, modified: Double?)] = [("", nil)]
 
         func reportProgress() {
             progress?(Progress(filesListed: listed, expectedFiles: expectedFiles))
         }
 
-        while let folder = pending.popLast() {
+        while let next = pending.popLast() {
             try Task.checkCancellation()
+            let folder = next.folder
             let folderURL = folder.isEmpty
                 ? destination
                 : destination.appending(path: folder, directoryHint: .isDirectory)
-            // A folder that disappeared since its parent was listed has nothing left to list.
-            guard let modified = modificationTime(of: folderURL) else { continue }
-            directories[folder] = modified
+            let modified: Double
+            if let known = next.modified {
+                modified = known
+            } else {
+                // A folder that disappeared since its parent was listed has nothing left to list.
+                guard let found = modificationTime(of: folderURL) else { continue }
+                modified = found
+            }
 
             if let reuse, reuse.directories[folder] == modified {
-                // Unchanged since the snapshot: its files and subfolders are the same as they were.
+                // Unchanged since the snapshot: its files and subfolders are the same as they were. Its subfolders'
+                // times aren't known here, so they are read when they are reached.
+                directories[folder] = modified
                 for path in filesByFolder[folder] ?? [] {
                     try Task.checkCancellation()
                     files[path] = reuse.files[path]
                     listed += 1
                     if listed % progressInterval == 0 { reportProgress() }
                 }
-                pending.append(contentsOf: foldersByParent[folder] ?? [])
+                pending.append(contentsOf: (foldersByParent[folder] ?? []).map { (folder: $0, modified: nil) })
                 continue
             }
 
-            // Changed, new, or a full run: list the folder, stat each file. Its subfolders are checked the same way.
+            // Changed, new, or a full run: list the folder once, in one bulk pass. Its subfolders are checked the same way.
+            let children: [BulkDirectoryLister.Entry]
+            do {
+                children = try BulkDirectoryLister.list(folderURL)
+            } catch let error as NSError where error.domain == NSPOSIXErrorDomain
+                && (error.code == Int(ENOENT) || (error.code == Int(EACCES) && !folder.isEmpty)) {
+                // Removed between the parent's listing and this one, or a subfolder that can't be read. Neither
+                // stops the scan; the root's failures still throw.
+                continue
+            }
+            directories[folder] = modified
             relisted.insert(folder)
-            let children = try FileManager.default.contentsOfDirectory(
-                at: folderURL,
-                includingPropertiesForKeys: listedKeys,
-                options: [.skipsHiddenFiles]
-            )
             for child in children {
                 try Task.checkCancellation()
-                let name = child.lastPathComponent
-                guard !name.hasPrefix("."), name.rangeOfCharacter(from: .controlCharacters) == nil,
-                      let values = try? child.resourceValues(forKeys: Set(listedKeys)),
-                      values.isSymbolicLink != true
-                else { continue }
-                let path = folder.isEmpty ? name : folder + "/" + name
+                // Hidden names and hidden-flagged entries (the old `.skipsHiddenFiles`) are not listed.
+                guard !child.name.hasPrefix("."), !child.isHidden,
+                      child.name.rangeOfCharacter(from: .controlCharacters) == nil else {
+                    continue
+                }
+                let path = folder.isEmpty ? child.name : folder + "/" + child.name
 
-                if values.isDirectory == true {
-                    pending.append(path)
-                } else if values.isRegularFile == true {
-                    let extensionName = child.pathExtension.lowercased()
+                switch child.kind {
+                case .directory:
+                    pending.append((folder: path, modified: child.modified))
+                case .file:
+                    let extensionName = (child.name as NSString).pathExtension.lowercased()
                     if extensionName == "part" || extensionName == "partial" {
                         partialFileCount += 1
                         continue
                     }
-                    files[path] = FilesSnapshot.FileEntry(
-                        size: Int64(values.fileSize ?? 0),
-                        modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0
-                    )
+                    files[path] = FilesSnapshot.FileEntry(size: child.size, modified: child.modified)
                     listed += 1
                     if listed % progressInterval == 0 { reportProgress() }
+                case .symlink, .other:
+                    continue
                 }
             }
         }
