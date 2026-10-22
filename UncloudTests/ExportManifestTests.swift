@@ -264,3 +264,119 @@ struct ICloudChecksumScannerTests {
         }
     }
 }
+
+@Suite("ExportManifest relocate")
+struct ExportManifestRelocateTests {
+    /// Every record kind, a duplicate key, a key that has a `/` (Photos local identifiers do), an unmapped path and a
+    /// partial last line (no LF), which is kept as it was.
+    private static let journal = [
+        "icloud-id:A\tIMG_1.HEIC",
+        "icloud-id:B\tIMG_2.HEIC\tIMG_2.MOV\tIMG_2.HEIC.xmp",
+        "icloud-partial:C\tIMG_3.MOV",
+        "icloud:IMG_4.HEIC\tIMG_4.HEIC",
+        "ABCD-1234/L0/001\tIMG_5.JPG",
+        "icloud-id:A\tIMG_1.HEIC",
+        "icloud-id:E\tUnknown.HEIC",
+        "icloud-id:F\tIMG_6.HEIC",
+    ].joined(separator: "\n") + "\n" + "icloud-id:G\tIMG_6.HEIC"
+
+    private static let relocatedJournal = [
+        "icloud-id:A\t2024/07/IMG_1.HEIC",
+        "icloud-id:B\t2024/07/IMG_2.HEIC\t2024/07/IMG_2.MOV\t2024/07/IMG_2.HEIC.xmp",
+        "icloud-partial:C\t2023/11/IMG_3.MOV",
+        "icloud:IMG_4.HEIC\t2024/07/IMG_4.HEIC",
+        "ABCD-1234/L0/001\t2023/11/IMG_5.JPG",
+        "icloud-id:A\t2024/07/IMG_1.HEIC",
+        "icloud-id:E\tUnknown.HEIC",
+        "icloud-id:F\t2024/07/IMG_6.HEIC",
+    ].joined(separator: "\n") + "\n" + "icloud-id:G\tIMG_6.HEIC"
+
+    private static let map: [String: String] = [
+        "IMG_1.HEIC": "2024/07/IMG_1.HEIC",
+        "IMG_2.HEIC": "2024/07/IMG_2.HEIC",
+        "IMG_2.MOV": "2024/07/IMG_2.MOV",
+        "IMG_2.HEIC.xmp": "2024/07/IMG_2.HEIC.xmp",
+        "IMG_3.MOV": "2023/11/IMG_3.MOV",
+        "IMG_4.HEIC": "2024/07/IMG_4.HEIC",
+        "IMG_5.JPG": "2023/11/IMG_5.JPG",
+        "IMG_6.HEIC": "2024/07/IMG_6.HEIC",
+    ]
+
+    private static func text(_ destination: URL, _ name: String) throws -> String {
+        try String(contentsOf: destination.appending(path: ".photo-export/\(name)"), encoding: .utf8)
+    }
+
+    @Test func rewritesEveryFileToTheExpectedBytes() throws {
+        try withTemporaryDirectory { destination in
+            try writeFile(Self.journal, to: ".photo-export/exported.tsv", in: destination)
+            try writeFile("IMG_1.HEIC\tsha-1\nIMG_2.MOV\tsha-2\nUnknown.HEIC\tsha-3\n", to: ".photo-export/checksums.tsv", in: destination)
+            try writeFile("dir\t\t1700000000\ndir\t2024\t1700000100\nfile\tIMG_1.HEIC\t7\t1700000001\nfile\tnotes.txt\t4\t1700000002\n",
+                          to: ".photo-export/files.tsv", in: destination)
+            try writeFile("flat", to: ".photo-export/layout", in: destination)
+
+            try ExportManifest.relocate(Self.map, in: destination, layout: .month)
+
+            #expect(try Self.text(destination, "exported.tsv") == Self.relocatedJournal)
+            #expect(try Self.text(destination, "checksums.tsv") == "2024/07/IMG_1.HEIC\tsha-1\n2024/07/IMG_2.MOV\tsha-2\nUnknown.HEIC\tsha-3\n")
+            #expect(try Self.text(destination, "files.tsv") == "file\t2024/07/IMG_1.HEIC\t7\t1700000001\nfile\tnotes.txt\t4\t1700000002\n")
+            #expect(try Self.text(destination, "layout") == "month")
+        }
+    }
+
+    @Test func keysAndLineOrderStayTheSame() throws {
+        try withTemporaryDirectory { destination in
+            try writeFile(Self.journal, to: ".photo-export/exported.tsv", in: destination)
+            let before = ExportManifest.firstRecordPositions(in: destination)
+            try ExportManifest.relocate(Self.map, in: destination, layout: .month)
+            #expect(ExportManifest.firstRecordPositions(in: destination) == before)
+            #expect(ExportManifest.records(in: destination)["icloud-id:B"] == ["2024/07/IMG_2.HEIC", "2024/07/IMG_2.MOV", "2024/07/IMG_2.HEIC.xmp"])
+            #expect(ExportManifest.records(in: destination)["icloud-id:G"] == nil)
+        }
+    }
+
+    @Test func secondRunChangesNothing() throws {
+        try withTemporaryDirectory { destination in
+            try writeFile(Self.journal, to: ".photo-export/exported.tsv", in: destination)
+            try writeFile("IMG_1.HEIC\tsha-1\n", to: ".photo-export/checksums.tsv", in: destination)
+            try writeFile("file\tIMG_1.HEIC\t7\t1\n", to: ".photo-export/files.tsv", in: destination)
+            try ExportManifest.relocate(Self.map, in: destination, layout: .month)
+            let once = try Self.text(destination, "exported.tsv") + Self.text(destination, "checksums.tsv") + Self.text(destination, "files.tsv")
+            try ExportManifest.relocate(Self.map, in: destination, layout: .month)
+            let twice = try Self.text(destination, "exported.tsv") + Self.text(destination, "checksums.tsv") + Self.text(destination, "files.tsv")
+            #expect(once == twice)
+        }
+    }
+
+    @Test func undoMapBringsTheJournalBackExactly() throws {
+        try withTemporaryDirectory { destination in
+            try writeFile(Self.journal, to: ".photo-export/exported.tsv", in: destination)
+            try ExportManifest.relocate(Self.map, in: destination, layout: .month)
+            let inverse = Dictionary(uniqueKeysWithValues: Self.map.map { ($0.value, $0.key) })
+            try ExportManifest.relocate(inverse, in: destination, layout: .flat)
+            #expect(try Self.text(destination, "exported.tsv") == Self.journal)
+            #expect(try Self.text(destination, "layout") == "flat")
+        }
+    }
+
+    @Test func resumePointLayoutFollowsTheRun() throws {
+        try withTemporaryDirectory { destination in
+            try writeFile(Self.journal, to: ".photo-export/exported.tsv", in: destination)
+            let point = ICloudResumePoint(
+                account: "account",
+                layout: "flat",
+                libraryCount: 10,
+                coveredThrough: 5,
+                anchor: .init(id: "anchor", rank: 4),
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            )
+            try point.save(in: destination)
+
+            try ExportManifest.relocate(Self.map, in: destination, layout: .month)
+            let moved = try #require(ICloudResumePoint.load(in: destination))
+            #expect(moved.layout == "month")
+            #expect(moved.anchor == point.anchor)
+            #expect(moved.coveredThrough == 5)
+            #expect(moved.libraryCount == 10)
+        }
+    }
+}

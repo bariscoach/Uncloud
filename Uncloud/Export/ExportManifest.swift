@@ -329,6 +329,87 @@ final class ExportManifest {
         return items
     }
 
+    /// Rewrites the manifest's paths after a reorganize (R17b). `map` is `old relative path → new relative path`, or
+    /// the inverse for an undo. Each file is replaced atomically and its cache is dropped. A file that doesn't change
+    /// is not written:
+    /// 1. `exported.tsv`: every path field (not the key) found in `map`, on every line. Keys and line order stay the
+    ///    same, so `firstRecordPositions` doesn't change. A partial last line stays as it was.
+    /// 2. `checksums.tsv`: the path in the first field.
+    /// 3. `files.tsv`: the path of each `file` line. Every `dir` line is dropped; the next drive check rescans folders.
+    /// 4. `resume.json`: its `layout` becomes `layout` when it was the other of flat and month. Ranks don't depend on
+    ///    paths, so the point stays valid.
+    /// 5. `layout`: written as `layout`.
+    /// It is idempotent. Map keys have no `/` and map values always do, so a second call finds no path to change.
+    static func relocate(_ map: [String: String], in destination: URL, layout: FolderLayout) throws {
+        let directory = folder(in: destination)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        try rewriteIfChanged(directory.appending(path: journalName)) { data in
+            mapLines(data) { line in
+                mapFields(line, from: 1, map)
+            }
+        }
+        try rewriteIfChanged(directory.appending(path: checksumsName)) { data in
+            mapLines(data) { line in
+                mapFields(line, from: 0, map, first: true)
+            }
+        }
+        try rewriteIfChanged(directory.appending(path: filesSnapshotName)) { data in
+            mapLines(data) { line -> Data? in
+                let text = String(decoding: line, as: UTF8.self)
+                if text.hasPrefix("dir\t") { return nil }
+                guard text.hasPrefix("file\t") else { return line }
+                return mapFields(line, from: 1, map, only: 1)
+            }
+        }
+
+        if var point = ICloudResumePoint.load(in: destination),
+           point.layout != layout.rawValue,
+           point.layout == FolderLayout.flat.rawValue || point.layout == FolderLayout.month.rawValue {
+            point.layout = layout.rawValue
+            try point.save(in: destination)
+        }
+        try Data(layout.rawValue.utf8).write(to: directory.appending(path: layoutName), options: .atomic)
+    }
+
+    /// Replaces the file's contents with `transform(contents)` when that differs from the current contents.
+    private static func rewriteIfChanged(_ url: URL, _ transform: (Data) -> Data) throws {
+        guard let data = try? Data(contentsOf: url) else { return }
+        let updated = transform(data)
+        guard updated != data else { return }
+        try replaceFile(at: url, with: String(decoding: updated, as: UTF8.self))
+    }
+
+    /// Applies `transform` to every LF-terminated line; a `nil` drops the line. A last line with no LF is partial and
+    /// is kept as it was. Works on bytes, so a CR before an LF is just a byte.
+    private static func mapLines(_ data: Data, _ transform: (Data) -> Data?) -> Data {
+        var output = Data()
+        var start = data.startIndex
+        while let newline = data[start...].firstIndex(of: ManifestLines.lf) {
+            if let line = transform(data[start ..< newline]) {
+                output += line
+                output.append(ManifestLines.lf)
+            }
+            start = newline + 1
+        }
+        output += data[start...]
+        return output
+    }
+
+    /// The tab-separated fields of `line` from index `from` on, with each one that `map` knows replaced. With
+    /// `first`, only field 0 is considered (the `from` value is ignored). With `only`, only that field index is.
+    private static func mapFields(_ line: Data, from: Int, _ map: [String: String], first: Bool = false, only: Int? = nil) -> Data {
+        var fields = String(decoding: line, as: UTF8.self).split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        var changed = false
+        for index in fields.indices where (first ? index == 0 : index >= from) && (only == nil || index == only) {
+            if let replacement = map[fields[index]] {
+                fields[index] = replacement
+                changed = true
+            }
+        }
+        return changed ? Data(fields.joined(separator: "\t").utf8) : line
+    }
+
     private static func folder(in destination: URL) -> URL {
         destination.appending(path: folderName, directoryHint: .isDirectory)
     }

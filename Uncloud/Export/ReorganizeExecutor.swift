@@ -46,13 +46,14 @@ actor ReorganizeExecutor {
     /// `done` and `skipped` lines, written with the next append. Their effect is already in `journal`.
     private var pendingLines: [String] = []
 
-    /// `relocate` is the manifest phase. The default refuses to finish a run, so a journal can't reach `finished`
-    /// before the manifest is rewritten (R17c replaces the default).
+    /// `relocate` is the manifest phase: `ExportManifest.relocate` unless a test injects another.
     init(
         destination: URL,
         removeHelpers: Bool,
         fs: any ReorganizeFileSystem = LiveReorganizeFileSystem(),
-        relocate: @escaping Relocate = { _, _, _ in throw ReorganizeError.manifestNotReady }
+        relocate: @escaping Relocate = { map, destination, layout in
+            try ExportManifest.relocate(map, in: destination, layout: layout)
+        }
     ) {
         self.destination = destination
         self.requestedRemoveHelpers = removeHelpers
@@ -566,7 +567,6 @@ enum ReorganizeError: Error, Equatable, CustomStringConvertible {
     case unsafeName(String)
     case conflict(old: String, new: String)
     case undoUnavailable
-    case manifestNotReady
 
     var description: String {
         switch self {
@@ -588,8 +588,6 @@ enum ReorganizeError: Error, Equatable, CustomStringConvertible {
             "\"\(old)\" and \"\(new)\" both exist. The reorganize stopped and changed nothing for this file. Check both."
         case .undoUnavailable:
             "There is no reorganize to undo."
-        case .manifestNotReady:
-            "The manifest update for the reorganize is not available in this build."
         }
     }
 }

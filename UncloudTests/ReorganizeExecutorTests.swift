@@ -527,6 +527,25 @@ struct ReorganizeExecutorTests {
         }
     }
 
+    @Test func runAndUndoRewriteTheRealManifest() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            try Self.makeBackup(root)
+            let manifest = try Data(contentsOf: root.appending(path: ".photo-export/exported.tsv"))
+            try await ReorganizeExecutor(destination: root, removeHelpers: true).start(plan: try Self.plan(root))
+            #expect(ExportManifest.records(in: root) == [
+                "icloud-id:A": ["2024/07/IMG_1.HEIC"],
+                "icloud-id:B": ["2024/07/IMG_2.HEIC", "2024/07/IMG_2.MOV", "2024/07/IMG_2.HEIC.xmp"],
+                "icloud-id:C": ["2023/11/IMG_3.JPG"],
+                "icloud-id:D": ["2024/07/IMG_4.HEIC"],
+            ])
+            #expect(ExportManifest.layout(in: root) == .month)
+
+            try await ReorganizeExecutor(destination: root, removeHelpers: true).undo()
+            #expect(try Data(contentsOf: root.appending(path: ".photo-export/exported.tsv")) == manifest)
+            #expect(ExportManifest.layout(in: root) == .flat)
+        }
+    }
+
     @Test func undoIsRefusedAfterSevenDays() async throws {
         try await withTemporaryDirectoryAsync { root in
             try Self.makeBackup(root)
