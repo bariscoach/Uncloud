@@ -1775,13 +1775,13 @@ class LeanKeysTests(unittest.TestCase):
     def test_describe_is_the_same_for_the_listing_fields_only(self):
         from pyicloud_ipd.services.photos import PhotoAsset
 
-        junk = {"locationEnc": {"type": "BYTES", "value": "AAAA"}, "resJPEGLargeRes": res("X", "large"),
-                "keywordsEnc": {"type": "BYTES", "value": "BBBB"}}
+        junk = {"resJPEGLargeRes": res("X", "large"), "keywordsEnc": {"type": "BYTES", "value": "BBBB"},
+                "extendedDescEnc": {"type": "BYTES", "value": "CCCC"}}
         keys = set(pb.LISTING_KEYS)
         for master, asset in SAMPLES:
             fat_master = {**master, "fields": {**master["fields"], **junk}}
             lean = PhotoAsset(only_fields(fat_master, keys), only_fields(asset, keys))
-            self.assertNotIn("locationEnc", only_fields(fat_master, keys)["fields"])
+            self.assertNotIn("keywordsEnc", only_fields(fat_master, keys)["fields"])
             self.assertEqual(pb.describe(lean), pb.describe(PhotoAsset(fat_master, asset)))
 
     def test_page_and_stats_queries_are_lean_and_download_walks_are_not(self):
@@ -2183,6 +2183,123 @@ class SignInTests(unittest.TestCase):
         finally:
             auth.authenticator = original
             os.environ.pop("CLIENT_ID", None)
+
+
+class CatalogFieldsTests(unittest.TestCase):
+    """R12b: master, lat, lon and tz on every page item, and `listed` events that feed the local catalog."""
+
+    def asset_with(self, extra_fields, sample=0):
+        from pyicloud_ipd.services.photos import PhotoAsset
+
+        master, asset = SAMPLES[sample]
+        asset = {**asset, "fields": {**asset["fields"], **extra_fields}}
+        return PhotoAsset(master, asset)
+
+    @staticmethod
+    def location_enc(lat, lon):
+        import plistlib
+
+        data = plistlib.dumps({"lat": lat, "lon": lon, "alt": 12.0}, fmt=plistlib.FMT_BINARY)
+        return {"type": "BYTES", "value": base64.b64encode(data).decode()}
+
+    def test_location_comes_from_location_enc_and_time_zone_from_the_record(self):
+        asset = self.asset_with({"locationEnc": self.location_enc(51.5, -0.12), "timeZoneOffset": {"value": 3600}})
+        self.assertEqual(pb.catalog_location(asset), (51.5, -0.12))
+        self.assertEqual(pb.catalog_timezone(asset), 3600)
+        self.assertEqual(pb.catalog_master(asset), "ID01")
+        described = pb.describe(asset)
+        self.assertEqual((described["lat"], described["lon"], described["tz"], described["master"]),
+                         (51.5, -0.12, 3600, "ID01"))
+
+    def test_broken_or_missing_values_are_none(self):
+        broken = {"locationEnc": {"type": "BYTES", "value": "AAAA"}}
+        asset = self.asset_with(broken)
+        self.assertEqual(pb.catalog_location(asset), (None, None))
+        self.assertEqual(pb.describe(asset)["lat"], None)
+        self.assertEqual(pb.catalog_timezone(self.asset_with({})), None)
+        self.assertEqual(pb.catalog_timezone(self.asset_with({"timeZoneOffset": {"value": "3600"}})), None)
+        self.assertEqual(pb.catalog_location(self.asset_with({"locationEnc": {"type": "BYTES", "value": "%%%"}})),
+                         (None, None))
+
+    def test_out_of_range_and_zero_island_coordinates_are_none(self):
+        for lat, lon in [(91.0, 10.0), (10.0, 181.0), (0, 0), (0.0, 0.0)]:
+            asset = self.asset_with({"locationEnc": self.location_enc(lat, lon)})
+            self.assertEqual(pb.catalog_location(asset), (None, None), (lat, lon))
+
+    def test_plain_latitude_and_longitude_fields_are_the_fallback(self):
+        asset = self.asset_with({"locationLatitude": {"value": 48.85}, "locationLongitude": {"value": 2.35}})
+        self.assertEqual(pb.catalog_location(asset), (48.85, 2.35))
+        half = self.asset_with({"locationLatitude": {"value": 48.85}})
+        self.assertEqual(pb.catalog_location(half), (None, None))
+
+    def test_a_listing_asks_for_the_location_and_time_zone_keys(self):
+        for key in ("locationEnc", "locationLatitude", "locationLongitude", "timeZoneOffset"):
+            self.assertIn(key, pb.LISTING_KEYS)
+
+    def test_walk_reports_every_page_once_with_its_ranks_covered(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(250)]
+        library = FakeLibrary(samples, FakeSession(samples))
+        pages = []
+        ranks = [rank for rank, _ in pb.walk(library.all, 0, 1, on_page=lambda low, page: pages.append((low, page)))]
+        self.assertEqual(ranks, list(range(250)))
+        self.assertEqual([low for low, _ in pages], [0, 95, 190])
+        covered = {}
+        for low, page in pages:
+            for index, asset in enumerate(page):
+                covered.setdefault(asset.id, set()).add(low + index)
+        self.assertEqual(sorted(covered), sorted(master["recordName"] for master, _ in samples))
+        self.assertTrue(all(len(v) == 1 for v in covered.values()))
+
+    def test_a_download_sends_listed_events_and_changes_no_count(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(250)]
+        with tempfile.TemporaryDirectory() as root:
+            bridge, channel, session = make_bridge(samples)
+            bridge.handle({"id": 90, "cmd": "download", "dest": root, "layout": "month", "mode": "allExcept",
+                           "ids": []}, downloading=False)
+        listed = [m for m in channel.messages if m.get("event") == "listed"]
+        self.assertEqual([m["offset"] for m in listed], [0, 95, 190])
+        self.assertEqual(sorted({item["rank"] for m in listed for item in m["items"]}), list(range(250)))
+        first = listed[0]["items"][0]
+        self.assertNotIn("thumbURL", first)
+        self.assertEqual((first["id"], first["rank"], first["filename"]), ("N0000", 0, "IMG_0000.JPG"))
+        done = channel.messages[-1]
+        self.assertEqual((done["event"], done["downloaded"], done["skipped"]), ("done", 250, 0))
+        progress = [m for m in channel.messages if m.get("event") == "progress"]
+        self.assertEqual((progress[-1]["done"], progress[-1]["total"]), (250, 250))
+
+    def test_stats_progress_carries_the_items_of_its_page(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(250)]
+        bridge, channel, session = make_bridge(samples)
+        bridge.handle({"id": 91, "cmd": "stats"}, downloading=False)
+        progress = [m for m in channel.messages if m.get("event") == "statsProgress"]
+        self.assertEqual(len(progress), 3)
+        first = progress[0]
+        self.assertEqual(len(first["items"]), 100)
+        self.assertEqual([item["rank"] for item in first["items"]], list(range(100)))
+        self.assertEqual(first["items"][0]["id"], "N0000")
+        self.assertNotIn("thumbURL", first["items"][0])
+        self.assertEqual(sum(len(m["items"]) for m in progress), 250)
+        # The old keys are unchanged.
+        self.assertEqual(set(first["sizes"]) | set(first["unsized"]), {item["id"] for item in first["items"]})
+
+    def test_a_hint_that_is_off_by_ten_finds_its_item_without_a_walk(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(250)]
+        with tempfile.TemporaryDirectory() as root:
+            bridge, channel, session = make_bridge(samples)
+            bridge.handle({"id": 92, "cmd": "download", "dest": root, "layout": "month", "mode": "only",
+                           "ids": ["N0100"], "hints": {"N0100": 110}}, downloading=False)
+        events = [m for m in channel.messages if m.get("id") == 92]
+        self.assertEqual([e["event"] for e in events if e["event"] in ("downloaded", "skipped", "failed")],
+                         ["downloaded"])
+        self.assertEqual(events[-1]["downloaded"], 1)
+        # A walk from rank 0 would need three queries or more; the widened hint window needs one.
+        self.assertLessEqual(len(session.bodies), 2)
+
+    def test_slacked_windows_widen_clamp_and_merge(self):
+        self.assertEqual(pb._slacked_windows([range(100, 101)]), [range(75, 126)])
+        self.assertEqual(pb._slacked_windows([range(10, 11)], floor=5), [range(5, 36)])
+        self.assertEqual(pb._slacked_windows([range(0, 10), range(40, 50)]), [range(0, 75)])
+        self.assertEqual(pb._slacked_windows([range(0, 10), range(200, 210)]), [range(0, 35), range(175, 235)])
 
 
 if __name__ == "__main__":
