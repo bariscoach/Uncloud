@@ -393,7 +393,9 @@ struct BrowseBackupView: View {
     @ViewBuilder
     private func detail(_ browse: BrowseBackup) -> some View {
         if browse.selectedPaths.count == 1, let path = browse.selectedPaths.first, let entry = browse.entries[path] {
-            BrowsePhotoDetail(entry: entry, placeTitle: browse.placeTitle(forPath: path))
+            BrowsePhotoDetail(entry: entry, placeTitle: browse.placeTitle(forPath: path), loadCamera: {
+                await browse.camera(for: path)
+            })
                 .padding(Tokens.Space.l)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.bar)

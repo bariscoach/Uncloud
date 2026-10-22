@@ -153,4 +153,86 @@ struct BrowseICloudMetadataTests {
             #expect(browse.locatedCount == 1)
         }
     }
+
+    // MARK: - Camera on demand
+
+    @MainActor
+    @Test func cameraOfAnICloudPhotoIsReadOnce() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let drive = root.appending(path: "Drive", directoryHint: .isDirectory)
+            let path = "2024/07/IMG_1.HEIC"
+            try writeFile("a", to: path, in: drive)
+            let store = BrowseIndexStore(directory: root.appending(path: "Index", directoryHint: .isDirectory))
+            try store.save([path: BrowseEntry(
+                path: path, size: 1, modified: 1, latitude: nil, longitude: nil, date: Self.created, camera: nil, source: .iCloud
+            )], key: NewPhotosContext.destinationKey(for: drive))
+
+            let reads = ReadCounter()
+            let browse = BrowseBackup(
+                store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false },
+                readMetadata: { _ in reads.record(); return BrowseMetadata(camera: "Apple iPhone 15") }
+            )
+            browse.update(destination: drive, name: "Drive", isConnected: false)
+            #expect(browse.entries[path]?.camera == nil)
+
+            let first = await browse.camera(for: path)
+            let second = await browse.camera(for: path)
+            #expect(first == "Apple iPhone 15")
+            #expect(second == "Apple iPhone 15")
+            #expect(reads.count == 1)
+            #expect(browse.entries[path]?.camera == "Apple iPhone 15")
+        }
+    }
+
+    @MainActor
+    @Test func aPhotoWithNoCameraIsLookedAtOnceAndShowsUnknown() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let drive = root.appending(path: "Drive", directoryHint: .isDirectory)
+            let path = "2024/07/IMG_2.HEIC"
+            try writeFile("a", to: path, in: drive)
+            let store = BrowseIndexStore(directory: root.appending(path: "Index", directoryHint: .isDirectory))
+            try store.save([path: BrowseEntry(
+                path: path, size: 1, modified: 1, latitude: nil, longitude: nil, date: Self.created, camera: nil, source: .iCloud
+            )], key: NewPhotosContext.destinationKey(for: drive))
+
+            let reads = ReadCounter()
+            let browse = BrowseBackup(
+                store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false },
+                readMetadata: { _ in reads.record(); return BrowseMetadata() }
+            )
+            browse.update(destination: drive, name: "Drive", isConnected: false)
+            #expect(BrowsePhotoDetail.cameraText(for: try #require(browse.entries[path]), unavailable: false) == "Reading…")
+
+            let first = await browse.camera(for: path)
+            let second = await browse.camera(for: path)
+            #expect(first == "")
+            #expect(second == "")
+            #expect(reads.count == 1)
+            #expect(BrowsePhotoDetail.cameraText(for: try #require(browse.entries[path]), unavailable: false) == "Unknown")
+        }
+    }
+
+    @MainActor
+    @Test func fileSourcedPhotosAreNotReadForTheCamera() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let drive = root.appending(path: "Drive", directoryHint: .isDirectory)
+            let path = "2024/07/IMG_3.jpg"
+            try writeFile("a", to: path, in: drive)
+            let store = BrowseIndexStore(directory: root.appending(path: "Index", directoryHint: .isDirectory))
+            try store.save([path: BrowseEntry(
+                path: path, size: 1, modified: 1, latitude: nil, longitude: nil, date: Self.created, camera: nil
+            )], key: NewPhotosContext.destinationKey(for: drive))
+
+            let reads = ReadCounter()
+            let browse = BrowseBackup(
+                store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false },
+                readMetadata: { _ in reads.record(); return BrowseMetadata(camera: "X") }
+            )
+            browse.update(destination: drive, name: "Drive", isConnected: false)
+            let camera = await browse.camera(for: path)
+            #expect(camera == nil)
+            #expect(reads.count == 0)
+            #expect(BrowsePhotoDetail.cameraText(for: try #require(browse.entries[path]), unavailable: false) == "Unknown")
+        }
+    }
 }
