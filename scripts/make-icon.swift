@@ -2,6 +2,7 @@
 //   xcrun swift scripts/make-icon.swift                  writes the AppIcon set and icon-final.png
 //   xcrun swift scripts/make-icon.swift --variant A|B|C  writes a 1024 px PNG to the scratchpad
 //   xcrun swift scripts/make-icon.swift --sheet          writes the A/B/C comparison sheet
+//   xcrun swift scripts/make-icon.swift --layers         writes the animated logo layers (1024 px, transparent)
 // Everything is drawn with bezier paths, gradients and blurred shadows. No SF Symbols or Apple artwork.
 
 import AppKit
@@ -73,13 +74,22 @@ func drawRays(_ ctx: CGContext, x: CGFloat, y: CGFloat, r: CGFloat, glow: CGFloa
 }
 
 func drawSun(_ ctx: CGContext, x: CGFloat, y: CGFloat, r: CGFloat, glow: CGFloat, detail: Bool) {
+    drawSunHalo(ctx, x: x, y: y, r: r, glow: glow)
+    if detail { drawRays(ctx, x: x, y: y, r: r, glow: glow) }
+    drawSunDisc(ctx, x: x, y: y, r: r)
+}
+
+/// Halo, fading from warm white to nothing.
+func drawSunHalo(_ ctx: CGContext, x: CGFloat, y: CGFloat, r: CGFloat, glow: CGFloat) {
     let c = CGPoint(x: x, y: y)
-    // Halo, fading from warm white to nothing.
     ctx.drawRadialGradient(
         gradient([(0xFFF4C4, 0.95, 0), (0xFFD56B, 0.38, r / glow), (0xFF9F1C, 0, 1)]),
         startCenter: c, startRadius: 0, endCenter: c, endRadius: glow, options: [])
-    if detail { drawRays(ctx, x: x, y: y, r: r, glow: glow) }
-    // Disc, lit from the upper left.
+}
+
+/// The disc, lit from the upper left.
+func drawSunDisc(_ ctx: CGContext, x: CGFloat, y: CGFloat, r: CGFloat) {
+    let c = CGPoint(x: x, y: y)
     ctx.saveGState()
     ctx.addEllipse(in: circle(x, y, r))
     ctx.clip()
@@ -156,33 +166,43 @@ func drawVariantB(_ ctx: CGContext, s: CGFloat, detail: Bool) {
     ], s: s)
 }
 
-/// C: a big sun on a rich blue sky, with a soft cloud drifting off its upper left edge.
-func drawVariantC(_ ctx: CGContext, s: CGFloat, detail: Bool) {
+// Variant C geometry, shared by the full icon and the animated logo layers (1024-unit canvas).
+let sunC = (x: CGFloat(540), y: CGFloat(470), r: CGFloat(190), glow: CGFloat(520))
+let cloudC: [Puff] = [
+    Puff(190, 646, 72), Puff(270, 714, 98), Puff(370, 752, 90), Puff(434, 696, 74),
+    Puff(300, 642, 80),
+    Puff(130, 642, 48, 0.7), Puff(84, 614, 32, 0.45), Puff(50, 590, 20, 0.2),
+]
+
+func drawSkyC(_ ctx: CGContext) {
     ctx.drawLinearGradient(gradient([(0x6EC6FF, 1, 0), (0x2E7BEF, 1, 1)]),
                            start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
-    drawSun(ctx, x: 540, y: 470, r: 190, glow: 520, detail: detail)
-    // Motion lines trail the cloud to the left. Drawn before the cloud so the cloud overlaps them.
-    if detail {
-        ctx.setLineCap(.round)
-        for (x0, y0, len, alpha, width) in [(120.0, 548.0, 190.0, 0.5, 11.0),
-                                            (150.0, 500.0, 150.0, 0.32, 9.0)] {
-            ctx.saveGState()
-            ctx.setStrokeColor(rgb(0xFFFFFF, CGFloat(alpha)))
-            ctx.setLineWidth(CGFloat(width))
-            ctx.move(to: CGPoint(x: x0, y: y0))
-            ctx.addCurve(to: CGPoint(x: x0 + CGFloat(len), y: y0 + 12),
-                         control1: CGPoint(x: x0 + CGFloat(len) * 0.35, y: y0 - 4),
-                         control2: CGPoint(x: x0 + CGFloat(len) * 0.7, y: y0 + 16))
-            ctx.strokePath()
-            ctx.restoreGState()
-        }
+}
+
+/// Motion lines trail the cloud to the left. Drawn before the cloud so the cloud overlaps them.
+func drawMotionLines(_ ctx: CGContext) {
+    ctx.setLineCap(.round)
+    for (x0, y0, len, alpha, width) in [(120.0, 548.0, 190.0, 0.5, 11.0),
+                                        (150.0, 500.0, 150.0, 0.32, 9.0)] {
+        ctx.saveGState()
+        ctx.setStrokeColor(rgb(0xFFFFFF, CGFloat(alpha)))
+        ctx.setLineWidth(CGFloat(width))
+        ctx.move(to: CGPoint(x: x0, y: y0))
+        ctx.addCurve(to: CGPoint(x: x0 + CGFloat(len), y: y0 + 12),
+                     control1: CGPoint(x: x0 + CGFloat(len) * 0.35, y: y0 - 4),
+                     control2: CGPoint(x: x0 + CGFloat(len) * 0.7, y: y0 + 16))
+        ctx.strokePath()
+        ctx.restoreGState()
     }
+}
+
+/// C: a big sun on a rich blue sky, with a soft cloud drifting off its upper left edge.
+func drawVariantC(_ ctx: CGContext, s: CGFloat, detail: Bool) {
+    drawSkyC(ctx)
+    drawSun(ctx, x: sunC.x, y: sunC.y, r: sunC.r, glow: sunC.glow, detail: detail)
+    if detail { drawMotionLines(ctx) }
     // Moved up and left from the sun, with a gradual fade on the trailing puffs.
-    drawCloud(ctx, [
-        Puff(190, 646, 72), Puff(270, 714, 98), Puff(370, 752, 90), Puff(434, 696, 74),
-        Puff(300, 642, 80),
-        Puff(130, 642, 48, 0.7), Puff(84, 614, 32, 0.45), Puff(50, 590, 20, 0.2),
-    ], s: s)
+    drawCloud(ctx, cloudC, s: s)
 }
 
 /// Renders one variant as a squircle app icon at `px` pixels.
@@ -219,6 +239,62 @@ func renderVariant(_ variant: String, px: Int) -> CGImage {
     ctx.strokePath()
     ctx.restoreGState()
     return ctx.makeImage()!
+}
+
+// MARK: - Animated logo layers
+
+/// Writes the variant C layers as transparent 1024 px PNGs on the icon's canvas. Layers are not clipped
+/// to the squircle, so the app and site can animate them; the tile is the mask. Stacking shadow, tile,
+/// sun, rays, motion, cloud (each over the last), with the tile's alpha applied, reproduces the icon.
+func writeLogoLayers() throws {
+    let body = CGPath(roundedRect: CGRect(x: 100, y: 100, width: 824, height: 824),
+                      cornerWidth: 185, cornerHeight: 185, transform: nil)
+    let rim = CGPath(roundedRect: CGRect(x: 101.5, y: 101.5, width: 821, height: 821),
+                     cornerWidth: 183.5, cornerHeight: 183.5, transform: nil)
+
+    func write(_ name: String, _ draw: (CGContext) -> Void) throws {
+        let ctx = makeContext(width: 1024, height: 1024)
+        ctx.interpolationQuality = .high
+        draw(ctx)
+        let url = URL(fileURLWithPath: scratch + "/\(name).png")
+        try pngData(ctx.makeImage()!).write(to: url)
+        print(url.path)
+    }
+
+    // Drop shadow outside the squircle only: cast the shadow from the body, then erase the body.
+    try write("logo-shadow") { ctx in
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 30, color: rgb(0x0B0530, 0.4))
+        ctx.addPath(body)
+        ctx.setFillColor(rgb(0x2E7BEF))
+        ctx.fillPath()
+        ctx.restoreGState()
+        ctx.setBlendMode(.clear)
+        ctx.addPath(body)
+        ctx.fillPath()
+    }
+    // Sky gradient and hairline rim, clipped to the squircle. Its alpha is the mask.
+    try write("logo-tile") { ctx in
+        ctx.saveGState()
+        ctx.addPath(body)
+        ctx.clip()
+        drawSkyC(ctx)
+        ctx.restoreGState()
+        ctx.addPath(rim)
+        ctx.setStrokeColor(rgb(0xFFFFFF, 0.14))
+        ctx.setLineWidth(3)
+        ctx.strokePath()
+    }
+    // Halo and disc. The disc and halo are drawn with the halo below the disc.
+    try write("logo-sun") { ctx in
+        drawSunHalo(ctx, x: sunC.x, y: sunC.y, r: sunC.r, glow: sunC.glow)
+        drawSunDisc(ctx, x: sunC.x, y: sunC.y, r: sunC.r)
+    }
+    try write("logo-rays") { ctx in
+        drawRays(ctx, x: sunC.x, y: sunC.y, r: sunC.r, glow: sunC.glow)
+    }
+    try write("logo-motion") { ctx in drawMotionLines(ctx) }
+    try write("logo-cloud") { ctx in drawCloud(ctx, cloudC, s: 1) }
 }
 
 // MARK: - Outputs
@@ -286,7 +362,9 @@ func writeSheet(name: String, variants: [String]) throws {
 }
 
 let args = CommandLine.arguments
-if args.contains("--sheet") {
+if args.contains("--layers") {
+    try writeLogoLayers()
+} else if args.contains("--sheet") {
     try writeSheet(name: "icon-variants.png", variants: ["A", "B", "C"])
 } else if let i = args.firstIndex(of: "--variant"), i + 1 < args.count {
     let variant = args[i + 1].uppercased()

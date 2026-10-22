@@ -137,7 +137,10 @@ test('tile titles are at most 3 words and lines at most 10 words', () => {
 
 test('the hero visual and the icons carry no text and are hidden from assistive tech', () => {
   assert.match(html, /<div class="scene" aria-hidden="true">/);
-  assert.match(html, /<img class="hero-icon" src="icon@2x\.png"[^>]*alt=""/);
+  assert.match(html, /<div class="hero-icon" aria-hidden="true">/);
+  for (const layer of ['shadow', 'tile', 'sun', 'rays', 'motion', 'cloud']) {
+    assert.match(html, new RegExp(`<img class="hero-layer[^"]*" src="logo/logo-${layer}\\.png"[^>]*alt=""`));
+  }
 });
 
 test('the privacy band uses a single h2 and the page has one h1', () => {
