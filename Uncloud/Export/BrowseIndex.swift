@@ -10,6 +10,14 @@ struct BrowseEntry: Codable, Equatable, Sendable {
     var longitude: Double?
     var date: Date?
     var camera: String?
+    /// Where the entry came from. Nil (older index files, and every file read) means the file itself. `iCloud` means
+    /// the catalog's row: the date and place are iCloud's, and the camera is read from the file on demand.
+    var source: Source? = nil
+
+    enum Source: String, Codable, Sendable {
+        case file
+        case iCloud
+    }
 
     var hasLocation: Bool { latitude != nil && longitude != nil }
 }
@@ -130,13 +138,39 @@ enum BrowseIndexer {
     /// The recorded photo and movie paths: no `.xmp` sidecars, and no Live Photo movie whose photo is recorded too.
     /// The paths aren't checked against the drive here; `update` skips the ones that are gone.
     static func mediaPaths(in destination: URL) -> [String] {
+        mediaPaths(among: ExportManifest.records(in: destination).values.joined())
+    }
+
+    /// The media paths among `paths`, by the same rules as `mediaPaths(in:)`.
+    static func mediaPaths<S: Sequence>(among paths: S) -> [String] where S.Element == String {
         var recorded: Set<String> = []
-        for paths in ExportManifest.records(in: destination).values {
-            for path in paths where ICloudDownloadPaths.hasDownloadExtension(path) && !isSidecar(path) {
-                recorded.insert(path)
-            }
+        for path in paths where ICloudDownloadPaths.hasDownloadExtension(path) && !isSidecar(path) {
+            recorded.insert(path)
         }
         return recorded.subtracting(ICloudItemCount.livePhotoMovies(in: recorded)).sorted()
+    }
+
+    /// The metadata the catalog knows for the iCloud items' media files, by path. Each file of an `icloud-id:` record
+    /// gets its asset's row: the place, and the date (`created`, or `added` when there's none). Files whose asset has
+    /// no row are left out, so the caller reads them. A row's date and place are used as they are.
+    static func iCloudMetadata(in destination: URL, catalog: ICloudCatalog) async throws -> [String: BrowseMetadata] {
+        let items = ExportManifest.iCloudItems(in: destination)
+        let media = Set(mediaPaths(among: items.values.joined()))
+        var assetByPath: [String: String] = [:]
+        for (asset, paths) in items {
+            for path in paths where media.contains(path) {
+                assetByPath[path] = asset
+            }
+        }
+        let rows = try await catalog.rows(ids: Set(assetByPath.values))
+        var metadata: [String: BrowseMetadata] = [:]
+        for (path, asset) in assetByPath {
+            guard let row = rows[asset] else { continue }
+            metadata[path] = BrowseMetadata(
+                latitude: row.latitude, longitude: row.longitude, date: row.created ?? row.added, camera: nil
+            )
+        }
+        return metadata
     }
 
     /// Brings `previous` up to date with the drive. A file is read again only when its size or modification time changed.
@@ -145,6 +179,8 @@ enum BrowseIndexer {
     /// sidecars' existence, without a lookup per file, which is slow on exFAT.
     /// - Parameters:
     ///   - read: Reads one file. Nil reads it with `BrowseMetadata.read`, which takes its sidecar check from the listing.
+    ///   - iCloudMetadata: From `iCloudMetadata(in:catalog:)`. A new or changed file with a date here is indexed from it
+    ///     and not read. Files without a date are read.
     ///   - waitWhilePaused: Called before each file. It returns when reading may go on, such as after an export ends.
     ///   - progress: Files handled so far, out of the total. Called every 200 files and at the end.
     ///   - persist: The entries so far. Called every 1,000 files, but no more often than every `minimumSaveInterval`
@@ -155,6 +191,7 @@ enum BrowseIndexer {
         destination: URL,
         previous: [String: BrowseEntry],
         read: (@Sendable (URL) async -> BrowseMetadata)? = nil,
+        iCloudMetadata: [String: BrowseMetadata] = [:],
         waitWhilePaused: @escaping @Sendable () async throws -> Void,
         progress: @escaping @Sendable (Int, Int) -> Void,
         persist: @escaping @Sendable ([String: BrowseEntry]) -> Void,
@@ -176,6 +213,18 @@ enum BrowseIndexer {
                    let stamp = listing.stamps[path] {
                     if let old = entries[path], old.size == stamp.size, old.modified == stamp.modified {
                         // Unchanged: keep what was read.
+                    } else if let row = iCloudMetadata[path], row.date != nil {
+                        // The catalog has this item's date and place, so the file isn't read.
+                        entries[path] = BrowseEntry(
+                            path: path,
+                            size: stamp.size,
+                            modified: stamp.modified,
+                            latitude: row.latitude,
+                            longitude: row.longitude,
+                            date: row.date,
+                            camera: nil,
+                            source: .iCloud
+                        )
                     } else {
                         let metadata: BrowseMetadata
                         if let read {

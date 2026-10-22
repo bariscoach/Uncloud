@@ -234,6 +234,7 @@ final class BrowseBackup {
     @ObservationIgnored private let isExportRunning: @MainActor () -> Bool
     @ObservationIgnored private let namer: any PlaceNaming
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let iCloudCatalog: @Sendable (URL) async -> ICloudCatalog?
     @ObservationIgnored private var indexTask: Task<Void, Never>?
     @ObservationIgnored private var nameTask: Task<Void, Never>?
     @ObservationIgnored private var pendingNames: Set<String> = []
@@ -268,13 +269,15 @@ final class BrowseBackup {
         namer: any PlaceNaming = PlaceResolver(),
         isExportRunning: @escaping @MainActor () -> Bool,
         calendar: Calendar = .autoupdatingCurrent,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        iCloudCatalog: @escaping @Sendable (URL) async -> ICloudCatalog? = { _ in nil }
     ) {
         self.store = store
         self.namer = namer
         self.isExportRunning = isExportRunning
         self.calendar = calendar
         self.defaults = defaults
+        self.iCloudCatalog = iCloudCatalog
         sortOrder = BrowseSortOrder(rawValue: defaults.string(forKey: BrowseSortOrder.defaultsKey) ?? "") ?? .newestFirst
     }
 
@@ -439,13 +442,20 @@ final class BrowseBackup {
         let store = store
         let previous = entries
         let isExportRunning = isExportRunning
+        let catalogProvider = iCloudCatalog
         isIndexing = true
         indexTask = Task { [weak self] in
             do {
-                let result = try await Task.detached(priority: .utility) {
-                    try await BrowseIndexer.update(
+                let result = try await Task.detached(priority: .utility) { () async throws -> [String: BrowseEntry] in
+                    // iCloud's dates and places come from the catalog; items it doesn't know are read from the file.
+                    var iCloud: [String: BrowseMetadata] = [:]
+                    if let catalog = await catalogProvider(url) {
+                        iCloud = (try? await BrowseIndexer.iCloudMetadata(in: url, catalog: catalog)) ?? [:]
+                    }
+                    return try await BrowseIndexer.update(
                         destination: url,
                         previous: previous,
+                        iCloudMetadata: iCloud,
                         waitWhilePaused: {
                             var waited = false
                             while await MainActor.run(body: { isExportRunning() }) {
