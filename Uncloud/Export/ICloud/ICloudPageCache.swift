@@ -18,7 +18,7 @@ struct ICloudAsset: Sendable, Hashable, Identifiable {
 /// Where pages of the library come from: the bridge in the app, a fake in tests.
 protocol ICloudPageFetching: Sendable {
     func count() async throws -> Int
-    /// Items `offset..<offset + limit` in icloudpd's order, oldest first.
+    /// Items `offset..<offset + limit` in the bridge's order: rank 0 is the newest item.
     func assets(offset: Int, limit: Int) async throws -> [ICloudAsset]
 }
 
@@ -51,7 +51,7 @@ struct URLSessionThumbnailFetcher: ICloudThumbnailFetching {
 
 /// Pages the iCloud library newest first and caches thumbnails on disk.
 ///
-/// Page `n` holds items `n * pageSize ..< (n + 1) * pageSize` counted from the newest. Each page is
+/// Page `n` holds ranks `n * pageSize ..< (n + 1) * pageSize`; rank 0 is the newest. Each page is
 /// fetched once even when many callers ask at the same time, at most `maxPages` stay in memory, and
 /// a thumbnail whose signed URL has expired (403 or 410) is retried once with a freshly fetched page.
 actor ICloudPageCache {
@@ -151,13 +151,13 @@ actor ICloudPageCache {
         if let task = inFlight[index] {
             return try await task.value
         }
-        let upper = total - index * pageSize
-        guard index >= 0, upper > 0 else { return [] }
-        let lower = max(0, upper - pageSize)
+        let lower = index * pageSize
+        guard index >= 0, lower < total else { return [] }
+        let limit = min(pageSize, total - lower)
 
         let fetcher = fetcher
-        // The task returns the page newest first, so callers that join it get the same order.
-        let task = Task { Array(try await fetcher.assets(offset: lower, limit: upper - lower).reversed()) }
+        // The bridge's order is the browser's order, so the page is returned as the bridge sent it.
+        let task = Task { try await fetcher.assets(offset: lower, limit: limit) }
         inFlight[index] = task
         let startedEpoch = epoch
         do {
@@ -167,7 +167,7 @@ actor ICloudPageCache {
             }
             guard startedEpoch == epoch else { return page }
             for (position, asset) in page.enumerated() {
-                rankByID[asset.id] = upper - 1 - position
+                rankByID[asset.id] = lower + position
                 if let bytes = asset.bytes {
                     bytesByID[asset.id] = bytes
                 }
@@ -232,7 +232,7 @@ actor ICloudPageCache {
 
     private func pageIndex(forID id: String) -> Int? {
         guard let rank = rankByID[id], let count, rank < count else { return nil }
-        return (count - 1 - rank) / pageSize
+        return rank / pageSize
     }
 
     // MARK: - Thumbnails

@@ -93,30 +93,83 @@ actor AssetSizeIndex {
 
     // MARK: - Scanning
 
-    /// Where a scan should start for a library of `libraryCount` items, or nil when the table is up to date.
+    /// The kinds of scan a size table can need.
+    enum ScanPlan: Equatable, Sendable {
+        /// Nothing to do: the table is complete and the library's size is unknown.
+        case upToDate
+        /// Walk the library from this offset.
+        case walk(from: Int)
+        /// Size only the items added since the table was complete (new items are inserted at rank 0).
+        case topUp
+    }
+
+    /// What a scan should do for a library of `libraryCount` items.
     ///
     /// A walk in progress resumes where it stopped, unless the library's size has changed since it
-    /// started: items then sit at other offsets, so it starts over from the beginning. A library that
-    /// grew since a complete walk is walked from just before its old end (new items come last in
-    /// icloudpd's order); one that shrank is walked again from the start. With no walk to resume,
-    /// an incomplete table is walked from the start.
-    func scanStart(libraryCount: Int?) -> Int? {
+    /// started: items then sit at other offsets, so it starts over from the beginning. A complete
+    /// table whose library grew or kept its size gets a top-up, since new items are inserted at rank
+    /// 0 and the top-up catches a library that gained one item and lost another. One that shrank is
+    /// walked again from the start. With no walk to resume, an incomplete table is walked from the start.
+    func scanPlan(libraryCount: Int?) -> ScanPlan {
         if let walk = table.walk {
             if !walk.isValid || libraryCount.map({ walk.libraryCount >= 0 && $0 != walk.libraryCount }) == true {
-                return 0
+                return .walk(from: 0)
             }
             if let libraryCount, table.scannedThrough >= libraryCount {
                 // Stopped at the very end; walk the last page again to finish.
-                return max(walk.start, libraryCount - 100)
+                return .walk(from: max(walk.start, libraryCount - 100))
             }
-            return table.scannedThrough
+            return .walk(from: table.scannedThrough)
         }
-        guard table.isComplete else { return 0 }
-        guard let libraryCount, libraryCount != table.libraryCount else { return nil }
-        if libraryCount > table.libraryCount {
-            return max(0, table.libraryCount - 100)
+        guard table.isComplete else { return .walk(from: 0) }
+        guard let libraryCount else { return .upToDate }
+        if libraryCount < table.libraryCount {
+            return .walk(from: 0)
         }
-        return 0
+        return .topUp
+    }
+
+    /// Sizes the items added to a complete table: pages from the newest item down, until a run of
+    /// `overlap` items the table already has shows where the new ones end. Returns true when that
+    /// happens or the library ends; the table is then complete for `libraryCount`. Returns false
+    /// after `cap` items without such a run; the table is then incomplete, with a walk from the
+    /// start to finish it.
+    func topUp(fetcher: any ICloudPageFetching, libraryCount: Int, overlap: Int = 200, cap: Int = 5_000) async throws -> Bool {
+        let pageSize = 200
+        var offset = 0
+        var scanned = 0
+        var run = 0
+        while scanned < cap {
+            let limit = min(pageSize, cap - scanned)
+            let page = try await fetcher.assets(offset: offset, limit: limit)
+            for asset in page {
+                scanned += 1
+                run = table.size(of: asset.id) == nil ? 0 : run + 1
+                if let bytes = asset.bytes {
+                    table.set(bytes, for: asset.id)
+                }
+                if run >= overlap {
+                    return finishTopUp(libraryCount: libraryCount)
+                }
+            }
+            offset += page.count
+            if page.count < limit || offset >= libraryCount {
+                return finishTopUp(libraryCount: libraryCount)
+            }
+        }
+        table.isComplete = false
+        table.scannedThrough = 0
+        table.walk = AssetSizeTable.Walk(start: 0, libraryCount: libraryCount)
+        save()
+        return false
+    }
+
+    private func finishTopUp(libraryCount: Int) -> Bool {
+        table.libraryCount = libraryCount
+        table.scannedThrough = libraryCount
+        table.isComplete = true
+        save()
+        return true
     }
 
     /// Starts walking from `start`: resumes the walk in progress when `start` continues it, and
@@ -221,7 +274,24 @@ enum ICloudSizeScanner {
         progressInterval: Duration = .seconds(2),
         onProgress: @escaping @Sendable () async -> Void
     ) async -> Outcome {
-        guard let start = await index.scanStart(libraryCount: libraryCount) else { return .complete }
+        let start: Int
+        switch await index.scanPlan(libraryCount: libraryCount) {
+        case .upToDate:
+            return .complete
+        case .walk(let from):
+            start = from
+        case .topUp:
+            guard let libraryCount else { return .complete }
+            do {
+                if try await index.topUp(fetcher: ICloudBridgeFetcher(bridge: bridge), libraryCount: libraryCount) {
+                    return .complete
+                }
+            } catch {
+                return error is CancellationError || (error as? ICloudError) == .interrupted ? .interrupted : .failed(error)
+            }
+            // Too many new items to top up: walk the whole library, as an incomplete table does.
+            start = 0
+        }
         await index.beginScan(from: start, libraryCount: libraryCount)
         var lastReport = ContinuousClock.now
         do {

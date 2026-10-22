@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Uncloud
 
-/// A library of `total` items with IDs "item-0" (oldest) ... "item-(total-1)".
+/// A library of `total` items with IDs "item-0" (newest, at offset 0) ... "item-(total-1)" (oldest).
 private actor FakeLibrary: ICloudPageFetching {
     let total: Int
     private(set) var fetchCount = 0
@@ -85,10 +85,21 @@ struct ICloudPageCacheTests {
             let third = try await cache.page(2).map(\.id)
             let beyond = try await cache.page(3)
             #expect(count == 7)
-            #expect(first == ["item-6", "item-5", "item-4"])
-            #expect(second == ["item-3", "item-2", "item-1"])
-            #expect(third == ["item-0"])
+            #expect(first == ["item-0", "item-1", "item-2"])
+            #expect(second == ["item-3", "item-4", "item-5"])
+            #expect(third == ["item-6"])
             #expect(beyond.isEmpty)
+        }
+    }
+
+    @Test func pagesCoverTheLibraryInRanges() async throws {
+        try await withTemporaryDirectoryAsync { folder in
+            let library = FakeLibrary(total: 7)
+            let cache = makeCache(library: library, directory: folder)
+            _ = try await cache.page(0)
+            _ = try await cache.page(1)
+            _ = try await cache.page(2)
+            #expect(await library.fetchedRanges == [0..<3, 3..<6, 6..<7])
         }
     }
 
@@ -102,7 +113,7 @@ struct ICloudPageCacheTests {
                 }
                 return try await group.reduce(into: []) { $0.append($1) }
             }
-            #expect(pages.allSatisfy { $0.map(\.id) == ["item-5", "item-4", "item-3"] })
+            #expect(pages.allSatisfy { $0.map(\.id) == ["item-3", "item-4", "item-5"] })
             #expect(await library.fetchCount == 1)
         }
     }
@@ -134,8 +145,8 @@ struct ICloudPageCacheTests {
         try await withTemporaryDirectoryAsync { folder in
             let cache = makeCache(library: FakeLibrary(total: 7), directory: folder)
             _ = try await cache.page(1)
-            // Page 1 holds item-3, item-2 and item-1. Ranks count from the oldest item.
-            #expect(await cache.rankHints(for: ["item-3", "item-1", "item-0"]) == ["item-3": 3, "item-1": 1])
+            // Page 1 holds item-3, item-4 and item-5. Ranks count from the newest item; item-0 isn't loaded.
+            #expect(await cache.rankHints(for: ["item-3", "item-4", "item-0"]) == ["item-3": 3, "item-4": 4])
         }
     }
 
@@ -156,7 +167,7 @@ struct ICloudPageCacheTests {
         try await withTemporaryDirectoryAsync { folder in
             let library = FakeLibrary(total: 3)
             let thumbnails = FakeThumbnails()
-            await thumbnails.script("https://example.invalid/2?v=1", [(Data([1, 2, 3]), 200)])
+            await thumbnails.script("https://example.invalid/0?v=1", [(Data([1, 2, 3]), 200)])
             let cache = makeCache(library: library, thumbnails: thumbnails, directory: folder)
             let asset = try await cache.page(0)[0]
             #expect(await cache.thumbnailData(for: asset) == Data([1, 2, 3]))
@@ -172,15 +183,31 @@ struct ICloudPageCacheTests {
         try await withTemporaryDirectoryAsync { folder in
             let library = FakeLibrary(total: 3)
             let thumbnails = FakeThumbnails()
-            await thumbnails.script("https://example.invalid/2?v=1", [(Data(), 403)])
-            await thumbnails.script("https://example.invalid/2?v=2", [(Data([9]), 200)])
+            await thumbnails.script("https://example.invalid/0?v=1", [(Data(), 403)])
+            await thumbnails.script("https://example.invalid/0?v=2", [(Data([9]), 200)])
             let cache = makeCache(library: library, thumbnails: thumbnails, directory: folder)
             let asset = try await cache.page(0)[0]
             await library.renewURLs()
             #expect(await cache.thumbnailData(for: asset) == Data([9]))
             #expect(await thumbnails.requested.map(\.absoluteString) == [
-                "https://example.invalid/2?v=1", "https://example.invalid/2?v=2",
+                "https://example.invalid/0?v=1", "https://example.invalid/0?v=2",
             ])
+        }
+    }
+
+    @Test func expiredThumbnailOnALaterPageRefreshesThatPage() async throws {
+        try await withTemporaryDirectoryAsync { folder in
+            let library = FakeLibrary(total: 7)
+            let thumbnails = FakeThumbnails()
+            await thumbnails.script("https://example.invalid/3?v=1", [(Data(), 403)])
+            await thumbnails.script("https://example.invalid/3?v=2", [(Data([7]), 200)])
+            let cache = makeCache(library: library, thumbnails: thumbnails, directory: folder)
+            // item-3 is the first item of page 1, so its expired URL sends the cache back to page 1.
+            let asset = try await cache.page(1)[0]
+            #expect(asset.id == "item-3")
+            await library.renewURLs()
+            #expect(await cache.thumbnailData(for: asset) == Data([7]))
+            #expect(await library.fetchedRanges == [3..<6, 3..<6])
         }
     }
 
@@ -188,7 +215,7 @@ struct ICloudPageCacheTests {
         try await withTemporaryDirectoryAsync { folder in
             let library = FakeLibrary(total: 3)
             let thumbnails = FakeThumbnails()
-            await thumbnails.script("https://example.invalid/2?v=1", [(Data(), 500)])
+            await thumbnails.script("https://example.invalid/0?v=1", [(Data(), 500)])
             let cache = makeCache(library: library, thumbnails: thumbnails, directory: folder)
             let asset = try await cache.page(0)[0]
             #expect(await cache.thumbnailData(for: asset) == nil)

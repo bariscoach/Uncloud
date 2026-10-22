@@ -103,18 +103,16 @@ struct StorageEstimateTests {
             try store.save(Self.table(Self.page(["a", "b", "c", "d"])), account: "x")
             let index = AssetSizeIndex(table: AssetSizeTable(kind: .measured), store: store, account: "x")
             await index.loadSaved()
-            let start = try #require(await index.scanStart(libraryCount: 3))
-            #expect(start == 0)
-            await index.beginScan(from: start, libraryCount: 3)
+            #expect(await index.scanPlan(libraryCount: 3) == .walk(from: 0))
+            await index.beginScan(from: 0, libraryCount: 3)
             await index.recordScan(sizes: Self.page(["a"]), unsized: ["b"], scannedThrough: 2, libraryCount: 3)
             #expect(await index.endScan(complete: false, libraryCount: nil) == false)
 
             // After a relaunch: the walk resumes where it stopped, with what it had seen.
             let resumed = AssetSizeIndex(table: AssetSizeTable(kind: .measured), store: store, account: "x")
             await resumed.loadSaved()
-            let next = try #require(await resumed.scanStart(libraryCount: 3))
-            #expect(next == 2)
-            await resumed.beginScan(from: next, libraryCount: 3)
+            #expect(await resumed.scanPlan(libraryCount: 3) == .walk(from: 2))
+            await resumed.beginScan(from: 2, libraryCount: 3)
             await resumed.recordScan(sizes: Self.page(["c"]), scannedThrough: 3, libraryCount: 3)
             #expect(await resumed.endScan(complete: true, libraryCount: 3))
             let table = await resumed.table
@@ -134,14 +132,14 @@ struct StorageEstimateTests {
         await index.recordScan(sizes: Self.page(["a", "b"]), scannedThrough: 2, libraryCount: 4)
         await index.endScan(complete: false, libraryCount: nil)
         // a was deleted, so c and d moved to offsets 1 and 2: resuming at 2 would skip c.
-        #expect(await index.scanStart(libraryCount: 3) == 0)
+        #expect(await index.scanPlan(libraryCount: 3) == .walk(from: 0))
 
         // Resumed without knowing the size, the walk learns it changed and doesn't complete.
         await index.beginScan(from: 2, libraryCount: nil)
         await index.recordScan(sizes: Self.page(["d"]), scannedThrough: 3, libraryCount: 3)
         #expect(await index.endScan(complete: true, libraryCount: 3) == false)
         #expect(await index.table.isComplete == false)
-        #expect(await index.scanStart(libraryCount: 3) == 0)
+        #expect(await index.scanPlan(libraryCount: 3) == .walk(from: 0))
 
         // The walk from the start completes, and a is gone.
         await index.beginScan(from: 0, libraryCount: 3)
@@ -149,7 +147,7 @@ struct StorageEstimateTests {
         #expect(await index.endScan(complete: true, libraryCount: 3))
         #expect(await index.table.size(of: "a") == nil)
         #expect(await index.table.total == 300)
-        #expect(await index.scanStart(libraryCount: 3) == nil)
+        #expect(await index.scanPlan(libraryCount: 3) == .topUp)
     }
 
     // MARK: - Walks and exports
@@ -246,25 +244,113 @@ struct StorageEstimateTests {
         }
     }
 
-    @Test func scanStartResumesExtendsOrRestarts() async {
+    @Test func scanPlanResumesTopsUpOrRestarts() async {
         var partial = Self.table(["a": 1], complete: false)
         partial.scannedThrough = 400
         partial.walk = AssetSizeTable.Walk(start: 0, libraryCount: 1000, seen: ["a"])
-        #expect(await AssetSizeIndex(table: partial).scanStart(libraryCount: 1000) == 400)
+        #expect(await AssetSizeIndex(table: partial).scanPlan(libraryCount: 1000) == .walk(from: 400))
         // The library changed size since the walk started: items moved, so it starts over.
-        #expect(await AssetSizeIndex(table: partial).scanStart(libraryCount: 400) == 0)
+        #expect(await AssetSizeIndex(table: partial).scanPlan(libraryCount: 400) == .walk(from: 0))
         partial.walk?.libraryCount = 400
         partial.scannedThrough = 400
-        #expect(await AssetSizeIndex(table: partial).scanStart(libraryCount: 400) == 300)
+        #expect(await AssetSizeIndex(table: partial).scanPlan(libraryCount: 400) == .walk(from: 300))
         // An incomplete table with no walk to resume (such as one saved before walks were kept).
         partial.walk = nil
-        #expect(await AssetSizeIndex(table: partial).scanStart(libraryCount: 1000) == 0)
+        #expect(await AssetSizeIndex(table: partial).scanPlan(libraryCount: 1000) == .walk(from: 0))
 
         var complete = Self.table(["a": 1])
         complete.libraryCount = 1000
-        #expect(await AssetSizeIndex(table: complete).scanStart(libraryCount: 1000) == nil)
-        #expect(await AssetSizeIndex(table: complete).scanStart(libraryCount: 1050) == 900)
-        #expect(await AssetSizeIndex(table: complete).scanStart(libraryCount: 990) == 0)
+        // Unchanged or grown: new items sit at rank 0, so a top-up sizes them.
+        #expect(await AssetSizeIndex(table: complete).scanPlan(libraryCount: 1000) == .topUp)
+        #expect(await AssetSizeIndex(table: complete).scanPlan(libraryCount: 1050) == .topUp)
+        #expect(await AssetSizeIndex(table: complete).scanPlan(libraryCount: 990) == .walk(from: 0))
+        // Only a library whose size is unknown is up to date.
+        #expect(await AssetSizeIndex(table: complete).scanPlan(libraryCount: nil) == .upToDate)
+    }
+
+    // MARK: - Top-ups
+
+    /// A library newest first: `ids[0]` is at offset 0. Sizes come from `sizes`, and an ID without one
+    /// has no size in the bridge's answer.
+    private actor NewestFirstLibrary: ICloudPageFetching {
+        let ids: [String]
+        let sizes: [String: Int64]
+        private(set) var pagesFetched = 0
+
+        init(ids: [String], sizes: [String: Int64]) {
+            self.ids = ids
+            self.sizes = sizes
+        }
+
+        func count() async throws -> Int {
+            ids.count
+        }
+
+        func assets(offset: Int, limit: Int) async throws -> [ICloudAsset] {
+            pagesFetched += 1
+            let upper = min(ids.count, offset + limit)
+            guard offset < upper else { return [] }
+            return ids[offset..<upper].map { id in
+                ICloudAsset(id: id, filename: id, created: nil, isVideo: false, thumbnailURL: nil, bytes: sizes[id])
+            }
+        }
+    }
+
+    /// Items "old-0" ... "old-(count-1)", each 100 bytes, as a complete table of a library of `count`.
+    private static func completeTable(oldCount count: Int) -> AssetSizeTable {
+        var table = AssetSizeTable(kind: .measured)
+        table.merge(Dictionary(uniqueKeysWithValues: (0..<count).map { ("old-\($0)", Int64(100)) }))
+        table.libraryCount = count
+        table.scannedThrough = count
+        table.isComplete = true
+        return table
+    }
+
+    @Test func aGrownLibraryIsToppedUpWithItsNewItemsOnly() async throws {
+        let newIDs = (0..<50).map { "new-\($0)" }
+        let oldIDs = (0..<1000).map { "old-\($0)" }
+        let sizes = Dictionary(uniqueKeysWithValues: (newIDs.map { ($0, Int64(7)) }) + oldIDs.map { ($0, Int64(100)) })
+        let library = NewestFirstLibrary(ids: newIDs + oldIDs, sizes: sizes)
+        let index = AssetSizeIndex(table: Self.completeTable(oldCount: 1000))
+
+        #expect(await index.scanPlan(libraryCount: 1050) == .topUp)
+        let grew = try await index.topUp(fetcher: library, libraryCount: 1050)
+        #expect(grew)
+        // The new items are sized and the old ones are left alone; two pages cover the run of old items.
+        #expect(await index.table.knownCount == 1050)
+        #expect(await index.table.size(of: "new-0") == 7)
+        #expect(await index.table.size(of: "new-49") == 7)
+        #expect(await index.table.size(of: "old-0") == 100)
+        #expect(await index.table.total == 50 * 7 + 1000 * 100)
+        #expect(await library.pagesFetched <= 2)
+        #expect(await index.isComplete)
+        #expect(await index.libraryCount == 1050)
+        #expect(await index.scanPlan(libraryCount: 1050) == .topUp)
+    }
+
+    @Test func aTopUpSizesANewItemWhenTheCountDidNotChange() async throws {
+        // One item was added at the top and the oldest was deleted: the count is still 1000.
+        let oldIDs = (0..<999).map { "old-\($0)" }
+        let sizes = Dictionary(uniqueKeysWithValues: oldIDs.map { ($0, Int64(100)) } + [("fresh", Int64(5))])
+        let library = NewestFirstLibrary(ids: ["fresh"] + oldIDs, sizes: sizes)
+        let index = AssetSizeIndex(table: Self.completeTable(oldCount: 1000))
+
+        let unchanged = try await index.topUp(fetcher: library, libraryCount: 1000)
+        #expect(unchanged)
+        #expect(await index.table.size(of: "fresh") == 5)
+        #expect(await index.isComplete)
+    }
+
+    @Test func aTopUpGivesUpAfterTheCapAndWalksFromTheStart() async throws {
+        let newIDs = (0..<6000).map { "new-\($0)" }
+        let oldIDs = (0..<1000).map { "old-\($0)" }
+        let library = NewestFirstLibrary(ids: newIDs + oldIDs, sizes: [:])
+        let index = AssetSizeIndex(table: Self.completeTable(oldCount: 1000))
+
+        let capped = try await index.topUp(fetcher: library, libraryCount: 7000, cap: 5_000)
+        #expect(capped == false)
+        #expect(await index.isComplete == false)
+        #expect(await index.scanPlan(libraryCount: 7000) == .walk(from: 0))
     }
 
     // MARK: - Photos heuristic
@@ -375,7 +461,7 @@ struct StorageEstimateTests {
             #expect(estimate == StorageEstimate(bytes: expected, isExact: true, basis: .scanned))
             #expect(await index.estimate(for: .only(["asset-0", "asset-10"]), libraryCount: total)?.bytes == 2010)
             #expect(await index.estimate(for: .allExcept(["asset-0"]), libraryCount: total)?.bytes == expected - 1000)
-            #expect(await index.scanStart(libraryCount: total) == nil)
+            #expect(await index.scanPlan(libraryCount: total) == .topUp)
 
             // Saved for the account, so the next launch needs no scan.
             let saved = try #require(store.load(account: appleID))
