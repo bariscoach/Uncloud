@@ -155,6 +155,9 @@ class AlbumRoute:
         self._samples = samples
         self._delay = delay
         self.before_query = None
+        # Queries in flight at once, and the most there were (a query is in flight while its delay runs).
+        self.in_flight = {"now": 0, "peak": 0}
+        self._flight_lock = threading.Lock()
 
     def post(self, url, data=None, headers=None):
         body = json.loads(data)
@@ -162,8 +165,18 @@ class AlbumRoute:
         self._session.bodies.append(body)
         if self.before_query is not None:
             self.before_query()
-        if self._delay:
-            time.sleep(self._delay)
+        with self._flight_lock:
+            self.in_flight["now"] += 1
+            self.in_flight["peak"] = max(self.in_flight["peak"], self.in_flight["now"])
+        try:
+            if self._delay:
+                time.sleep(self._delay)
+            return self._answer(body)
+        finally:
+            with self._flight_lock:
+                self.in_flight["now"] -= 1
+
+    def _answer(self, body):
         offset = next(f["fieldValue"]["value"] for f in body["query"]["filterBy"] if f["fieldName"] == "startRank")
         limit = body["resultsLimit"] // 2
         wanted = set(body["desiredKeys"])
@@ -1839,7 +1852,7 @@ class BrowsingDuringDownloadTests(unittest.TestCase):
         clock = {"now": 0.0}
         self.use_clock(lambda: clock["now"])
         served = []
-        bridge.serve_waiting = lambda: served.append(clock["now"])
+        bridge.serve_waiting = lambda **budget: served.append(clock["now"])
         run = pb._DownloadRun(bridge, 9, None)
         for now in (0.0, 0.1, 0.2, 0.25, 0.3, 0.45, 0.5):
             clock["now"] = now
@@ -1872,17 +1885,17 @@ class PrefetchTests(unittest.TestCase):
         self.assertEqual(ahead, plain)
         self.assertEqual(plain[0], (0, "N0000"))
 
-    def test_depth_three_is_at_least_twice_as_fast_when_queries_are_slow(self):
+    def test_prefetch_overlaps_the_queries_and_depth_one_never_does(self):
+        # Counted, not timed: the most queries in flight at once while each takes 20 ms.
         samples = self.many(2050)
 
-        def timed(depth):
+        def peak(depth):
             album = FakeAlbum(samples, FakeSession(samples), delay=0.02)
-            started = time.monotonic()
-            self.walked(album, depth)
-            return time.monotonic() - started
+            self.assertEqual(len(self.walked(album, depth)), 2050)
+            return album.session.in_flight["peak"]
 
-        one, three = timed(1), timed(3)
-        self.assertLess(three * 2, one, (one, three))
+        self.assertEqual(peak(1), 1)
+        self.assertGreaterEqual(peak(3), 2)
 
     def test_a_removal_in_the_middle_still_visits_every_item_once(self):
         samples = self.many(1000)
@@ -1970,6 +1983,176 @@ class PrefetchTests(unittest.TestCase):
         pb._SESSION_FILE_LOCK.release()
         with pb._guarded_open(path, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), "{}")
+
+
+class CookieSaveConcurrencyTests(unittest.TestCase):
+    """Opus review: listings save the session and cookie files from several threads at once."""
+
+    def test_four_listings_saving_session_and_cookies_at_once(self):
+        import http.cookiejar as cookiejar
+
+        from pyicloud_ipd import session as pyicloud_session
+
+        pb.guard_session_files_for_bridge()
+        errors = []
+        session_data = {}
+        with tempfile.TemporaryDirectory() as root:
+            cookie_path = os.path.join(root, "cookies.txt")
+            session_path = os.path.join(root, "session.json")
+            jar = cookiejar.LWPCookieJar(cookie_path)
+
+            def cookie(name):
+                return cookiejar.Cookie(0, name, "v", None, False, "icloud.com", True, False, "/", True, False,
+                                        None, False, None, None, {}, False)
+
+            def listing(index):
+                try:
+                    for number in range(150):
+                        jar.set_cookie(cookie(f"c{index}-{number}"))
+                        jar.save(cookie_path, ignore_discard=True, ignore_expires=True)
+                        session_data[f"k{index}-{number}"] = number
+                        with pb._guarded_open(session_path, "w", encoding="utf-8") as handle:
+                            pyicloud_session.json.dump(session_data, handle)
+                except Exception as error:  # noqa: BLE001
+                    errors.append(error)
+
+            threads = [threading.Thread(target=listing, args=(i,)) for i in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(errors, [])
+            with open(session_path, encoding="utf-8") as handle:
+                self.assertEqual(len(json.load(handle)), 600)
+            reread = cookiejar.LWPCookieJar(cookie_path)
+            reread.load(ignore_discard=True, ignore_expires=True)
+            self.assertEqual(len(reread), 600)
+
+
+class PrefetchEdgeTests(unittest.TestCase):
+    """Opus review: additions and cancels with prefetches pending, the throttle flag, and page freshness."""
+
+    def setUp(self):
+        pb.LISTING_STATE["throttled"] = False
+        self.addCleanup(pb.LISTING_STATE.__setitem__, "throttled", False)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    @staticmethod
+    def many(count):
+        return [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(count)]
+
+    def download(self, bridge, **request):
+        bridge.handle({"id": 91, "cmd": "download", "dest": self.tmp.name, "layout": "month", "xmp": False,
+                       **request}, downloading=False)
+        return [m for m in bridge.channel.messages if m.get("id") == 91]
+
+    def test_an_addition_mid_walk_with_prefetch_visits_every_item_once(self):
+        samples = self.many(1000)
+        album = FakeAlbum(samples, FakeSession(samples))
+        count = {"n": 0}
+
+        def before():
+            count["n"] += 1
+            if count["n"] == 4:
+                samples.insert(0, records("ADD0", "IMG_ADD0.JPG", "public.jpeg", ms(2019, 1, 1)))
+
+        album.session.before_query = before
+        visited = [asset.id for _, asset in pb.walk(album, 0, 3)]
+        originals = {f"N{i:04d}" for i in range(1000)}
+        self.assertTrue(originals <= set(visited))
+        self.assertEqual(len(visited), len(set(visited)))
+
+    def test_cancelling_stats_with_prefetches_pending_stops_them(self):
+        samples = self.many(1000)
+        bridge, channel, session = make_bridge(samples)
+        original = channel.send
+
+        def send(message):
+            original(message)
+            if message.get("event") == "statsProgress":
+                channel.feed('{"cmd":"cancel","target":92}')
+
+        channel.send = send
+        bridge.handle({"id": 92, "cmd": "stats", "prefetch": 3}, downloading=False)
+        final = [m for m in channel.messages if m.get("id") == 92][-1]
+        self.assertEqual(final["event"], "stats")
+        self.assertTrue(final["cancelled"])
+        self.assertFalse(final["complete"])
+        requests_at_end = session.requests
+        self.assertLessEqual(requests_at_end, 4)  # the first page and at most the three prefetched
+        time.sleep(0.2)
+        self.assertEqual(session.requests, requests_at_end)  # nothing new starts after the cancel
+
+    def test_a_connection_error_ends_the_download_without_the_throttle_flag(self):
+        from pyicloud_ipd.exceptions import PyiCloudConnectionErrorException
+
+        samples = self.many(1000)
+        bridge, channel, session = make_bridge(samples)
+        count = {"n": 0}
+
+        def before():
+            count["n"] += 1
+            if count["n"] == 4:
+                raise PyiCloudConnectionErrorException("Cannot connect to Apple iCloud service")
+
+        bridge.library.before_query = before
+        events = self.download(bridge, mode="allExcept", ids=[], prefetch=3)
+        self.assertEqual(events[-1]["event"], "error")
+        self.assertEqual(events[-1]["kind"], "PyiCloudConnectionErrorException")
+        self.assertFalse(pb.LISTING_STATE["throttled"])
+        self.assertEqual(pb.listing_depth(3), 3)
+
+    def test_a_prefetched_page_older_than_its_maximum_age_is_fetched_again(self):
+        samples = self.many(300)
+        session = FakeSession(samples)
+        album = FakeAlbum(samples, session)
+        reader = pb.PageReader(album, depth=2, max_age=0.0)
+        reader.ahead([(0, 100), (95, 100)])
+        page = reader.get(0, 100)
+        self.assertEqual(page[0].id, "N0000")
+        for future in list(reader._pending.values()):  # the other prefetch, which the walk hasn't asked for yet
+            future.result()
+        self.assertEqual(session.requests, 3)  # two prefetched queries, and the page fetched again
+        reader.close()
+
+        fresh = pb.PageReader(FakeAlbum(samples, session), depth=2, max_age=300.0)
+        fresh.ahead([(0, 100)])
+        fresh._pending[(0, 100)].result()  # the prefetch has finished
+        before = session.requests
+        fresh.get(0, 100)
+        self.assertEqual(session.requests, before)  # used as prefetched, no new query
+        fresh.close()
+
+
+class BrowsingBudgetTests(unittest.TestCase):
+    """Opus review: at most two browsing requests per chunk; the rest wait for the next interval."""
+
+    def test_two_browsing_requests_per_chunk_and_the_third_waits(self):
+        bridge, channel, session = make_bridge()
+        clock = {"now": 0.0}
+        original_clock = pb.CLOCK
+        pb.CLOCK = lambda: clock["now"]
+        self.addCleanup(setattr, pb, "CLOCK", original_clock)
+        early = []
+
+        def on_chunk(n):
+            clock["now"] += 0.1
+            if n == 5:
+                for request_id in (50, 51, 52):
+                    channel.feed('{"id":%d,"cmd":"page","offset":%d,"limit":1}' % (request_id, request_id - 50))
+            if n == 8:
+                early.extend(m["id"] for m in channel.messages if m.get("id") in (50, 51, 52))
+
+        DownloadTests.big_download(self, bridge, session, on_chunk, chunks=50)
+        with tempfile.TemporaryDirectory() as root:
+            bridge.handle({"id": 9, "cmd": "download", "dest": root, "layout": "month", "xmp": False,
+                           "mode": "only", "ids": ["ID02"]}, downloading=False)
+        self.assertEqual(sorted(early), [50, 51])
+        messages = channel.messages
+        done_at = next(i for i, m in enumerate(messages) if m.get("id") == 9 and m.get("event") == "done")
+        for request_id in (50, 51, 52):
+            self.assertLess(next(i for i, m in enumerate(messages) if m.get("id") == request_id), done_at)
 
 
 class SignInTests(unittest.TestCase):
