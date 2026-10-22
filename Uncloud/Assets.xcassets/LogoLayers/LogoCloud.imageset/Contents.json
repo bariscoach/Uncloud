@@ -1,0 +1,7 @@
+{
+  "images" : [
+    { "filename" : "logo-cloud.png", "idiom" : "universal", "scale" : "1x" },
+    { "filename" : "logo-cloud@2x.png", "idiom" : "universal", "scale" : "2x" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}

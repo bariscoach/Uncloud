@@ -254,11 +254,71 @@ a {
   align-items: center;
 }
 
+/* The animated hero icon ("sun reveal"). Each layer is the same 112px square as the icon, so the
+   percentages below are the same fractions of the icon as in scripts/make-icon.swift. The final
+   state is the base style, so reduced motion (and no animation support) shows the resting icon. */
 .hero-icon {
+  position: relative;
   width: 112px;
   height: 112px;
-  border-radius: 25px;
-  box-shadow: 0 12px 32px rgba(17, 18, 20, 0.14);
+}
+
+.hero-icon .hero-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-mask {
+  position: absolute;
+  inset: 0;
+  -webkit-mask-image: url(logo/logo-tile.png);
+  mask-image: url(logo/logo-tile.png);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* The cloud starts with its centre on the sun's centre (22.2% right, 22.7% down) and drifts to rest. */
+.hero-cloud {
+  animation: hero-cloud-drift 1.2s ease-out 0.3s both;
+}
+
+.hero-sun {
+  animation: hero-sun-glow 1.2s ease-out 0.3s both;
+}
+
+/* The motion lines fade in once the reveal has finished. */
+.hero-motion {
+  animation: hero-motion-in 0.4s ease-out 1.5s both;
+}
+
+/* The sun's centre is at 52.73% across and 54.10% down. */
+.hero-rays {
+  transform-origin: 52.73% 54.1%;
+  animation: hero-rays-turn 60s linear infinite;
+}
+
+@keyframes hero-cloud-drift {
+  from { transform: translate(22.17%, 22.66%); }
+  to { transform: none; }
+}
+
+@keyframes hero-sun-glow {
+  from { opacity: 0.75; }
+  to { opacity: 1; }
+}
+
+@keyframes hero-motion-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes hero-rays-turn {
+  to { transform: rotate(360deg); }
 }
 
 .pill {
