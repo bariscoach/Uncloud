@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 BRIDGE_PATH = sys.argv.pop(1)
@@ -106,6 +107,10 @@ class FakeResponse:
         self._data = data
         self.ok = True
 
+    @property
+    def content(self):
+        return json.dumps(self._data).encode()
+
     def json(self):
         return self._data
 
@@ -128,6 +133,7 @@ class FakeSession:
                         data += b"!"
                     self.by_url[url] = data
         self.requests = 0
+        self.bodies = []
 
     def get(self, url, headers=None, stream=False):
         self.downloads.append(url)
@@ -135,20 +141,47 @@ class FakeSession:
         return FakeResponse(self.by_url[url][start:])
 
 
-class FakeAlbum(PhotoAlbum):
-    """A PhotoAlbum whose CloudKit query is answered from memory; paging is icloudpd's own."""
+def only_fields(record, wanted):
+    return {**record, "fields": {k: v for k, v in record["fields"].items() if k in wanted}}
 
-    def __init__(self, samples, session, name=""):
-        super().__init__({}, session, "https://fake", name, "list", "obj")
-        self.samples = samples
 
-    def photos_request(self):
-        self.session.requests += 1
-        chunk = self.samples[self.offset : self.offset + self.page_size]
+class AlbumRoute:
+    """The session an album's record queries go through: the real PhotoAlbum builds each query (its startRank,
+    resultsLimit and desiredKeys), and this answers it from `samples` with only the fields asked for, as CloudKit
+    does. `delay` seconds pass per query; `before_query`, when set, is called before each query is answered."""
+
+    def __init__(self, session, samples, delay=0.0):
+        self._session = session
+        self._samples = samples
+        self._delay = delay
+        self.before_query = None
+
+    def post(self, url, data=None, headers=None):
+        body = json.loads(data)
+        self._session.requests += 1
+        self._session.bodies.append(body)
+        if self.before_query is not None:
+            self.before_query()
+        if self._delay:
+            time.sleep(self._delay)
+        offset = next(f["fieldValue"]["value"] for f in body["query"]["filterBy"] if f["fieldName"] == "startRank")
+        limit = body["resultsLimit"] // 2
+        wanted = set(body["desiredKeys"])
         recs = []
-        for master, asset in chunk:
-            recs += [asset, master]
+        for master, asset in self._samples[offset : offset + limit]:
+            recs += [only_fields(asset, wanted), only_fields(master, wanted)]
         return FakeResponse({"records": recs})
+
+    def __getattr__(self, name):
+        return getattr(self._session, name)
+
+
+class FakeAlbum(PhotoAlbum):
+    """A PhotoAlbum whose CloudKit queries are answered from memory; paging and query building are icloudpd's own."""
+
+    def __init__(self, samples, session, name="", delay=0.0):
+        super().__init__({}, AlbumRoute(session, samples, delay), "https://fake", name, "list", "obj")
+        self.samples = samples
 
     def __len__(self):
         return len(self.samples)
@@ -159,6 +192,7 @@ class FakeLibrary:
         self._samples = samples
         self._trash = [] if trash is None else trash
         self.session = session
+        self.before_query = None
         self.service_endpoint = "https://fake"
         self.params = {"clientId": "fake"}
         self.zone_id = {"zoneName": "PrimarySync"}
@@ -168,7 +202,9 @@ class FakeLibrary:
 
     @property
     def all(self):
-        return FakeAlbum(self._samples, self.session)
+        album = FakeAlbum(self._samples, self.session)
+        album.session.before_query = self.before_query
+        return album
 
     @property
     def recently_deleted(self):
@@ -1415,8 +1451,11 @@ class DeleteTests(unittest.TestCase):
         bridge, channel, session = delete_bridge()
         events = self.delete(bridge, mode="only", ids=["NOPE"])
         self.assertEqual(session.posts, [])
+        timing = events[-1].pop("timing")
         self.assertEqual(events[-1], {"id": self.REQUEST_ID, "event": "deleteDone", "deleted": 0, "failed": 0,
                                       "missing": 1, "cancelled": False, "stopped": None, "message": None})
+        self.assertEqual(timing["items"], 0)
+        self.assertEqual(session.posts, [])
         events = self.delete(bridge, mode="allExcept", ids=[s[0]["recordName"] for s in SAMPLES])
         self.assertEqual(session.posts, [])
         self.assertEqual(events[-1]["deleted"], 0)
@@ -1662,6 +1701,275 @@ class RestoreTests(unittest.TestCase):
         bridge.handle({"id": 77, "cmd": "count", "album": "bogus"}, downloading=False)
         self.assertEqual(channel.messages[-1]["kind"], "badRequest")
         self.assertEqual(session.posts, [])
+
+
+class TimingTests(unittest.TestCase):
+    """R9: every request's record queries, reply bytes and seconds, in its final event and in one stderr line."""
+
+    def test_page_reply_carries_its_timing_and_logs_the_line(self):
+        bridge, channel, session = make_bridge()
+        with self.assertLogs(pb.LOGGER, level="INFO") as logs:
+            bridge.handle({"id": 60, "cmd": "page", "offset": 0, "limit": 6}, downloading=False)
+        timing = channel.messages[-1]["timing"]
+        self.assertEqual((timing["queries"], timing["items"]), (1, 6))
+        self.assertGreater(timing["bytes"], 0)
+        self.assertGreaterEqual(timing["seconds"], 0)
+        line = next(text for text in logs.output if "timing cmd=page" in text)
+        self.assertIn("timing cmd=page queries=1 items=6 bytes=%d seconds=" % timing["bytes"], line)
+
+    def test_two_hundred_items_are_two_queries_and_say_so(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(450)]
+        bridge, channel, session = make_bridge(samples)
+        bridge.handle({"id": 61, "cmd": "page", "offset": 120, "limit": 200}, downloading=False)
+        self.assertEqual(channel.messages[-1]["timing"]["queries"], 2)
+        self.assertEqual(channel.messages[-1]["timing"]["items"], 200)
+
+    def test_stats_and_download_final_events_carry_timing(self):
+        samples = [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(250)]
+        bridge, channel, session = make_bridge(samples)
+        bridge.handle({"id": 62, "cmd": "stats"}, downloading=False)
+        final = channel.messages[-1]
+        self.assertEqual(final["event"], "stats")
+        # Three pages, and the short last page costs pyicloud's empty query too (as it did before).
+        self.assertEqual((final["timing"]["queries"], final["timing"]["items"]), (4, 250))
+
+        with tempfile.TemporaryDirectory() as root:
+            bridge, channel, session = make_bridge()
+            bridge.handle({"id": 63, "cmd": "download", "dest": root, "layout": "month", "mode": "allExcept",
+                           "ids": []}, downloading=False)
+            done = channel.messages[-1]
+            self.assertEqual(done["event"], "done")
+            self.assertEqual(done["timing"]["items"], 6)
+            self.assertGreaterEqual(done["timing"]["queries"], 1)
+
+    def test_the_first_query_logs_results_limit_against_records(self):
+        bridge, channel, session = make_bridge()
+        pb._FIRST_QUERY_LOGGED["done"] = False
+        with self.assertLogs(pb.LOGGER, level="INFO") as logs:
+            bridge.handle({"id": 64, "cmd": "page", "offset": 0, "limit": 6}, downloading=False)
+        self.assertIn("query resultsLimit=12 records=12", "\n".join(logs.output))
+
+
+class LeanKeysTests(unittest.TestCase):
+    """R8: listings ask for LISTING_KEYS only, and the items they show are the same as with every field."""
+
+    def test_listing_keys_are_real_fields_of_the_full_query(self):
+        album = FakeAlbum(SAMPLES, FakeSession(SAMPLES))
+        full = album._list_query_gen(0, "list")["desiredKeys"]
+        self.assertTrue(set(pb.LISTING_KEYS) <= set(full))
+        self.assertLess(len(pb.LISTING_KEYS), len(full) // 2)
+
+    def test_describe_is_the_same_for_the_listing_fields_only(self):
+        from pyicloud_ipd.services.photos import PhotoAsset
+
+        junk = {"locationEnc": {"type": "BYTES", "value": "AAAA"}, "resJPEGLargeRes": res("X", "large"),
+                "keywordsEnc": {"type": "BYTES", "value": "BBBB"}}
+        keys = set(pb.LISTING_KEYS)
+        for master, asset in SAMPLES:
+            fat_master = {**master, "fields": {**master["fields"], **junk}}
+            lean = PhotoAsset(only_fields(fat_master, keys), only_fields(asset, keys))
+            self.assertNotIn("locationEnc", only_fields(fat_master, keys)["fields"])
+            self.assertEqual(pb.describe(lean), pb.describe(PhotoAsset(fat_master, asset)))
+
+    def test_page_and_stats_queries_are_lean_and_download_walks_are_not(self):
+        bridge, channel, session = make_bridge()
+        bridge.handle({"id": 70, "cmd": "page", "offset": 0, "limit": 6}, downloading=False)
+        self.assertEqual(set(session.bodies[-1]["desiredKeys"]), set(pb.LISTING_KEYS))
+        bridge.handle({"id": 71, "cmd": "stats"}, downloading=False)
+        self.assertEqual(set(session.bodies[-1]["desiredKeys"]), set(pb.LISTING_KEYS))
+        with tempfile.TemporaryDirectory() as root:
+            bridge.handle({"id": 72, "cmd": "download", "dest": root, "layout": "month", "mode": "allExcept",
+                           "ids": []}, downloading=False)
+        walk_keys = [b["desiredKeys"] for b in session.bodies if "desiredKeys" in b]
+        self.assertIn("locationEnc", walk_keys[-1])
+        self.assertEqual(walk_keys[-1], FakeAlbum(SAMPLES, FakeSession(SAMPLES))._list_query_gen(0, "list")["desiredKeys"])
+
+    def test_page_items_are_unchanged_by_the_lean_query(self):
+        junk = {"locationEnc": {"type": "BYTES", "value": "AAAA"}}
+        fat = [(dict(m, fields={**m["fields"], **junk}), a) for m, a in SAMPLES]
+        bridge, channel, _ = make_bridge(fat)
+        bridge.handle({"id": 73, "cmd": "page", "offset": 0, "limit": 6}, downloading=False)
+        plain, plain_channel, _ = make_bridge(SAMPLES)
+        plain.handle({"id": 74, "cmd": "page", "offset": 0, "limit": 6}, downloading=False)
+        self.assertEqual(channel.messages[-1]["items"], plain_channel.messages[-1]["items"])
+
+
+class BrowsingDuringDownloadTests(unittest.TestCase):
+    """R10: browsing is answered between chunks of a file, at most every SERVE_INTERVAL; long requests still wait."""
+
+    def use_clock(self, clock):
+        original = pb.CLOCK
+        pb.CLOCK = clock
+        self.addCleanup(setattr, pb, "CLOCK", original)
+
+    def download(self, bridge, **request):
+        with tempfile.TemporaryDirectory() as root:
+            bridge.handle({"id": 9, "cmd": "download", "dest": root, "layout": "month", "xmp": False, **request},
+                          downloading=False)
+        return [m for m in bridge.channel.messages if m.get("id") == 9]
+
+    def test_a_page_is_answered_before_the_download_ends_and_a_stats_waits_for_it(self):
+        bridge, channel, session = make_bridge()
+        clock = {"now": 0.0}
+        self.use_clock(lambda: clock["now"])
+
+        def on_chunk(n):
+            clock["now"] += 0.1
+            if n == 5:
+                channel.feed('{"id":50,"cmd":"page","offset":0,"limit":1}')
+                channel.feed('{"id":51,"cmd":"stats"}')
+
+        url, read = DownloadTests.big_download(self, bridge, session, on_chunk, chunks=50)
+        events = self.download(bridge, mode="only", ids=["ID02"])
+        self.assertEqual(read["n"], 50)
+        self.assertEqual(events[-1]["event"], "done")
+        messages = channel.messages
+        page_at = next(i for i, m in enumerate(messages) if m.get("id") == 50)
+        done_at = next(i for i, m in enumerate(messages) if m.get("id") == 9 and m.get("event") == "done")
+        self.assertLess(page_at, done_at)
+        self.assertEqual(messages[page_at]["items"][0]["id"], "ID01")
+        self.assertEqual(len(bridge._deferred), 1)
+        channel.close()
+        bridge.serve()
+        stats = [m for m in channel.messages if m.get("id") == 51 and m.get("event") == "stats"]
+        self.assertEqual(len(stats), 1)
+
+    def test_browsing_between_chunks_is_answered_at_most_every_interval(self):
+        bridge, channel, session = make_bridge()
+        clock = {"now": 0.0}
+        self.use_clock(lambda: clock["now"])
+        served = []
+        bridge.serve_waiting = lambda: served.append(clock["now"])
+        run = pb._DownloadRun(bridge, 9, None)
+        for now in (0.0, 0.1, 0.2, 0.25, 0.3, 0.45, 0.5):
+            clock["now"] = now
+            run._serve_browsing_if_due()
+        self.assertEqual(served, [0.0, 0.25, 0.5])
+
+
+class PrefetchTests(unittest.TestCase):
+    """R11: pages fetched ahead on worker threads, off by default, and one page at a time after a throttle."""
+
+    def setUp(self):
+        pb.LISTING_STATE["throttled"] = False
+        self.addCleanup(pb.LISTING_STATE.__setitem__, "throttled", False)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    @staticmethod
+    def many(count):
+        return [records(f"N{i:04d}", f"IMG_{i:04d}.JPG", "public.jpeg", ms(2020, 1, 1) + i) for i in range(count)]
+
+    @staticmethod
+    def walked(album, depth):
+        return [(rank, asset.id) for rank, asset in pb.walk(album, 0, depth)]
+
+    def test_the_same_items_at_every_depth(self):
+        samples = self.many(2050)
+        plain = self.walked(FakeAlbum(samples, FakeSession(samples)), 1)
+        ahead = self.walked(FakeAlbum(samples, FakeSession(samples)), 3)
+        self.assertEqual(len(plain), 2050)
+        self.assertEqual(ahead, plain)
+        self.assertEqual(plain[0], (0, "N0000"))
+
+    def test_depth_three_is_at_least_twice_as_fast_when_queries_are_slow(self):
+        samples = self.many(2050)
+
+        def timed(depth):
+            album = FakeAlbum(samples, FakeSession(samples), delay=0.02)
+            started = time.monotonic()
+            self.walked(album, depth)
+            return time.monotonic() - started
+
+        one, three = timed(1), timed(3)
+        self.assertLess(three * 2, one, (one, three))
+
+    def test_a_removal_in_the_middle_still_visits_every_item_once(self):
+        samples = self.many(1000)
+        album = FakeAlbum(samples, FakeSession(samples))
+        count = {"n": 0}
+
+        def before():
+            count["n"] += 1
+            if count["n"] == 4:
+                del samples[150]
+
+        album.session.before_query = before
+        visited = [asset_id for _, asset_id in self.walked(album, 3)]
+        self.assertEqual(len(visited), len(set(visited)))
+        self.assertTrue({f"N{i:04d}" for i in range(1000) if i != 150} <= set(visited))
+
+    def test_a_download_with_prefetch_gets_the_same_files(self):
+        samples = self.many(250)
+        results = []
+        for depth in (1, 3):
+            with tempfile.TemporaryDirectory() as root:
+                bridge, channel, session = make_bridge(samples)
+                bridge.handle({"id": 80, "cmd": "download", "dest": root, "layout": "month", "mode": "allExcept",
+                               "ids": [], "prefetch": depth}, downloading=False)
+                done = channel.messages[-1]
+                results.append((done["downloaded"], sorted(tree(root))))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0][0], 250)
+
+    def test_a_throttle_in_a_worker_ends_the_download_and_drops_to_one_page(self):
+        from pyicloud_ipd.exceptions import PyiCloudServiceUnavailableException
+
+        samples = self.many(1000)
+        bridge, channel, session = make_bridge(samples)
+        count = {"n": 0}
+
+        def before():
+            count["n"] += 1
+            if count["n"] == 4:
+                raise PyiCloudServiceUnavailableException("Apple iCloud is temporary refusing to serve icloudpd")
+
+        bridge.library.before_query = before
+        with tempfile.TemporaryDirectory() as root:
+            bridge.handle({"id": 81, "cmd": "download", "dest": root, "layout": "month", "mode": "allExcept",
+                           "ids": [], "prefetch": 3}, downloading=False)
+        events = [m for m in channel.messages if m.get("id") == 81]
+        self.assertEqual(events[-1]["event"], "error")
+        self.assertEqual(events[-1]["kind"], "PyiCloudServiceUnavailableException")
+        self.assertTrue(pb.LISTING_STATE["throttled"])
+        self.assertEqual(pb.listing_depth(3), 1)
+
+    def test_prefetch_is_off_by_default_and_checked(self):
+        self.assertEqual(pb.parse_prefetch({}), 1)
+        self.assertEqual(pb.parse_prefetch({"prefetch": 2}), 2)
+        self.assertEqual(pb.parse_prefetch({"prefetch": 9}), pb.MAX_PREFETCH)
+        for bad in (0, -1, True, "2", 2.0):
+            with self.assertRaises(pb.RequestError):
+                pb.parse_prefetch({"prefetch": bad})
+        bridge, channel, _ = make_bridge()
+        bridge.handle({"id": 82, "cmd": "stats", "prefetch": "two"}, downloading=False)
+        self.assertEqual(channel.messages[-1]["kind"], "badRequest")
+
+    def test_stats_with_prefetch_reports_the_same_sizes(self):
+        samples = self.many(350)
+
+        def run(depth):
+            bridge, channel, _ = make_bridge(samples)
+            bridge.handle({"id": 83, "cmd": "stats", "prefetch": depth}, downloading=False)
+            sizes = {}
+            for event in channel.messages:
+                if event.get("id") == 83 and event["event"] == "statsProgress":
+                    sizes.update(event["sizes"])
+            final = channel.messages[-1]
+            return sizes, (final["done"], final["total"], final["bytes"], final["complete"])
+
+        self.assertEqual(run(1), run(3))
+        self.assertEqual(run(3)[1][0], 350)
+
+    def test_the_session_file_lock_is_held_while_a_file_is_written(self):
+        path = os.path.join(self.tmp.name, "session.json")
+        with pb._guarded_open(path, "w", encoding="utf-8") as handle:
+            handle.write("{}")
+            self.assertFalse(pb._SESSION_FILE_LOCK.acquire(blocking=False))
+        self.assertTrue(pb._SESSION_FILE_LOCK.acquire(blocking=False))
+        pb._SESSION_FILE_LOCK.release()
+        with pb._guarded_open(path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "{}")
 
 
 class SignInTests(unittest.TestCase):
