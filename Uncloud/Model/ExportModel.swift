@@ -2,6 +2,7 @@ import AppKit
 import Observation
 import Photos
 import UserNotifications
+import os
 
 @MainActor
 @Observable
@@ -198,6 +199,7 @@ final class ExportModel {
 
     static let bookmarkKey = "destinationBookmark"
     private static let layoutKey = "folderLayout"
+    private static let layoutLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Uncloud", category: "layout")
     private static let writesSidecarsKey = "writeSidecars"
     private static let sourceKey = "librarySource"
     private static let maxActivityEntries = ExportBatch.maxEntries
@@ -213,8 +215,17 @@ final class ExportModel {
         let source = defaults.string(forKey: Self.sourceKey).flatMap(LibrarySource.init) ?? Self.defaultSource()
         defaults.set(source.rawValue, forKey: Self.sourceKey)
         self.source = source
-        let savedLayout = defaults.string(forKey: Self.layoutKey).flatMap(FolderLayout.init) ?? .month
-        layout = savedLayout.isAvailable(for: source) ? savedLayout : .month
+        let savedLayout = defaults.string(forKey: Self.layoutKey).flatMap(FolderLayout.init)
+        // No saved layout (a new install, or a lost default): the saved folder's own record says how it's organized.
+        let recordedInFolder = savedLayout == nil ? Self.layoutRecordedInSavedFolder() : nil
+        let wanted = savedLayout ?? recordedInFolder ?? .month
+        let initialLayout = wanted.isAvailable(for: source) ? wanted : .month
+        // Assigned directly: the observer's persistence and layout reaction are for later changes, and the
+        // change is logged at the end of init.
+        layout = initialLayout
+        if savedLayout == nil, recordedInFolder != nil {
+            defaults.set(initialLayout.rawValue, forKey: Self.layoutKey)
+        }
         writesSidecars = defaults.bool(forKey: Self.writesSidecarsKey)
         lastBackupDate = defaults.object(forKey: Self.lastBackupKey) as? Date
         storage.onChange = { [weak self] estimate, isEstimating in
@@ -229,6 +240,21 @@ final class ExportModel {
         restoreDestination()
         observeSignIn()
         updateBrowser()
+        if savedLayout == nil, recordedInFolder != nil, initialLayout != .month {
+            logLayoutChange(from: .month, to: initialLayout, reason: "restored from folder")
+        }
+    }
+
+    /// The layout the saved folder's `.photo-export/layout` records, when that folder can be reached.
+    private static func layoutRecordedInSavedFolder() -> FolderLayout? {
+        guard let bookmark = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
+        var isStale = false
+        guard let url = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, bookmarkDataIsStale: &isStale) else {
+            return nil
+        }
+        let isAccessing = url.startAccessingSecurityScopedResource()
+        defer { if isAccessing { url.stopAccessingSecurityScopedResource() } }
+        return ExportManifest.layout(in: url)
     }
 
     /// New installs use iCloud. An install that already exports from the Photos library keeps doing so.
@@ -262,7 +288,7 @@ final class ExportModel {
     private func sourceDidChange() {
         cancelAutoResume()
         if !layout.isAvailable(for: source) {
-            layout = .month
+            setLayout(.month, reason: "source not available")
         }
         totalCount = 0
         processedCount = 0
@@ -802,6 +828,21 @@ final class ExportModel {
         rankHints rankHintOverride: [String: Int]? = nil
     ) async -> Bool {
         guard !isExporting, !isEngineRunning else { return false }
+        // A folder organized another way than the setting is never exported into silently: the owner decides first.
+        if let mismatch = folderLayoutMismatch() {
+            if pendingLayoutChange == nil {
+                pendingLayoutChange = mismatch
+                // The question is asked on the Backup pane, so show it there even when the export came from a menu.
+                pane = .backup
+                layoutBlockedStart = { [weak self] in
+                    self?.startRun(selection: override, resumesInterrupted: resumesInterrupted, forcesFullCheck: forcesFullCheck,
+                                   skipsDriveCheck: skipsDriveCheck, rankHints: rankHintOverride)
+                }
+            }
+            record(.warning, "Export not started: the folder is organized \(mismatch.from.title.lowercased()) while the Folders setting is \(layout.title).")
+            return false
+        }
+        acknowledgedLayoutChange = nil
         cancelNewPhotosRefresh()
         newPhotosCandidate = nil
         let previousPhase = phase
@@ -836,7 +877,7 @@ final class ExportModel {
         record(.info, "\(isResuming ? "Resuming" : "Starting") export to “\(destination.displayName)”, \(layout.title.lowercased()).")
 
         if !layout.isAvailable(for: source) {
-            layout = .month
+            setLayout(.month, reason: "source not available")
         }
         // Claimed before anything is awaited, so Cancel's watchdog covers this run from here on.
         runNumber += 1
@@ -870,7 +911,7 @@ final class ExportModel {
         let skipsCheck = skipsDriveCheck || (source == .iCloud && selection.isEverything && !forcesFullCheck
             && appleID.map { account in
                 ICloudQuickUpdate.skipsDriveCheck(
-                    point: ICloudResumePoint.load(in: destination.url),
+                    point: ICloudResumePoint.load(in: destination.url, layout: layout),
                     account: ExportSession.accountHash(appleID: account),
                     layout: layout,
                     now: Date(),
@@ -1577,7 +1618,7 @@ final class ExportModel {
         Task {
             let measured = await Task.detached(priority: .utility) {
                 source == .iCloud
-                    && ICloudResumePoint.load(in: url).map { $0.layout == layout.rawValue && $0.unlistedCount != nil } == true
+                    && ICloudResumePoint.load(in: url, layout: layout).map { $0.unlistedCount != nil } == true
             }.value
             let (progress, byLayout) = await Task.detached { () -> ((progress: LibraryProgress, isApproximate: Bool), [FolderLayout: Int]?) in
                 guard source == .iCloud else {
@@ -1626,7 +1667,7 @@ final class ExportModel {
         // Items iCloud counts but never lists can't be exported, so "everything" leaves them out (for the layout the
         // point was saved in). A selection of only some photos is unchanged.
         var libraryCount = ICloudLibrary.cachedLibraryCount ?? 0
-        if case .allExcept = selection, let layout, let point = ICloudResumePoint.load(in: destination), point.layout == layout.rawValue {
+        if case .allExcept = selection, let layout, let point = ICloudResumePoint.load(in: destination, layout: layout) {
             libraryCount = max(0, libraryCount - (point.unlistedCount ?? 0))
         }
         let total = selection.selectedCount(total: libraryCount)
@@ -1751,7 +1792,7 @@ final class ExportModel {
         Task {
             await loadICloudItemsByLayout(for: url)
             guard destination?.url == url, destinationIssue == nil, !isExporting else { return }
-            requestLayoutChange(to: newLayout)
+            requestLayoutChange(to: newLayout, reason: "chosen with new folder")
         }
     }
 
@@ -2065,6 +2106,8 @@ final class ExportModel {
             case chooseNewFolder
             /// Switch here: everything downloads again next to the existing copies.
             case downloadAgainHere
+            /// Keep the folder's own layout (`recorded`) and export with it, instead of the Folders setting.
+            case useRecorded
             case cancel
         }
 
@@ -2076,6 +2119,9 @@ final class ExportModel {
         let itemsSaved: Int
         let title: String
         let message: String
+        /// Set for a question at export start, when the folder's record says it's organized `recorded` and the
+        /// Folders setting (`to`) differs. The choices are then Use `recorded`, Choose New Folder…, and Cancel.
+        var recorded: FolderLayout? = nil
         static let chooseNewFolderTitle = "Choose New Folder…"
         static let downloadAgainTitle = "Export Again Here"
         static let cancelTitle = "Cancel"
@@ -2092,17 +2138,38 @@ final class ExportModel {
     private(set) var flatFolderOtherFiles: (folder: URL, count: Int)?
     /// The layout to switch to once a new folder is chosen ("Choose New Folder…").
     @ObservationIgnored private var layoutAfterChoosingFolder: FolderLayout?
+    /// The export that a folder-layout question held back, started again if the owner chooses the folder's layout.
+    @ObservationIgnored private var layoutBlockedStart: (() -> Void)?
+    /// The folder and layout the owner confirmed a download again for: the folder's record still shows the old
+    /// layout until the export writes the new one, so it doesn't hold that export back.
+    @ObservationIgnored private var acknowledgedLayoutChange: (folder: URL, layout: FolderLayout)?
     /// The resume logic's limits, for the iCloud engine. Tests shrink them.
     @ObservationIgnored var iCloudResumeSettings = ICloudResumeSettings()
 
+    /// Every change of `layout` goes through here, so each one is logged with its cause (`reason`, such as "picker")
+    /// and shown in the activity list. Persistence and the reaction to a change are in `layout`'s observer.
+    func setLayout(_ newLayout: FolderLayout, reason: String) {
+        let old = layout
+        guard newLayout != old else { return }
+        layout = newLayout
+        logLayoutChange(from: old, to: newLayout, reason: reason)
+    }
+
+    private func logLayoutChange(from old: FolderLayout, to new: FolderLayout, reason: String) {
+        Self.layoutLogger.notice(
+            "Folder layout changed from \(old.rawValue, privacy: .public) to \(new.rawValue, privacy: .public), reason: \(reason, privacy: .public)"
+        )
+        record(.info, "Folders set to \(new.title) (\(reason)).")
+    }
+
     /// Changes the layout, or asks first (`pendingLayoutChange`) when the destination already has iCloud items in
     /// other layouts: icloudpd only looks at the new layout's paths, so the whole library downloads again.
-    func requestLayoutChange(to newLayout: FolderLayout) {
+    func requestLayoutChange(to newLayout: FolderLayout, reason: String = "picker") {
         guard newLayout != layout, !isExporting, newLayout.isAvailable(for: source) else { return }
         if let confirmation = layoutChangeConfirmation(to: newLayout) {
             pendingLayoutChange = confirmation
         } else {
-            layout = newLayout
+            setLayout(newLayout, reason: reason)
         }
     }
 
@@ -2110,17 +2177,55 @@ final class ExportModel {
     func resolveLayoutChange(_ choice: LayoutChangeConfirmation.Choice) {
         guard let pending = pendingLayoutChange else { return }
         pendingLayoutChange = nil
+        let blockedStart = layoutBlockedStart
+        layoutBlockedStart = nil
         switch choice {
         case .chooseNewFolder:
             beginChoosingDestination()
-            layoutAfterChoosingFolder = pending.to
+            // A held-back export keeps the Folders setting: the new folder is read first, and nothing switches here.
+            layoutAfterChoosingFolder = pending.recorded == nil ? pending.to : nil
         case .downloadAgainHere:
             guard !isExporting else { return }
-            layout = pending.to
+            // The folder's record still says the old layout until the next export writes the new one; that's the
+            // change the owner just confirmed, so the export may start.
+            if let url = destination?.url {
+                acknowledgedLayoutChange = (url, pending.to)
+            }
+            setLayout(pending.to, reason: "confirmed download again")
             record(.info, "Now organized \(pending.to.title.lowercased()). The next export saves everything again in this folder.")
+        case .useRecorded:
+            guard let recorded = pending.recorded, !isExporting else { return }
+            setLayout(recorded, reason: "matched folder at export")
+            blockedStart?()
         case .cancel:
             break
         }
+    }
+
+    /// The question that holds back an iCloud export when the destination's record says it's organized another way
+    /// than the Folders setting, or nil when the export may start. Only iCloud: its layout change downloads the
+    /// library again, so it's always confirmed. The folder's own items decide: a record that lists nothing in that
+    /// layout blocks nothing, and a change the owner confirmed for this folder doesn't either.
+    private func folderLayoutMismatch() -> LayoutChangeConfirmation? {
+        guard source == .iCloud, let destination, destinationIssue == nil else { return nil }
+        let url = destination.url
+        guard let recorded = ExportManifest.layout(in: url), recorded != layout, recorded.isAvailable(for: source) else {
+            return nil
+        }
+        if let acknowledged = acknowledgedLayoutChange, acknowledged.folder == url, acknowledged.layout == layout {
+            return nil
+        }
+        let items = ICloudItemCount.itemsByLayout(records: ExportManifest.records(in: url))[recorded, default: 0]
+        guard items > 0 else { return nil }
+        return LayoutChangeConfirmation(
+            from: recorded,
+            to: layout,
+            itemsSaved: items,
+            title: "This Folder Is Organized Differently",
+            message: "“\(destination.displayName)” is organized \(recorded.title.lowercased()), but the Folders setting is \(layout.title). "
+                + "Nothing was exported. Use \(recorded.title) to keep the folder as it is, or choose a new folder for \(layout.title).",
+            recorded: recorded
+        )
     }
 
     /// Whether `iCloudItemsByLayout` describes the current, reachable folder.

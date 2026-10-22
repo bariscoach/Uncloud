@@ -25,7 +25,7 @@ struct DriveCheckFileSafetyTests {
     }
 
     private static func writeResumePoint(in destination: URL) throws {
-        try writeFile("{\"schema\":1}", to: ".photo-export/resume.json", in: destination)
+        try writeFile("{\"schema\":1}", to: ".photo-export/resume-month.json", in: destination)
     }
 
     private static let digest = String(repeating: "a", count: 64)
@@ -43,12 +43,12 @@ struct DriveCheckFileSafetyTests {
 
             // An automatic check only reports: the point stays.
             _ = try await DriveCheck.run(Self.input(destination, changesDrive: false), mode: .full)
-            #expect(Self.exists(".photo-export/resume.json", in: destination))
+            #expect(Self.exists(".photo-export/resume-month.json", in: destination))
 
             let report = try await DriveCheck.run(Self.input(destination), mode: .full)
             #expect(report.missingItems == 1)
-            #expect(!Self.exists(".photo-export/resume.json", in: destination))
-            #expect(ICloudResumePoint.load(in: destination) == nil)
+            #expect(!Self.exists(".photo-export/resume-month.json", in: destination))
+            #expect(ICloudResumePoint.load(in: destination, layout: .month) == nil)
         }
     }
 
@@ -58,7 +58,7 @@ struct DriveCheckFileSafetyTests {
             try Self.writeManifest([("icloud-id:A", ["2024/07/IMG_A.JPG"])], in: destination)
             try Self.writeResumePoint(in: destination)
             _ = try await DriveCheck.run(Self.input(destination), mode: .full)
-            #expect(Self.exists(".photo-export/resume.json", in: destination))
+            #expect(Self.exists(".photo-export/resume-month.json", in: destination))
         }
     }
 
@@ -72,18 +72,18 @@ struct DriveCheckFileSafetyTests {
             try Self.writeResumePoint(in: destination)
 
             try ExportManifest.forget(["PHOTO-1"], in: destination)
-            #expect(Self.exists(".photo-export/resume.json", in: destination))
+            #expect(Self.exists(".photo-export/resume-month.json", in: destination))
 
             try ExportManifest.forget(["icloud:2024/07/IMG_2.JPG"], in: destination)
-            #expect(!Self.exists(".photo-export/resume.json", in: destination))
+            #expect(!Self.exists(".photo-export/resume-month.json", in: destination))
 
             try Self.writeResumePoint(in: destination)
             try ExportManifest.forget(["icloud-id:C"], in: destination)
-            #expect(!Self.exists(".photo-export/resume.json", in: destination))
+            #expect(!Self.exists(".photo-export/resume-month.json", in: destination))
             // A key that has no record forgets nothing.
             try Self.writeResumePoint(in: destination)
             try ExportManifest.forget(["icloud-id:NOT-THERE"], in: destination)
-            #expect(Self.exists(".photo-export/resume.json", in: destination))
+            #expect(Self.exists(".photo-export/resume-month.json", in: destination))
         }
     }
 

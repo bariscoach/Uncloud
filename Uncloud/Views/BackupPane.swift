@@ -164,10 +164,17 @@ struct BackupPane: View {
             model.pendingLayoutChange?.title ?? "",
             isPresented: Binding(get: { model.pendingLayoutChange != nil }, set: { if !$0 { model.resolveLayoutChange(.cancel) } }),
             presenting: model.pendingLayoutChange
-        ) { _ in
-            Button(ExportModel.LayoutChangeConfirmation.chooseNewFolderTitle) { model.resolveLayoutChange(.chooseNewFolder) }
-                .keyboardShortcut(.defaultAction)
-            Button(ExportModel.LayoutChangeConfirmation.downloadAgainTitle) { model.resolveLayoutChange(.downloadAgainHere) }
+        ) { confirmation in
+            if let recorded = confirmation.recorded {
+                // The folder's own layout is the recommended choice: the export it held back starts with it.
+                Button("Use \(recorded.title)") { model.resolveLayoutChange(.useRecorded) }
+                    .keyboardShortcut(.defaultAction)
+                Button(ExportModel.LayoutChangeConfirmation.chooseNewFolderTitle) { model.resolveLayoutChange(.chooseNewFolder) }
+            } else {
+                Button(ExportModel.LayoutChangeConfirmation.chooseNewFolderTitle) { model.resolveLayoutChange(.chooseNewFolder) }
+                    .keyboardShortcut(.defaultAction)
+                Button(ExportModel.LayoutChangeConfirmation.downloadAgainTitle) { model.resolveLayoutChange(.downloadAgainHere) }
+            }
             Button(ExportModel.LayoutChangeConfirmation.cancelTitle, role: .cancel) { model.resolveLayoutChange(.cancel) }
         } message: { confirmation in
             Text(confirmation.message)

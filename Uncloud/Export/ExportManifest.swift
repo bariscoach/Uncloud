@@ -16,8 +16,6 @@ final class ExportManifest {
     private static let layoutName = "layout"
     private static let filesSnapshotName = "files.tsv"
     private static let setAsideFolderName = "set-aside"
-    /// The iCloud resume point (`ICloudResumePoint.fileName`).
-    private static let resumePointName = "resume.json"
     /// Journal key prefix for iCloud items recorded by asset ID: `icloud-id:<assetID><TAB>path…`.
     static let iCloudIDPrefix = "icloud-id:"
     /// Journal key prefix for iCloud items that are only partly on the drive, such as a Live Photo whose
@@ -287,17 +285,21 @@ final class ExportManifest {
         }
     }
 
-    /// Deletes `.photo-export/resume.json`, so the next whole-library iCloud export walks the whole library
-    /// instead of continuing from its anchor. A missing point reads as "no point". Removing a file is atomic;
-    /// a point that's already gone is fine.
+    /// Deletes every resume point in `.photo-export` (one per layout, and the legacy `resume.json`), so the next
+    /// whole-library iCloud export walks the whole library instead of continuing from its anchor. Forgotten items
+    /// are gone from every layout's point, so all of them go. A missing point reads as "no point"; removing a file
+    /// is atomic, and a point that's already gone is fine.
     static func invalidateResumePoint(in destination: URL) throws {
-        let url = folder(in: destination).appending(path: resumePointName)
-        do {
-            try FileManager.default.removeItem(at: url)
-        } catch CocoaError.fileNoSuchFile {
-            return
-        } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
-            return
+        let directory = folder(in: destination)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? []
+        for name in names where ICloudResumePoint.isResumeFileName(name) {
+            do {
+                try FileManager.default.removeItem(at: directory.appending(path: name))
+            } catch CocoaError.fileNoSuchFile {
+                continue
+            } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+                continue
+            }
         }
     }
 

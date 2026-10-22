@@ -188,13 +188,84 @@ struct ICloudResumePlannerTests {
 
     @Test func aMissingOrInvalidatedResumePointReadsAsNoPoint() throws {
         try withTemporaryDirectory { folder in
-            #expect(ICloudResumePoint.load(in: folder) == nil)
+            #expect(ICloudResumePoint.load(in: folder, layout: .month) == nil)
             try Self.point(coveredThrough: 60, library: Self.library(100)).save(in: folder)
-            #expect(ICloudResumePoint.load(in: folder) != nil)
+            #expect(ICloudResumePoint.load(in: folder, layout: .month) != nil)
             try ExportManifest.invalidateResumePoint(in: folder)
-            #expect(ICloudResumePoint.load(in: folder) == nil)
-            try Data("{}".utf8).write(to: ICloudResumePoint.url(in: folder))
-            #expect(ICloudResumePoint.load(in: folder) == nil)
+            #expect(ICloudResumePoint.load(in: folder, layout: .month) == nil)
+            try Data("{}".utf8).write(to: ICloudResumePoint.url(in: folder, layout: .month))
+            #expect(ICloudResumePoint.load(in: folder, layout: .month) == nil)
+        }
+    }
+
+    private static func exists(_ name: String, in folder: URL) -> Bool {
+        FileManager.default.fileExists(atPath: folder.appending(path: ".photo-export/\(name)").path(percentEncoded: false))
+    }
+
+    @Test func eachLayoutKeepsItsOwnResumePoint() throws {
+        try withTemporaryDirectory { folder in
+            let month = Self.point(coveredThrough: 60, library: Self.library(100))
+            var flat = Self.point(coveredThrough: 30, library: Self.library(100))
+            flat.layout = "flat"
+            try month.save(in: folder)
+            try flat.save(in: folder)
+            #expect(ICloudResumePoint.load(in: folder, layout: .month)?.coveredThrough == 60)
+            #expect(ICloudResumePoint.load(in: folder, layout: .flat)?.coveredThrough == 30)
+            #expect(ICloudResumePoint.load(in: folder, layout: .album) == nil)
+            #expect(Self.exists("resume-month.json", in: folder) && Self.exists("resume-flat.json", in: folder))
+            #expect(!Self.exists("resume.json", in: folder))
+        }
+    }
+
+    @Test func aLegacyResumePointIsReadForItsLayoutAndRetiredWhenThatLayoutSaves() throws {
+        try withTemporaryDirectory { folder in
+            var point = Self.point(coveredThrough: 60, library: Self.library(100))
+            try point.save(in: folder)
+            let photoExport = folder.appending(path: ".photo-export", directoryHint: .isDirectory)
+            try FileManager.default.moveItem(
+                at: photoExport.appending(path: "resume-month.json"), to: photoExport.appending(path: "resume.json")
+            )
+            #expect(ICloudResumePoint.load(in: folder, layout: .month)?.coveredThrough == 60)
+            #expect(ICloudResumePoint.load(in: folder, layout: .flat) == nil)
+
+            point.coveredThrough = 70
+            try point.save(in: folder)
+            #expect(!Self.exists("resume.json", in: folder))
+            #expect(Self.exists("resume-month.json", in: folder))
+            #expect(ICloudResumePoint.load(in: folder, layout: .month)?.coveredThrough == 70)
+        }
+    }
+
+    @Test func anotherLayoutsLegacyPointIsIgnoredAndLeftAlone() throws {
+        try withTemporaryDirectory { folder in
+            var flat = Self.point(coveredThrough: 30, library: Self.library(100))
+            flat.layout = "flat"
+            try flat.save(in: folder)
+            let photoExport = folder.appending(path: ".photo-export", directoryHint: .isDirectory)
+            try FileManager.default.moveItem(
+                at: photoExport.appending(path: "resume-flat.json"), to: photoExport.appending(path: "resume.json")
+            )
+            #expect(ICloudResumePoint.load(in: folder, layout: .month) == nil)
+            #expect(ICloudResumePoint.load(in: folder, layout: .flat)?.coveredThrough == 30)
+
+            // Saving the month point writes its own file and leaves the flat legacy file exactly as it was.
+            try Self.point(coveredThrough: 60, library: Self.library(100)).save(in: folder)
+            #expect(Self.exists("resume.json", in: folder))
+            #expect(ICloudResumePoint.load(in: folder, layout: .flat)?.coveredThrough == 30)
+            #expect(ICloudResumePoint.load(in: folder, layout: .month)?.coveredThrough == 60)
+        }
+    }
+
+    @Test func invalidatingTheResumePointRemovesEveryLayoutsFile() throws {
+        try withTemporaryDirectory { folder in
+            try Self.point(coveredThrough: 60, library: Self.library(100)).save(in: folder)
+            var flat = Self.point(coveredThrough: 30, library: Self.library(100))
+            flat.layout = "flat"
+            try flat.save(in: folder)
+            try ExportManifest.invalidateResumePoint(in: folder)
+            #expect(ICloudResumePoint.load(in: folder, layout: .month) == nil)
+            #expect(ICloudResumePoint.load(in: folder, layout: .flat) == nil)
+            #expect(!Self.exists("resume-month.json", in: folder) && !Self.exists("resume-flat.json", in: folder))
         }
     }
 
@@ -202,10 +273,10 @@ struct ICloudResumePlannerTests {
         try withTemporaryDirectory { folder in
             let point = Self.point(coveredThrough: 60, library: Self.library(100))
             try point.save(in: folder)
-            let loaded = try #require(ICloudResumePoint.load(in: folder))
+            let loaded = try #require(ICloudResumePoint.load(in: folder, layout: .month))
             #expect(loaded.anchor == point.anchor)
             #expect(loaded.coveredThrough == 60)
-            #expect(FileManager.default.fileExists(atPath: folder.appending(path: ".photo-export/resume.json").path(percentEncoded: false)))
+            #expect(FileManager.default.fileExists(atPath: folder.appending(path: ".photo-export/resume-month.json").path(percentEncoded: false)))
         }
     }
 
@@ -213,12 +284,12 @@ struct ICloudResumePlannerTests {
         try withTemporaryDirectory { folder in
             // A point saved before the count was kept has no field, and reads with none.
             try Self.point(coveredThrough: 60, library: Self.library(100)).save(in: folder)
-            #expect(ICloudResumePoint.load(in: folder)?.unlistedCount == nil)
+            #expect(ICloudResumePoint.load(in: folder, layout: .month)?.unlistedCount == nil)
 
             var point = Self.point(coveredThrough: 60, library: Self.library(100))
             point.unlistedCount = 298
             try point.save(in: folder)
-            #expect(ICloudResumePoint.load(in: folder)?.unlistedCount == 298)
+            #expect(ICloudResumePoint.load(in: folder, layout: .month)?.unlistedCount == 298)
         }
     }
 

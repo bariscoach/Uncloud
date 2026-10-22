@@ -128,7 +128,7 @@ extension ExportCancellationTests {
         try await Self.keepingLibraryCount {
             let first = try #require(await Self.export(harness))
             #expect(first.continuation == .init(strategy: .fullWalk, startRank: 0, fallbackReason: nil))
-            let point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
 
             // Three photos taken since: only they are fetched, by ID, and nothing is walked.
             Self.relaunchBridge(fixture, ["--rate", "0", "--state", state, "--insert-at", "0", "--insert-count", "3"])
@@ -144,7 +144,7 @@ extension ExportCancellationTests {
             #expect(model.processedCount == 1003 && model.totalCount == 1003)
             #expect(model.activity.contains { $0.message.hasPrefix("Looking for new photos only") })
             // The point is the full check's, unchanged, so the next full check continues from the same anchor.
-            let after = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let after = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(after.anchor == point.anchor && after.coveredThrough == point.coveredThrough)
             #expect(after.lastFullWalkAt == point.lastFullWalkAt)
 
@@ -168,7 +168,7 @@ extension ExportCancellationTests {
         try await Self.keepingLibraryCount {
             #expect(await Self.export(harness)?.result.status == .completed)
             // The last full check was over a month ago, so the routine export can't stand in for one.
-            var point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            var point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             point.lastFullWalkAt = Date().addingTimeInterval(-31 * 24 * 60 * 60)
             try point.save(in: fixture.destination)
 
@@ -183,7 +183,7 @@ extension ExportCancellationTests {
             #expect(second.continuation == .init(strategy: .fromRank, startRank: 1003, fallbackReason: nil))
             #expect(second.counts.exported == 3)
             #expect(model.activity.contains { $0.message == ICloudQuickUpdate.reasonDue })
-            let again = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let again = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(try #require(again.lastFullWalkAt) > point.lastFullWalkAt!)
         }
         await harness.tearDown()
@@ -204,7 +204,7 @@ extension ExportCancellationTests {
             #expect(Self.downloadStarts(fixture) == [.init(startRank: 0, mode: "allExcept", layout: "month")])
             #expect(fixture.files(withExtension: "JPG").count == 1000)
             #expect(fixture.pids("icloudpd").isEmpty)
-            let point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(point.coveredThrough == 1000)
             #expect(point.anchor == .init(id: "asset-999", rank: 999))
             #expect(point.lastFullWalkAt != nil)
@@ -221,7 +221,7 @@ extension ExportCancellationTests {
             #expect(second.result.status == .completed)
             #expect(model.processedCount == 1000 && model.totalCount == 1000)
             #expect(model.activity.contains { $0.message.hasPrefix("Continuing from photo \(1000.formatted()) of \(1000.formatted())") })
-            let again = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let again = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(try #require(again.lastFullWalkAt) > point.lastFullWalkAt!)
         }
         await harness.tearDown()
@@ -250,7 +250,7 @@ extension ExportCancellationTests {
             let ids = try Self.libraryIDs(state: state)
             #expect(Array(ids.prefix(5)) == (1000..<1005).map { "asset-\($0)" })
             #expect(Set(ExportManifest.iCloudItems(in: fixture.destination).keys) == Set(ids))
-            let point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(point.anchor == .init(id: "asset-999", rank: 1004))
             #expect(point.libraryCount == 1005)
             #expect(harness.model.activity.contains { $0.message.contains("after 5 new photos") })
@@ -288,7 +288,7 @@ extension ExportCancellationTests {
             let ids = try Self.libraryIDs(state: state)
             #expect(ids.count == 1000)
             #expect(Set(ExportManifest.iCloudItems(in: fixture.destination).keys).isSuperset(of: ids))
-            #expect(ICloudResumePoint.load(in: fixture.destination)?.coveredThrough == 1000)
+            #expect(ICloudResumePoint.load(in: fixture.destination, layout: .month)?.coveredThrough == 1000)
         }
         await harness.tearDown()
     }
@@ -332,7 +332,7 @@ extension ExportCancellationTests {
             }
             // A bridge started meanwhile (for browsing) still has the old library: start it again.
             Self.relaunchBridge(fixture, ["--rate", "0", "--state", state])
-            #expect(ICloudResumePoint.load(in: fixture.destination) != nil, "point before the second export")
+            #expect(ICloudResumePoint.load(in: fixture.destination, layout: .month) != nil, "point before the second export")
             let mark = fixture.launchLines.count
             let session = try #require(await Self.export(harness))
             #expect(session.continuation?.strategy == .fromRank, "\(String(describing: session.continuation)) \(harness.model.driveCheckState) \((try? FileManager.default.contentsOfDirectory(atPath: fixture.destination.appending(path: ".photo-export").path(percentEncoded: false))) ?? [])")
@@ -357,7 +357,7 @@ extension ExportCancellationTests {
         let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
         try await Self.keepingLibraryCount {
             #expect(await Self.export(harness)?.result.status == .completed)
-            let point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             let file = fixture.destination.appending(path: "2001/06/IMG_000500.JPG")
             try FileManager.default.removeItem(at: file)
             try ExportManifest.forget(["icloud-id:asset-500"], in: fixture.destination)
@@ -380,7 +380,7 @@ extension ExportCancellationTests {
         try await Self.keepingLibraryCount {
             model.startOrResume()
             #expect(await harness.waitFor(.seconds(40)) { model.autoResume != nil && !model.isEngineRunning })
-            let point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(point.coveredThrough == 600)
             #expect(point.anchor == .init(id: "asset-599", rank: 599))
             #expect(point.lastFullWalkAt == nil)
@@ -409,7 +409,7 @@ extension ExportCancellationTests {
             #expect(Set(ExportManifest.iCloudItems(in: fixture.destination).keys) == Set(ids))
             // Progress started from the 600 already on the drive and ended at the library's size.
             #expect(model.processedCount == 999 && model.totalCount == 999)
-            let done = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let done = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(done.coveredThrough == 999)
             // The second attempt went through every rank: its walk and the closing walk from the top.
             #expect(done.lastFullWalkAt != nil)
@@ -428,7 +428,7 @@ extension ExportCancellationTests {
             #expect(first.counts.failed == 1)
             // Items past the failed one were downloaded, but R never passes it.
             #expect(fixture.files(withExtension: "JPG").count == 1000)
-            let point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(point.coveredThrough == 700)
             #expect(point.anchor.id == "asset-699")
             #expect(ExportManifest.records(in: fixture.destination)["icloud-partial:asset-700"] != nil)
@@ -443,7 +443,7 @@ extension ExportCancellationTests {
             #expect(second.result.status == .completed)
             #expect(second.counts.exported == 1)
             #expect(ExportManifest.iCloudItems(in: fixture.destination)["asset-700"] == ["2001/08/IMG_000700.JPG", "2001/08/IMG_000700.MOV"])
-            #expect(ICloudResumePoint.load(in: fixture.destination)?.coveredThrough == 1000)
+            #expect(ICloudResumePoint.load(in: fixture.destination, layout: .month)?.coveredThrough == 1000)
         }
         await harness.tearDown()
     }
@@ -460,7 +460,7 @@ extension ExportCancellationTests {
         let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
         try await Self.keepingLibraryCount {
             #expect(await Self.export(harness)?.result.status == .completedWithFailures)
-            #expect(ICloudResumePoint.load(in: fixture.destination)?.coveredThrough == 700)
+            #expect(ICloudResumePoint.load(in: fixture.destination, layout: .month)?.coveredThrough == 700)
 
             // A month later: a deletion and a back-dated insert above the failed item, and new items below it.
             var added: [String] = []
@@ -469,7 +469,7 @@ extension ExportCancellationTests {
                 added += Self.insert(1, at: 400, into: &order, next: &next)
                 added += Self.insert(2, at: order.count, into: &order, next: &next)
             }
-            var stale = try #require(ICloudResumePoint.load(in: fixture.destination))
+            var stale = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             stale.lastFullWalkAt = Date().addingTimeInterval(-30 * 24 * 3600)
             try stale.save(in: fixture.destination)
             Self.relaunchBridge(fixture, failing)
@@ -485,7 +485,7 @@ extension ExportCancellationTests {
             let items = ExportManifest.iCloudItems(in: fixture.destination)
             #expect(added.allSatisfy { items[$0] != nil })
             // The half-done Live Photo never counts toward R.
-            let point = try #require(ICloudResumePoint.load(in: fixture.destination))
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
             #expect(point.anchor.id == "asset-699" && point.coveredThrough == 700)
             #expect(items["asset-700"] == nil)
         }
@@ -502,7 +502,7 @@ extension ExportCancellationTests {
             #expect(session.result.status == .completed)
             #expect(ICloudLibrary.cachedLibraryCount == 1_298)
             #expect(ExportManifest.iCloudItems(in: fixture.destination).count == 1_000)
-            #expect(ICloudResumePoint.load(in: fixture.destination)?.unlistedCount == 298)
+            #expect(ICloudResumePoint.load(in: fixture.destination, layout: .month)?.unlistedCount == 298)
         }
         await harness.tearDown()
     }
@@ -514,7 +514,7 @@ extension ExportCancellationTests {
         let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
         try await Self.keepingLibraryCount {
             #expect(await Self.export(harness)?.result.status == .completed)
-            #expect(ICloudResumePoint.load(in: fixture.destination)?.unlistedCount == 298)
+            #expect(ICloudResumePoint.load(in: fixture.destination, layout: .month)?.unlistedCount == 298)
 
             // A new Live Photo at the top whose movie fails: the walk finishes, but a failure means nothing is
             // recorded as the gap now (the next complete walk without failures does that).
@@ -525,7 +525,7 @@ extension ExportCancellationTests {
             Self.relaunchBridge(fixture, failing)
             let session = try #require(await Self.export(harness))
             #expect(session.result.status == .completedWithFailures)
-            #expect(ICloudResumePoint.load(in: fixture.destination)?.unlistedCount == 298)
+            #expect(ICloudResumePoint.load(in: fixture.destination, layout: .month)?.unlistedCount == 298)
         }
         await harness.tearDown()
     }
@@ -695,7 +695,7 @@ extension ExportCancellationTests {
         #expect(fixture.pids("icloudpd").count == 1)
         #expect(Self.downloadStarts(fixture).isEmpty)
         #expect(fixture.files(withExtension: "JPG").count == 50)
-        #expect(ICloudResumePoint.load(in: fixture.destination) == nil)
+        #expect(ICloudResumePoint.load(in: fixture.destination, layout: .month) == nil)
         await harness.tearDown()
     }
 }

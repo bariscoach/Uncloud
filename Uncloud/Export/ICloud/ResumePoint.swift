@@ -1,7 +1,8 @@
 import Foundation
 
-/// Where a whole-library iCloud export (month or flat layout) continues: `.photo-export/resume.json`
-/// (plan 3.2, re-derived for icloudpd's NEWEST-FIRST order).
+/// Where a whole-library iCloud export (month or flat layout) continues: `.photo-export/resume-<layout>.json`,
+/// one file per layout (plan 3.2, re-derived for icloudpd's NEWEST-FIRST order). A point saved before the files were
+/// per layout lives in `resume.json`; it's read only while its `layout` is the one asked for.
 ///
 /// Rank 0 is the newest item, and a photo added to iCloud is inserted at rank 0, shifting every other rank by
 /// one. The point says: when it was saved, the library had `libraryCount` items, the item at rank `anchor.rank`
@@ -37,16 +38,50 @@ struct ICloudResumePoint: Codable, Equatable, Sendable {
     /// point from before this was kept, or no complete walk yet). "To go" leaves them out.
     var unlistedCount: Int?
 
-    static let fileName = "resume.json"
+    /// The file before points were kept per layout. Read as a fallback, never written.
+    static let legacyFileName = "resume.json"
 
-    static func url(in destination: URL) -> URL {
-        destination.appending(path: ".photo-export", directoryHint: .isDirectory).appending(path: fileName)
+    static func fileName(forLayout layout: String) -> String {
+        "resume-\(layout).json"
     }
 
-    /// The destination's point, or nil when there's none or it can't be read (a newer schema, or a file that
-    /// was emptied or marked invalid, included). No point means a walk from rank 0.
-    static func load(in destination: URL) -> ICloudResumePoint? {
-        guard let data = try? Data(contentsOf: url(in: destination)) else { return nil }
+    /// Whether `name` is a resume point file, the per-layout kind or the legacy one.
+    static func isResumeFileName(_ name: String) -> Bool {
+        name == legacyFileName || (name.hasPrefix("resume-") && name.hasSuffix(".json"))
+    }
+
+    static func url(in destination: URL, layout: FolderLayout) -> URL {
+        url(in: destination, layoutName: layout.rawValue)
+    }
+
+    private static func url(in destination: URL, layoutName: String) -> URL {
+        folder(in: destination).appending(path: fileName(forLayout: layoutName))
+    }
+
+    private static func legacyURL(in destination: URL) -> URL {
+        folder(in: destination).appending(path: legacyFileName)
+    }
+
+    private static func folder(in destination: URL) -> URL {
+        destination.appending(path: ".photo-export", directoryHint: .isDirectory)
+    }
+
+    /// The point for `layout`, or nil when there's none or it can't be read (a newer schema, or a file that
+    /// was emptied or marked invalid, included). No point means a walk from rank 0. Reads the layout's own file
+    /// first, then the legacy `resume.json`, but only when that one is for this layout too: another layout's
+    /// point is never used.
+    static func load(in destination: URL, layout: FolderLayout) -> ICloudResumePoint? {
+        if let point = read(url(in: destination, layout: layout)), point.layout == layout.rawValue {
+            return point
+        }
+        if let legacy = read(legacyURL(in: destination)), legacy.layout == layout.rawValue {
+            return legacy
+        }
+        return nil
+    }
+
+    private static func read(_ url: URL) -> ICloudResumePoint? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let text = try decoder.singleValueContainer().decode(String.self)
@@ -58,7 +93,9 @@ struct ICloudResumePoint: Codable, Equatable, Sendable {
         return point
     }
 
-    /// Writes the point atomically. Errors are the caller's to ignore: a missing point costs a full walk, never data.
+    /// Writes the point atomically, to its own layout's file only, and removes the legacy `resume.json` when that
+    /// file was this layout's (it's superseded now). Errors are the caller's to ignore: a missing point costs a full
+    /// walk, never data.
     func save(in destination: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
@@ -67,13 +104,21 @@ struct ICloudResumePoint: Codable, Equatable, Sendable {
             var container = encoder.singleValueContainer()
             try container.encode(Date.ISO8601FormatStyle(includingFractionalSeconds: true).format(date))
         }
-        let url = Self.url(in: destination)
+        let url = Self.url(in: destination, layoutName: layout)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encoder.encode(self).write(to: url, options: .atomic)
+        let legacy = Self.legacyURL(in: destination)
+        if let legacyPoint = Self.read(legacy), legacyPoint.layout == layout {
+            try? FileManager.default.removeItem(at: legacy)
+        }
     }
 
-    static func remove(in destination: URL) {
-        try? FileManager.default.removeItem(at: url(in: destination))
+    /// Removes the point of `layout`, and the legacy file when it's that layout's.
+    static func remove(in destination: URL, layout: FolderLayout) {
+        try? FileManager.default.removeItem(at: url(in: destination, layout: layout))
+        if let legacy = read(legacyURL(in: destination)), legacy.layout == layout.rawValue {
+            try? FileManager.default.removeItem(at: legacyURL(in: destination))
+        }
     }
 }
 

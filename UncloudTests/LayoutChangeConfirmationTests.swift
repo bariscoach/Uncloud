@@ -117,6 +117,137 @@ extension ExportCancellationTests {
         defaults.removeObject(forKey: ExportModel.bookmarkKey)
         fixture.tearDown()
     }
+
+    /// `exported.tsv` with `count` iCloud items saved all in one folder, and the folder's layout record.
+    private static func writeFlatExports(_ count: Int, in destination: URL) throws {
+        try writeFile("flat", to: ".photo-export/layout", in: destination)
+        let lines = (0..<count).map { "icloud-id:asset-\($0)\tIMG_\($0).JPG\n" }.joined()
+        try writeFile(lines, to: ".photo-export/exported.tsv", in: destination)
+        for index in 0..<count {
+            try writeFile("photo \(index)", to: "IMG_\(index).JPG", in: destination)
+        }
+    }
+
+    /// Whether an export has started, as the activity list records it.
+    @MainActor
+    private static func startedExport(_ harness: ModelHarness) async -> Bool {
+        await harness.waitFor { harness.model.activity.contains { $0.message.hasPrefix("Starting export") } }
+    }
+
+    @Test @MainActor func aFolderOrganizedAnotherWayHoldsTheExportBackAndOffersItsLayout() async throws {
+        let fixture = try Fixture()
+        try Self.writeFlatExports(3, in: fixture.destination)
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        let model = harness.model
+        #expect(await harness.waitFor { model.knowsICloudItemsByLayout })
+        #expect(model.layout == .month)
+
+        model.exportAll()
+        #expect(await harness.waitFor { model.pendingLayoutChange != nil })
+        let question = try #require(model.pendingLayoutChange)
+        #expect(question.recorded == .flat)
+        #expect(question.to == .month)
+        #expect(question.itemsSaved == 3)
+        #expect(question.message.contains("is organized all in one folder, but the Folders setting is By Month"))
+        // Nothing started, and the folder's record is untouched.
+        #expect(!model.isExporting && !model.isEngineRunning)
+        #expect(!model.activity.contains { $0.message.hasPrefix("Starting export") })
+        #expect(ExportManifest.layout(in: fixture.destination) == .flat)
+        #expect(model.layout == .month)
+
+        // Use All in One Folder: the setting follows the folder, and the held-back export starts.
+        model.resolveLayoutChange(.useRecorded)
+        #expect(model.layout == .flat)
+        #expect(model.pendingLayoutChange == nil)
+        #expect(await Self.startedExport(harness))
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func aFolderOrganizedTheSettingsWayStartsNormally() async throws {
+        let fixture = try Fixture()
+        try Self.writeMonthExports(2, in: fixture.destination)
+        try writeFile("month", to: ".photo-export/layout", in: fixture.destination)
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        let model = harness.model
+        #expect(await harness.waitFor { model.knowsICloudItemsByLayout })
+
+        model.exportAll()
+        #expect(await Self.startedExport(harness))
+        #expect(model.pendingLayoutChange == nil)
+        #expect(!model.activity.contains { $0.message.hasPrefix("Export not started") })
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func aFolderWithNoRecordedLayoutStartsNormally() async throws {
+        let fixture = try Fixture()
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        let model = harness.model
+        #expect(ExportManifest.layout(in: fixture.destination) == nil)
+
+        model.exportAll()
+        #expect(await Self.startedExport(harness))
+        #expect(model.pendingLayoutChange == nil)
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func aConfirmedDownloadAgainStartsWithTheNewLayout() async throws {
+        let fixture = try Fixture()
+        try Self.writeMonthExports(2, in: fixture.destination)
+        try writeFile("month", to: ".photo-export/layout", in: fixture.destination)
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        let model = harness.model
+        #expect(await harness.waitFor { model.knowsICloudItemsByLayout })
+
+        model.requestLayoutChange(to: .flat)
+        #expect(model.pendingLayoutChange?.itemsSaved == 2)
+        model.resolveLayoutChange(.downloadAgainHere)
+        #expect(model.layout == .flat)
+
+        // The folder still records month until the export writes flat, so the owner's confirmation lets it start.
+        model.exportAll()
+        #expect(await Self.startedExport(harness))
+        #expect(model.pendingLayoutChange == nil)
+        #expect(!model.activity.contains { $0.message.hasPrefix("Export not started") })
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func everyLayoutChangeIsLoggedWithItsCause() async throws {
+        let fixture = try Fixture()
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        let model = harness.model
+        // Once the (empty) folder is read, a change asks nothing and is logged as the picker's.
+        #expect(await harness.waitFor { model.knowsICloudItemsByLayout })
+
+        model.requestLayoutChange(to: .flat)
+        #expect(model.layout == .flat)
+        #expect(model.activity.first?.message == "Folders set to All in One Folder (picker).")
+        model.setLayout(.album, reason: "source not available")
+        #expect(model.activity.first?.message == "Folders set to By Album (source not available).")
+        // The same layout again is no change, so nothing is logged.
+        let count = model.activity.count
+        model.setLayout(.album, reason: "picker")
+        #expect(model.activity.count == count)
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func aMissingLayoutDefaultTakesTheSavedFolderLayout() async throws {
+        let fixture = try Fixture()
+        try Self.writeFlatExports(2, in: fixture.destination)
+        let defaults = UserDefaults.standard
+        defaults.set(LibrarySource.iCloud.rawValue, forKey: "librarySource")
+        defaults.removeObject(forKey: "folderLayout")
+        defaults.set(try fixture.destination.bookmarkData(options: .withSecurityScope), forKey: ExportModel.bookmarkKey)
+        ICloudAccount.appleID = fixture.appleID
+        let model = ExportModel()
+        // Not By Month, the fallback for a folder without a record: the folder says how it's organized.
+        #expect(model.layout == .flat)
+        #expect(defaults.string(forKey: "folderLayout") == FolderLayout.flat.rawValue)
+        #expect(model.activity.first?.message == "Folders set to All in One Folder (restored from folder).")
+        ICloudAccount.appleID = nil
+        defaults.removeObject(forKey: ExportModel.bookmarkKey)
+        defaults.set(FolderLayout.month.rawValue, forKey: "folderLayout")
+        fixture.tearDown()
+    }
 }
 
 @Suite("Session detail wording")

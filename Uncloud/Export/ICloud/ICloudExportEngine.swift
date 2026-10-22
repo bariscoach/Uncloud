@@ -5,7 +5,7 @@ import Foundation
 /// - The whole library in the month and flat layouts goes through the bridge (`photo_bridge.py`), which
 ///   downloads with icloudpd's own download function, so files land exactly where icloudpd puts them and a
 ///   later plain icloudpd run finds them all "already exists". Each item is recorded by asset ID, and the run
-///   continues from `.photo-export/resume.json` instead of walking the whole library again (`ICloudResumePlanner`).
+///   continues from `.photo-export/resume-<layout>.json` instead of walking the whole library again (`ICloudResumePlanner`).
 ///   The `iCloudFullExportsUseBridge` default (on unless set to false) switches this off; the icloudpd process
 ///   also takes over when the bridge can't start.
 /// - The album layout runs icloudpd once per album. icloudpd decides what's already downloaded from its own file
@@ -528,7 +528,7 @@ extension ICloudExportEngine {
         let known = Self.knownItems(in: destination, layout: layout)
         let account = ExportSession.accountHash(appleID: appleID)
         let now = Date()
-        let stored = ICloudResumePoint.load(in: destination)
+        let stored = ICloudResumePoint.load(in: destination, layout: layout)
         let previous = stored.flatMap { $0.account == account && $0.layout == layout.rawValue ? $0 : nil }
         if quickUpdate {
             let eligible = ICloudQuickUpdate.isEligible(
