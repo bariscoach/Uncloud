@@ -197,6 +197,7 @@
 		8B01596B38D68AD944D70A5E /* NewPhotosViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8233EC7D249CF21CFED1A011 /* NewPhotosViews.swift */; };
 		8B5F51F2EF7A9403D40E2EFD /* AutoBackupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF828E81D48A8A62ECBF167 /* AutoBackupSettings.swift */; };
 		8B7243FF362FBC89C2370524 /* DuplicateSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 795A77840B2266D8DAD50BE5 /* DuplicateSnapshotTests.swift */; };
+		8C07B5CC48B2E04287F7D774 /* QuickVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55691CC77C1DAA3D19510FE /* QuickVerifierTests.swift */; };
 		8C249CB624DC68ABB8F33D20 /* UIRefreshSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7C7DA906ABE74D20333B53 /* UIRefreshSnapshotTests.swift */; };
 		8C6FADBE434DEFEA65380440 /* PlaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA548814AF18B9549584E9 /* PlaceResolver.swift */; };
 		8C702F592F62D3291746F50C /* AccountButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F85EA35C74F5200AE85E14 /* AccountButton.swift */; };
@@ -205,6 +206,7 @@
 		8F10A123F164939C64433BE1 /* BrowseDates.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37F9542F115C220CB2625FE /* BrowseDates.swift */; };
 		8F98268929D7412E4B6E813F /* ExportRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC92839A6433C9E3A2A7894 /* ExportRun.swift */; };
 		8FC27F1CFD11C51F3A1C9B89 /* IconTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F79DB331BE406BDDBA688C4 /* IconTile.swift */; };
+		907BCE79A7AF3690F447142F /* QuickVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6342CB1637E51829031948 /* QuickVerifier.swift */; };
 		9081130F2ED81D2B68345E6F /* PreviewAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2DAA496BEF2EA0B6E174923 /* PreviewAccountService.swift */; };
 		917B4CDCA3095FE7DFBF010F /* ICloudLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */; };
 		919C8D41BA0B1D4E5BEE9127 /* ResourceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5A92B70FD36570C1F8A98F /* ResourceWriter.swift */; };
@@ -343,6 +345,7 @@
 		EEFF91FA21D8D149237E9BE8 /* GettingStartedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5772F36E0D0AB6932F4C1F /* GettingStartedView.swift */; };
 		EF4129BC115B09CC06588C0E /* AccountCodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C6A08B2545DE8CA2B2F92F /* AccountCodeView.swift */; };
 		EF4C95D422F4CC8A5F307246 /* ExportManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760AE024957625564089BF6E /* ExportManifest.swift */; };
+		EF6188A66A435D1D3C2481CC /* QuickVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6342CB1637E51829031948 /* QuickVerifier.swift */; };
 		EFFC95B78A004CF0161DCCC9 /* AccountTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77437445E4CAF9E82626A99D /* AccountTokenStore.swift */; };
 		F10E158388B6943DF420DE12 /* BackupHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF9595130C6A1EFBC16BEC1 /* BackupHero.swift */; };
 		F28D8E40AF32ACFED3D99278 /* ICloudQuickUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A0A42645922FAE176A9FDE /* ICloudQuickUpdate.swift */; };
@@ -457,6 +460,7 @@
 		5CBF2EB2AF28EB682E3729A8 /* ICloudProcesses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudProcesses.swift; sourceTree = "<group>"; };
 		5D4F40C3DE1B2723B86A14DF /* FindDuplicatesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindDuplicatesSheet.swift; sourceTree = "<group>"; };
 		5DC92839A6433C9E3A2A7894 /* ExportRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRun.swift; sourceTree = "<group>"; };
+		5E6342CB1637E51829031948 /* QuickVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickVerifier.swift; sourceTree = "<group>"; };
 		5EB9A26D65807CE3C93CA56E /* HelperProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProbe.swift; sourceTree = "<group>"; };
 		6104027BDA34781D149397C6 /* AppleDouble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleDouble.swift; sourceTree = "<group>"; };
 		6193A728A984D4CF02A91A51 /* BulkDirectoryLister.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BulkDirectoryLister.swift; sourceTree = "<group>"; };
@@ -525,6 +529,7 @@
 		A1E105D6E8BC4F5C26C36A89 /* EntitlementVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntitlementVerifierTests.swift; sourceTree = "<group>"; };
 		A442D2C0F3709A6E902B9D3C /* ManifestAdditionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManifestAdditionsTests.swift; sourceTree = "<group>"; };
 		A461FA1FCFE716F72ED86155 /* BrowseBackupSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseBackupSnapshotTests.swift; sourceTree = "<group>"; };
+		A55691CC77C1DAA3D19510FE /* QuickVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickVerifierTests.swift; sourceTree = "<group>"; };
 		A59174F95791A5B73091D73B /* MockURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
 		A5C6A08B2545DE8CA2B2F92F /* AccountCodeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountCodeView.swift; sourceTree = "<group>"; };
 		A9D4B9C4BBBF3B0E6FFC3DAF /* little-endian.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "little-endian.bin"; sourceTree = "<group>"; };
@@ -713,6 +718,7 @@
 				17CE334F633F8B482F354C36 /* NewPhotosSnapshotTests.swift */,
 				2A53F7553B85EB4F7EC1ECBF /* NewPhotosTests.swift */,
 				AD61400DF991DDD7622C8A0D /* PreviewAccountServiceTests.swift */,
+				A55691CC77C1DAA3D19510FE /* QuickVerifierTests.swift */,
 				45884E0EB5714F8BD6593F2B /* ReorganizePlannerTests.swift */,
 				05598542B4665181D89B9931 /* ResumeExportTests.swift */,
 				89738564B882A968009AE992 /* SessionRecorderTests.swift */,
@@ -887,6 +893,7 @@
 				BE36718CD24BFD5C076C6767 /* PhotoLibrary.swift */,
 				6A22FAF47DB25363937CB221 /* PhotoSizeHeuristic.swift */,
 				46DA548814AF18B9549584E9 /* PlaceResolver.swift */,
+				5E6342CB1637E51829031948 /* QuickVerifier.swift */,
 				6529C4B3FFCADE2E10789AEC /* ReorganizePlanner.swift */,
 				8A5A92B70FD36570C1F8A98F /* ResourceWriter.swift */,
 				C332D13462ED4CCA5AA69DBA /* SequentialFileReader.swift */,
@@ -1317,6 +1324,7 @@
 				8C6FADBE434DEFEA65380440 /* PlaceResolver.swift in Sources */,
 				AA32AFD5A6F8C0B5363C5CB3 /* PreviewAccountService.swift in Sources */,
 				CF71146FFB60C1C6F6895370 /* ProgressCard.swift in Sources */,
+				907BCE79A7AF3690F447142F /* QuickVerifier.swift in Sources */,
 				889A278C288BDF23D5611582 /* RenewalOptionRow.swift in Sources */,
 				96C34D65992CE44FF33017AF /* ReorganizePlanner.swift in Sources */,
 				42D52ECD875F877FDAF09BEC /* ResourceWriter.swift in Sources */,
@@ -1456,6 +1464,7 @@
 				E7BF3032360F2C2349CFEBEA /* PlaceResolver.swift in Sources */,
 				9081130F2ED81D2B68345E6F /* PreviewAccountService.swift in Sources */,
 				15CEC2A081834367951CE199 /* ProgressCard.swift in Sources */,
+				EF6188A66A435D1D3C2481CC /* QuickVerifier.swift in Sources */,
 				EC6F50AE7FFA28B14B3F847B /* RenewalOptionRow.swift in Sources */,
 				95E729DBD273FB198E53CC1A /* ReorganizePlanner.swift in Sources */,
 				919C8D41BA0B1D4E5BEE9127 /* ResourceWriter.swift in Sources */,
@@ -1541,6 +1550,7 @@
 				C4F1F12035B81F4ADB951E0C /* NewPhotosSnapshotTests.swift in Sources */,
 				AD872B27159CEB48B3E7C5E5 /* NewPhotosTests.swift in Sources */,
 				48716C6124339242FC71EA11 /* PreviewAccountServiceTests.swift in Sources */,
+				8C07B5CC48B2E04287F7D774 /* QuickVerifierTests.swift in Sources */,
 				C435942A1AD772FD2DA81AA9 /* ReorganizePlannerTests.swift in Sources */,
 				23808B32F64982271B85E829 /* ResumeExportTests.swift in Sources */,
 				0CA845398FDDACDFABE0DA5C /* SessionRecorderTests.swift in Sources */,
