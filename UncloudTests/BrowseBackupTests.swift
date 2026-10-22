@@ -430,6 +430,39 @@ struct BrowseBackupTests {
         }
     }
 
+    @Test func unlistableFolderKeepsItsEntriesWithoutReadingThem() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("one", to: "2024/07/IMG_1.jpg", in: destination)
+            try writeFile("two", to: "2024/08/IMG_2.jpg", in: destination)
+            try ExportManifest.appendRecords([
+                (key: "icloud-id:A", paths: ["2024/07/IMG_1.jpg"]),
+                (key: "icloud-id:B", paths: ["2024/08/IMG_2.jpg"]),
+            ], in: destination)
+            let first = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata(latitude: 1, longitude: 2) },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(first.count == 2)
+
+            // EACCES on one folder: its files can't be listed, but they still exist.
+            let locked = destination.appending(path: "2024/07", directoryHint: .isDirectory)
+            #expect(chmod(locked.path(percentEncoded: false), 0) == 0)
+            defer { _ = chmod(locked.path(percentEncoded: false), 0o755) }
+            let reads = ReadCounter()
+
+            let second = try await BrowseIndexer.update(
+                destination: destination, previous: first,
+                read: { _ in reads.record(); return BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+
+            #expect(second["2024/07/IMG_1.jpg"] == first["2024/07/IMG_1.jpg"], "the locked folder's entry is kept")
+            #expect(second["2024/08/IMG_2.jpg"] == first["2024/08/IMG_2.jpg"])
+            #expect(reads.count == 0)
+        }
+    }
+
     @Test func destinationKeyIsStableAndPerFolder() {
         withTemporaryDirectory { root in
             let one = root.appending(path: "One", directoryHint: .isDirectory)

@@ -2227,9 +2227,7 @@ final class ExportModel {
     /// Entries at the top of `url` (files and folders, hidden ones aside) that no manifest record lists. Nil
     /// when the folder can't be listed.
     nonisolated static func unrecordedEntryCount(in url: URL) -> Int? {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false)) else { return nil }
-        let recorded = Set(ExportManifest.records(in: url).values.flatMap { $0 })
-        return names.count { !$0.hasPrefix(".") && !recorded.contains($0) }
+        FlatFolderCheck.unrecordedEntryCount(in: url, records: ExportManifest.records(in: url))
     }
 
     private static func savedPhrase(_ layout: FolderLayout) -> String {

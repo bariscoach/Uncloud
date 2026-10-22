@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Uncloud
 
-/// The flat folder's "other files" count. The new count takes its names from one bulk listing; these tests hold it to
-/// `ExportModel.unrecordedEntryCount`, which still lists with `contentsOfDirectory`.
+/// The flat folder's "other files" count, from one bulk listing. `ExportModel.unrecordedEntryCount` delegates to it, so
+/// these tests check the counts directly.
 @Suite("Flat folder check")
 struct FlatFolderCheckTests {
     private func recordFiles(_ paths: [String], in destination: URL) throws {
@@ -36,9 +36,9 @@ struct FlatFolderCheckTests {
             let records = ExportManifest.records(in: destination)
             let flat = FlatFolderCheck.unrecordedEntryCount(in: destination, records: records)
 
-            #expect(flat == ExportModel.unrecordedEntryCount(in: destination))
             // stray.jpg, notes.txt, IMG_0003.HEIC.part, 2024, empty-folder, link.jpg
             #expect(flat == 6)
+            #expect(ExportModel.unrecordedEntryCount(in: destination) == 6)
         }
     }
 
@@ -50,7 +50,20 @@ struct FlatFolderCheckTests {
             let flat = FlatFolderCheck.unrecordedEntryCount(in: destination, records: ExportManifest.records(in: destination))
 
             #expect(flat == 0)
-            #expect(flat == ExportModel.unrecordedEntryCount(in: destination))
+        }
+    }
+
+    @Test func hiddenFlaggedEntriesDoNotCount() throws {
+        try withTemporaryDirectory { destination in
+            try writeFile("a", to: "stray.jpg", in: destination)
+            try writeFile("b", to: "System Volume Information", in: destination)
+            let flagged = destination.appending(path: "System Volume Information")
+            #expect(chflags(flagged.path(percentEncoded: false), UInt32(UF_HIDDEN)) == 0)
+            defer { _ = chflags(flagged.path(percentEncoded: false), 0) }
+
+            let flat = FlatFolderCheck.unrecordedEntryCount(in: destination, records: [:])
+
+            #expect(flat == 1)
         }
     }
 

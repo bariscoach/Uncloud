@@ -7,6 +7,7 @@ import Testing
 private func foundationListing(_ folder: URL) throws -> [BulkDirectoryLister.Entry] {
     let keys: Set<URLResourceKey> = [
         .isSymbolicLinkKey, .isDirectoryKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
+        .isHiddenKey,
     ]
     let children = try FileManager.default.contentsOfDirectory(
         at: folder, includingPropertiesForKeys: Array(keys), options: []
@@ -27,7 +28,8 @@ private func foundationListing(_ folder: URL) throws -> [BulkDirectoryLister.Ent
             name: child.lastPathComponent,
             kind: kind,
             size: kind == .file ? Int64(values.fileSize ?? 0) : 0,
-            modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0
+            modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0,
+            isHidden: values.isHidden ?? false
         )
     }
 }
@@ -53,6 +55,10 @@ private func expectSameListing(
         #expect(Array(lhs.name.utf8) == Array(rhs.name.utf8), "name \(rhs.name)")
         #expect(lhs.kind == rhs.kind, "kind of \(rhs.name)")
         #expect(lhs.size == rhs.size, "size of \(rhs.name)")
+        // FileManager's isHidden also covers dot-names; compare the flag only for the others.
+        if !rhs.name.hasPrefix(".") {
+            #expect(lhs.isHidden == rhs.isHidden, "hidden flag of \(rhs.name)")
+        }
         #expect(lhs.modified == rhs.modified, "modified time of \(rhs.name)")
     }
 }
@@ -263,6 +269,28 @@ struct BulkDirectoryListerTests {
                 #expect(error.domain == NSPOSIXErrorDomain)
                 #expect(error.code == Int(EACCES))
             }
+        }
+    }
+
+    @Test func hiddenFlagIsReportedForFilesAndFolders() throws {
+        try withTemporaryDirectory { folder in
+            let flagged = try writeFile("a", to: "System Volume Information", in: folder)
+            let flaggedFolder = folder.appending(path: "$RECYCLE.BIN", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: flaggedFolder, withIntermediateDirectories: true)
+            try writeFile("b", to: "visible.jpg", in: folder)
+            #expect(chflags(flagged.path(percentEncoded: false), UInt32(UF_HIDDEN)) == 0)
+            #expect(chflags(flaggedFolder.path(percentEncoded: false), UInt32(UF_HIDDEN)) == 0)
+            defer {
+                _ = chflags(flagged.path(percentEncoded: false), 0)
+                _ = chflags(flaggedFolder.path(percentEncoded: false), 0)
+            }
+
+            let entries = try BulkDirectoryLister.list(folder)
+
+            #expect(entries.first { $0.name == "System Volume Information" }?.isHidden == true)
+            #expect(entries.first { $0.name == "$RECYCLE.BIN" }?.isHidden == true)
+            #expect(entries.first { $0.name == "visible.jpg" }?.isHidden == false)
+            expectSameListing(entries, try foundationListing(folder))
         }
     }
 

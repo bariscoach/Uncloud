@@ -139,15 +139,19 @@ enum DriveInventory {
             let children: [BulkDirectoryLister.Entry]
             do {
                 children = try BulkDirectoryLister.list(folderURL)
-            } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
-                // Removed between the parent's listing and this one.
+            } catch let error as NSError where error.domain == NSPOSIXErrorDomain
+                && (error.code == Int(ENOENT) || (error.code == Int(EACCES) && !folder.isEmpty)) {
+                // Removed between the parent's listing and this one, or a subfolder that can't be read. Neither
+                // stops the scan; the root's failures still throw.
                 continue
             }
             directories[folder] = modified
             relisted.insert(folder)
             for child in children {
                 try Task.checkCancellation()
-                guard !child.name.hasPrefix("."), child.name.rangeOfCharacter(from: .controlCharacters) == nil else {
+                // Hidden names and hidden-flagged entries (the old `.skipsHiddenFiles`) are not listed.
+                guard !child.name.hasPrefix("."), !child.isHidden,
+                      child.name.rangeOfCharacter(from: .controlCharacters) == nil else {
                     continue
                 }
                 let path = folder.isEmpty ? child.name : folder + "/" + child.name

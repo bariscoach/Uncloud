@@ -74,16 +74,28 @@ struct BrowseDriveListing: Sendable {
     private(set) var stamps: [String: Stamp] = [:]
     /// Standardized full paths of every entry in the listed folders.
     private(set) var entryPaths: Set<String> = []
+    /// Relative folders whose listing failed for a reason other than the folder being gone (EACCES, EIO, and so on).
+    /// Their files are neither read nor dropped: the index keeps what it had for them.
+    private(set) var failedFolders: Set<String> = []
 
-    /// Lists each folder that holds one of `paths` once, with `BulkDirectoryLister`. A folder that can't be listed
-    /// contributes nothing, so its files count as gone.
+    /// Lists each folder that holds one of `paths` once, with `BulkDirectoryLister`. A folder that is missing
+    /// contributes nothing, so its files count as gone. A folder that fails any other way is recorded in
+    /// `failedFolders`.
     static func build(paths: [String], in destination: URL) -> BrowseDriveListing {
         var listing = BrowseDriveListing()
         let folders = Dictionary(grouping: paths) { ($0 as NSString).deletingLastPathComponent }
         for (relativeFolder, group) in folders {
             guard let sample = BackupFiles.containedURL(for: group[0], in: destination) else { continue }
             let folderURL = sample.deletingLastPathComponent()
-            guard let entries = try? BulkDirectoryLister.list(folderURL) else { continue }
+            let entries: [BulkDirectoryLister.Entry]
+            do {
+                entries = try BulkDirectoryLister.list(folderURL)
+            } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+                continue
+            } catch {
+                listing.failedFolders.insert(relativeFolder)
+                continue
+            }
             for entry in entries {
                 listing.entryPaths.insert(standardized(folderURL.appending(path: entry.name)))
                 guard entry.kind == .file else { continue }
@@ -92,6 +104,11 @@ struct BrowseDriveListing: Sendable {
             }
         }
         return listing
+    }
+
+    /// Whether the folder of `path` could not be listed for a reason other than being gone.
+    func isInFailedFolder(_ path: String) -> Bool {
+        failedFolders.contains((path as NSString).deletingLastPathComponent)
     }
 
     /// Whether `url` is an entry in one of the listed folders. Used for `.xmp` sidecars.
@@ -176,6 +193,8 @@ enum BrowseIndexer {
                             camera: metadata.camera
                         )
                     }
+                } else if listing.isInFailedFolder(path) {
+                    // The folder couldn't be listed this time, so nothing is known about the file. Keep its entry.
                 } else {
                     // Gone. A missing folder means the drive went away, which is not the same as a deleted file.
                     guard FileManager.default.fileExists(atPath: destinationPath) else { throw BrowseIndexError.driveUnavailable }
