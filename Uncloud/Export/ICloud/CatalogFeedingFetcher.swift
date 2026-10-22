@@ -104,3 +104,48 @@ struct CatalogFeedingFetcher: ICloudPageFetching {
         return items
     }
 }
+
+/// Writes a download's catalog updates in order, off the download's loop (R12g). Each write waits for the one before, and
+/// `drain()` waits for all of them. Catalog errors are logged and ignored: they never stop an export. With no catalog,
+/// every call does nothing.
+final class CatalogWriteQueue: @unchecked Sendable {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Uncloud", category: "catalog")
+
+    private let catalog: ICloudCatalog?
+    private let lock = NSLock()
+    private var tail: Task<Void, Never>?
+
+    init(catalog: ICloudCatalog?) {
+        self.catalog = catalog
+    }
+
+    /// Queues one write. Called from a download's event handler, which can't await.
+    func enqueue(_ write: @escaping @Sendable (ICloudCatalog) async throws -> Void) {
+        guard let catalog else { return }
+        lock.withLock {
+            let previous = tail
+            tail = Task {
+                await previous?.value
+                do {
+                    try await write(catalog)
+                } catch {
+                    Self.logger.error("catalog: write not kept (\(String(describing: error), privacy: .public))")
+                }
+            }
+        }
+    }
+
+    /// The `listed` items of a walk page: their rows, with their ranks.
+    func listed(_ items: [ICloudBridgeMessage.Item], libraryCount: Int) {
+        guard !items.isEmpty else { return }
+        enqueue { catalog in
+            try await catalog.upsert(CatalogRows.rows(for: items, libraryCount: libraryCount))
+        }
+    }
+
+    /// Waits until every queued write has finished.
+    func drain() async {
+        let last = lock.withLock { tail }
+        await last?.value
+    }
+}

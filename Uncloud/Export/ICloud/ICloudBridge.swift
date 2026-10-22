@@ -206,6 +206,8 @@ enum ICloudBridgeDownloadEvent: Sendable, Equatable {
     case failed(asset: String, rank: Int?, filename: String, reason: String)
     /// The walk is at this rank while it passes over items already on the drive (allExcept only).
     case walked(rank: Int)
+    /// A page a walk accepted, with its items and their ranks, for the local catalog (R12g). Counts and progress don't change.
+    case listed(offset: Int, items: [ICloudBridgeMessage.Item])
     case done(downloaded: Int, skipped: Int, failed: Int, cancelled: Bool)
 
     /// Nil for messages that aren't download events.
@@ -231,6 +233,8 @@ enum ICloudBridgeDownloadEvent: Sendable, Equatable {
         case "walked":
             guard let rank = message.rank else { return nil }
             self = .walked(rank: rank)
+        case "listed":
+            self = .listed(offset: message.offset ?? 0, items: message.items ?? [])
         case "done":
             self = .done(downloaded: message.downloaded ?? 0, skipped: message.skipped ?? 0,
                          failed: message.failed ?? 0, cancelled: message.cancelled ?? false)

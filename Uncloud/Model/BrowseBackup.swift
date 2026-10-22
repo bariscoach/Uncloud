@@ -234,7 +234,8 @@ final class BrowseBackup {
     @ObservationIgnored private let isExportRunning: @MainActor () -> Bool
     @ObservationIgnored private let namer: any PlaceNaming
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let iCloudCatalog: @Sendable (URL) async -> ICloudCatalog?
+    /// The local iCloud catalog of a destination, for dates and places (R18). Internal so the wiring can be tested.
+    @ObservationIgnored let iCloudCatalog: @Sendable (URL) async -> ICloudCatalog?
     @ObservationIgnored private let readMetadata: @Sendable (URL) async -> BrowseMetadata
     @ObservationIgnored private var indexTask: Task<Void, Never>?
     /// The camera reads in progress, by path, so a second request waits for the first.

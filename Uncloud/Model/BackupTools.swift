@@ -26,14 +26,24 @@ final class BackupTools {
         verification = BackupVerification(model: model)
         cleanup = LibraryCleanup(model: model)
         duplicates = DuplicateCleanup(model: model)
-        browse = BrowseBackup(isExportRunning: { [weak model] in
-            model.map { $0.isExporting || $0.isEngineRunning } ?? false
-        })
+        browse = BrowseBackup(
+            isExportRunning: { [weak model] in
+                model.map { $0.isExporting || $0.isEngineRunning } ?? false
+            },
+            iCloudCatalog: BackupTools.browseICloudCatalog
+        )
         // Re-export isn't included: it starts an export itself and re-checks before changing the manifest.
         model.isExportBlocked = { [weak self] in
             guard let self else { return false }
             return verification.isChecking || cleanup.isBusy || duplicates.isBusy || model.iCloudCleanup?.isRunning == true
         }
+    }
+
+    /// The iCloud catalog Browse reads for a destination: the signed-in account's (R18). A destination exported with
+    /// another Apple ID finds no rows there, which is fine: its items are read from the files. Nil without an Apple ID.
+    static func browseICloudCatalog(_ destination: URL) async -> ICloudCatalog? {
+        guard let appleID = ICloudAccount.appleID else { return nil }
+        return ICloudCatalogStore.shared(appleID: appleID)
     }
 
     var canOpenVerify: Bool {
