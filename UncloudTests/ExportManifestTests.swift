@@ -372,8 +372,10 @@ struct ExportManifestRelocateTests {
             try point.save(in: destination)
 
             try ExportManifest.relocate(Self.map, in: destination, layout: .month)
-            let moved = try #require(ICloudResumePoint.load(in: destination))
+            let moved = try #require(ICloudResumePoint.load(in: destination, layout: .month))
             #expect(moved.layout == "month")
+            // The flat point moved; it doesn't stay behind for a layout the folder no longer uses.
+            #expect(ICloudResumePoint.load(in: destination, layout: .flat) == nil)
             #expect(moved.anchor == point.anchor)
             #expect(moved.coveredThrough == 5)
             #expect(moved.libraryCount == 10)

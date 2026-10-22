@@ -338,7 +338,7 @@ final class ExportManifest {
     ///    same, so `firstRecordPositions` doesn't change. A partial last line stays as it was.
     /// 2. `checksums.tsv`: the path in the first field.
     /// 3. `files.tsv`: the path of each `file` line. Every `dir` line is dropped; the next drive check rescans folders.
-    /// 4. `resume.json`: its `layout` becomes `layout` when it was the other of flat and month. Ranks don't depend on
+    /// 4. The resume point: the other of flat and month's point becomes `layout`'s point (`resume-<layout>.json`). Ranks don't depend on
     ///    paths, so the point stays valid.
     /// 5. `layout`: written as `layout`.
     /// It is idempotent. Map keys have no `/` and map values always do, so a second call finds no path to change.
@@ -365,11 +365,12 @@ final class ExportManifest {
             }
         }
 
-        if var point = ICloudResumePoint.load(in: destination),
-           point.layout != layout.rawValue,
-           point.layout == FolderLayout.flat.rawValue || point.layout == FolderLayout.month.rawValue {
+        // The point moves with the files: the other of flat and month becomes this layout's point.
+        let other: FolderLayout? = layout == .flat ? .month : (layout == .month ? .flat : nil)
+        if let other, var point = ICloudResumePoint.load(in: destination, layout: other), point.layout == other.rawValue {
             point.layout = layout.rawValue
             try point.save(in: destination)
+            ICloudResumePoint.remove(in: destination, layout: other)
         }
         try Data(layout.rawValue.utf8).write(to: directory.appending(path: layoutName), options: .atomic)
     }
