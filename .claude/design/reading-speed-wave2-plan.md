@@ -954,3 +954,8 @@ builders at once. Each touches only its own new files or files no other lane hol
    system tag, not your data.
 3. Remove helper files after each export automatically (once R16b passes)? Recommendation: yes. It costs about one
    extra file read per new photo.
+
+## Owner answers (2026-10-21)
+1. Reorganize into Month Folders and the `._` cleanup are **free** for everyone.
+2. `._` files holding `com.apple.provenance` next to `com.apple.quarantine` **may be removed** (nothing else).
+3. New `._` files are **removed automatically after each export** (exFAT/FAT only, only files the classifier proves hold nothing but those tags).
