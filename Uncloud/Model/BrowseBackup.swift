@@ -234,7 +234,11 @@ final class BrowseBackup {
     @ObservationIgnored private let isExportRunning: @MainActor () -> Bool
     @ObservationIgnored private let namer: any PlaceNaming
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let iCloudCatalog: @Sendable (URL) async -> ICloudCatalog?
+    @ObservationIgnored private let readMetadata: @Sendable (URL) async -> BrowseMetadata
     @ObservationIgnored private var indexTask: Task<Void, Never>?
+    /// The camera reads in progress, by path, so a second request waits for the first.
+    @ObservationIgnored private var cameraTasks: [String: Task<String, Never>] = [:]
     @ObservationIgnored private var nameTask: Task<Void, Never>?
     @ObservationIgnored private var pendingNames: Set<String> = []
     @ObservationIgnored private var timelineTask: Task<Void, Never>?
@@ -268,13 +272,17 @@ final class BrowseBackup {
         namer: any PlaceNaming = PlaceResolver(),
         isExportRunning: @escaping @MainActor () -> Bool,
         calendar: Calendar = .autoupdatingCurrent,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        iCloudCatalog: @escaping @Sendable (URL) async -> ICloudCatalog? = { _ in nil },
+        readMetadata: @escaping @Sendable (URL) async -> BrowseMetadata = { await BrowseMetadata.read(of: $0) }
     ) {
         self.store = store
         self.namer = namer
         self.isExportRunning = isExportRunning
         self.calendar = calendar
         self.defaults = defaults
+        self.iCloudCatalog = iCloudCatalog
+        self.readMetadata = readMetadata
         sortOrder = BrowseSortOrder(rawValue: defaults.string(forKey: BrowseSortOrder.defaultsKey) ?? "") ?? .newestFirst
     }
 
@@ -439,13 +447,20 @@ final class BrowseBackup {
         let store = store
         let previous = entries
         let isExportRunning = isExportRunning
+        let catalogProvider = iCloudCatalog
         isIndexing = true
         indexTask = Task { [weak self] in
             do {
-                let result = try await Task.detached(priority: .utility) {
-                    try await BrowseIndexer.update(
+                let result = try await Task.detached(priority: .utility) { () async throws -> [String: BrowseEntry] in
+                    // iCloud's dates and places come from the catalog; items it doesn't know are read from the file.
+                    var iCloud: [String: BrowseMetadata] = [:]
+                    if let catalog = await catalogProvider(url) {
+                        iCloud = (try? await BrowseIndexer.iCloudMetadata(in: url, catalog: catalog)) ?? [:]
+                    }
+                    return try await BrowseIndexer.update(
                         destination: url,
                         previous: previous,
+                        iCloudMetadata: iCloud,
                         waitWhilePaused: {
                             var waited = false
                             while await MainActor.run(body: { isExportRunning() }) {
@@ -472,6 +487,30 @@ final class BrowseBackup {
                 self?.indexStopped(url)
             }
         }
+    }
+
+    /// The camera of a photo, for the detail pane. A photo indexed from iCloud has no camera until it's asked for: the
+    /// file is read once, and the answer is kept in the entry (empty when the file has none, so it isn't read again).
+    /// Nil when the photo isn't indexed, or its file can't be read now.
+    func camera(for path: String) async -> String? {
+        guard let entry = entries[path] else { return nil }
+        if let camera = entry.camera { return camera }
+        guard entry.source == .iCloud, let destination, let url = BackupFiles.containedURL(for: path, in: destination),
+              FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return nil }
+        let task: Task<String, Never>
+        if let running = cameraTasks[path] {
+            task = running
+        } else {
+            let readMetadata = readMetadata
+            task = Task.detached(priority: .utility) { await readMetadata(url).camera ?? "" }
+            cameraTasks[path] = task
+        }
+        let camera = await task.value
+        cameraTasks[path] = nil
+        if entries[path]?.camera == nil {
+            entries[path]?.camera = camera
+        }
+        return entries[path]?.camera ?? camera
     }
 
     private func setPaused(_ paused: Bool) {

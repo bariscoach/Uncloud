@@ -265,19 +265,36 @@ private struct BrowsePhotoTile: View {
 struct BrowsePhotoDetail: View {
     let entry: BrowseEntry
     let placeTitle: String?
+    /// Reads the camera of a photo indexed from iCloud, which has none until it's asked for. Nil when the file can't
+    /// be read now.
+    var loadCamera: () async -> String? = { nil }
+    @State private var cameraUnavailable = false
 
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: Tokens.Space.m, verticalSpacing: Tokens.Space.xs) {
             row("Place", placeTitle ?? "No location")
             row("Coordinates", coordinates)
             row("Date taken", entry.date.map { $0.formatted(date: .long, time: .shortened) } ?? "Unknown")
-            row("Camera", entry.camera ?? "Unknown")
+            row("Camera", Self.cameraText(for: entry, unavailable: cameraUnavailable))
             row("File", (entry.path as NSString).lastPathComponent)
             row("Folder", folder)
             row("Size", ByteCountFormatter.string(fromByteCount: entry.size, countStyle: .file))
         }
         .font(.callout)
         .textSelection(.enabled)
+        .task(id: entry.path) {
+            cameraUnavailable = false
+            guard entry.camera == nil, entry.source == .iCloud else { return }
+            if await loadCamera() == nil {
+                cameraUnavailable = true
+            }
+        }
+    }
+
+    /// The camera line: the camera; "Unknown" when the file has none; "Reading…" while an iCloud photo's file is read.
+    static func cameraText(for entry: BrowseEntry, unavailable: Bool) -> String {
+        if let camera = entry.camera { return camera.isEmpty ? "Unknown" : camera }
+        return entry.source == .iCloud && !unavailable ? "Reading…" : "Unknown"
     }
 
     private func row(_ label: String, _ value: String) -> some View {
