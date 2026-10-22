@@ -251,3 +251,97 @@ struct CatalogSizesTests {
         #expect(try await catalog.status().fullWalkEndedAt != nil)
     }
 }
+
+/// R12e: the range sheet's count and suggested date come from a trusted catalog, and match the walks.
+@Suite("Catalog ranges (R12e)")
+struct CatalogRangeTests {
+    private struct DatedLibrary: ICloudPageFetching {
+        let items: [ICloudAsset]
+
+        func count() async throws -> Int {
+            items.count
+        }
+
+        func assets(offset: Int, limit: Int) async throws -> [ICloudAsset] {
+            guard offset < items.count else { return [] }
+            return Array(items[offset..<min(items.count, offset + limit)])
+        }
+    }
+
+    /// 3,000 items, newest first, one an hour, each taken and added at the same moment.
+    private static let base: TimeInterval = 1_700_000_000
+    private static func library(count: Int = 3_000) -> [ICloudAsset] {
+        (0..<count).map { index in
+            let when = Date(timeIntervalSince1970: base - Double(index) * 3_600)
+            return ICloudAsset(id: "dated-\(index)", filename: "IMG_\(index).HEIC", created: when, isVideo: false,
+                               thumbnailURL: nil, added: when)
+        }
+    }
+
+    /// A catalog holding the whole library, with a full walk that ended just now: trusted once topped up.
+    private static func trustedCatalog(_ items: [ICloudAsset], root: URL) async throws -> ICloudCatalog {
+        let catalog = try ICloudCatalog.open(account: "range1234range5678", directory: root)
+        let started = Date().addingTimeInterval(-60)
+        try await catalog.beginFullWalk(at: started)
+        try await catalog.upsert(CatalogRows.rows(for: items, offset: 0, libraryCount: items.count))
+        _ = try await catalog.completeFullWalk(startedAt: started, libraryCount: items.count, unlistedCount: nil)
+        return catalog
+    }
+
+    private static func tempRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appending(path: "catalog-range-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    @Test func aTrustedCatalogGivesTheSameRangeAsTheWalk() async throws {
+        let root = try Self.tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let items = Self.library()
+        let library = DatedLibrary(items: items)
+        let catalog = try await Self.trustedCatalog(items, root: root.appending(path: "catalog"))
+        let recentlyDeleted = CatalogFakeTrash(library: CatalogFakeLibrary(total: 0))
+
+        let trusted = try await CatalogTopUp.trustedAfterTopUp(
+            fetcher: library, catalog: catalog, recentlyDeleted: recentlyDeleted
+        )
+        #expect(trusted)
+
+        for (from, to) in [(100, 500), (1_000, 1_200), (0, 10_000)] {
+            let start = Date(timeIntervalSince1970: Self.base - Double(to) * 3_600)
+            let end = Date(timeIntervalSince1970: Self.base - Double(from) * 3_600)
+            let walked = try await ExportSince.iCloudItems(takenFrom: start, to: end, fetcher: library)
+            let answered = try await ExportSince.iCloudItems(takenFrom: start, to: end, catalog: catalog)
+            #expect(answered.items == walked.items, "range \(from)...\(to)")
+            #expect(answered.isAtLeast == walked.isAtLeast)
+        }
+    }
+
+    @Test func aTrustedCatalogSuggestsTheSameDateAsTheWalk() async throws {
+        let root = try Self.tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let items = Self.library()
+        let library = DatedLibrary(items: items)
+        let catalog = try await Self.trustedCatalog(items, root: root.appending(path: "catalog"))
+        let known: Set<String> = ["dated-40", "dated-900"]
+
+        let walked = try await ExportSince.iCloudSuggestedDate(known: known, fetcher: library)
+        let answered = try await ExportSince.iCloudSuggestedDate(known: known, catalog: catalog)
+        #expect(walked != nil)
+        #expect(answered == walked)
+    }
+
+    @Test func anUntrustedCatalogIsNotTrusted() async throws {
+        let root = try Self.tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let items = Self.library(count: 300)
+        let catalog = try ICloudCatalog.open(account: "range1234range5678", directory: root.appending(path: "catalog"))
+        try await catalog.upsert(CatalogRows.rows(for: items, offset: 0, libraryCount: items.count))
+        let trusted = try await CatalogTopUp.trustedAfterTopUp(
+            fetcher: DatedLibrary(items: items), catalog: catalog,
+            recentlyDeleted: CatalogFakeTrash(library: CatalogFakeLibrary(total: 0))
+        )
+        // No full walk has ended, so the rows can't answer for the whole library.
+        #expect(!trusted)
+    }
+}

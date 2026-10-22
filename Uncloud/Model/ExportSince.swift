@@ -67,6 +67,43 @@ enum ExportSince {
         return nil
     }
 
+    /// iCloud, from a trusted catalog (R12e): the items taken in `from...to`, with the rank hints as values, read from
+    /// the catalog's rows. The caller has checked the catalog (`CatalogTopUp.trustedAfterTopUp`); nothing is fetched.
+    static func iCloudItems(takenFrom from: Date, to: Date, catalog: ICloudCatalog,
+                            limit: Int = iCloudLimit) async throws -> (items: [String: Int], isAtLeast: Bool)
+    {
+        let (rows, isAtLeast) = try await catalog.rows(takenFrom: from, to: to, limit: limit)
+        let libraryCount = try await catalog.status().libraryCount ?? 0
+        var items: [String: Int] = [:]
+        for row in rows {
+            items[row.id] = row.rank + max(0, libraryCount - row.rankCount)
+        }
+        return (items, isAtLeast)
+    }
+
+    /// iCloud, from a trusted catalog (R12e): the newest backed-up item's date, the first known item in rank-hint
+    /// order that has a date. Gives up (nil) after `scanLimit` items.
+    static func iCloudSuggestedDate(known: Set<String>, catalog: ICloudCatalog, pageSize: Int = 200,
+                                    scanLimit: Int = 5_000) async throws -> Date? {
+        let libraryCount = try await catalog.status().libraryCount ?? 0
+        var offset = 0
+        while offset < scanLimit {
+            try Task.checkCancellation()
+            let page = try await catalog.page(offset: offset, limit: min(pageSize, scanLimit - offset),
+                                              libraryCount: libraryCount)
+            if page.isEmpty {
+                return nil
+            }
+            for row in page where known.contains(row.id) {
+                if let when = row.added ?? row.created {
+                    return when
+                }
+            }
+            offset += page.count
+        }
+        return nil
+    }
+
     /// Photos library: the assets taken in `from...to`, keyed by local identifier. The value is always 0, as the
     /// Photos library has no ranks.
     static func photosLibraryItems(takenFrom from: Date, to: Date) -> [String: Int] {

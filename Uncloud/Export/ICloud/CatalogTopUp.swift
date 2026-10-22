@@ -61,6 +61,22 @@ enum CatalogTopUp {
         return .current(scanned: scanned)
     }
 
+    /// Tops up, then says whether the catalog can answer for the whole library (staleness rule 5): it must be trusted
+    /// with this top-up in the same call. The library's count is read from `fetcher` (the bridge, not a feeding fetcher).
+    static func trustedAfterTopUp(
+        fetcher: any ICloudPageFetching,
+        catalog: ICloudCatalog,
+        recentlyDeleted: any ICloudPageFetching,
+        now: Date = Date()
+    ) async throws -> Bool {
+        let libraryCount = try await fetcher.count()
+        guard case .current = try await run(fetcher: fetcher, catalog: catalog, recentlyDeleted: recentlyDeleted) else {
+            return false
+        }
+        let maxAge = ICloudResumeSettings().fullCheckInterval + 5 * 24 * 60 * 60
+        return try await catalog.isTrusted(libraryCount: libraryCount, now: now, maxAge: maxAge, toppedUp: true)
+    }
+
     /// Deletes the IDs of Recently Deleted's items (at most 2,000) from the catalog.
     private static func removeRecentlyDeleted(from catalog: ICloudCatalog, reading album: any ICloudPageFetching) async throws {
         var ids: [String] = []

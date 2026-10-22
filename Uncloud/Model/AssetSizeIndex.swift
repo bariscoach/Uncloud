@@ -291,7 +291,7 @@ enum ICloudSizeScanner {
         onProgress: @escaping @Sendable () async -> Void
     ) async -> Outcome {
         if let catalog, let libraryCount,
-           let sizes = await trustedCatalogSizes(bridge: bridge, catalog: catalog, libraryCount: libraryCount) {
+           let sizes = await trustedCatalogSizes(bridge: bridge, catalog: catalog) {
             await index.replaceFromCatalog(sizes: sizes, libraryCount: libraryCount)
             return .complete
         }
@@ -357,19 +357,14 @@ enum ICloudSizeScanner {
 
     /// The catalog's sizes when the catalog is trusted for this library (R12d), after a top-up in this call. Nil when it
     /// isn't, or when the top-up or the check fails: the caller then walks as before.
-    private static func trustedCatalogSizes(
-        bridge: ICloudBridge, catalog: ICloudCatalog, libraryCount: Int
-    ) async -> [String: Int64]? {
+    private static func trustedCatalogSizes(bridge: ICloudBridge, catalog: ICloudCatalog) async -> [String: Int64]? {
         do {
-            let result = try await CatalogTopUp.run(
+            let trusted = try await CatalogTopUp.trustedAfterTopUp(
                 fetcher: ICloudBridgeFetcher(bridge: bridge),
                 catalog: catalog,
                 recentlyDeleted: ICloudBridgeFetcher(bridge: bridge, album: .recentlyDeleted)
             )
-            guard case .current = result else { return nil }
-            let maxAge = ICloudResumeSettings().fullCheckInterval + 5 * 24 * 60 * 60
-            guard try await catalog.isTrusted(libraryCount: libraryCount, now: Date(), maxAge: maxAge, toppedUp: true)
-            else { return nil }
+            guard trusted else { return nil }
             return try await catalog.sizes().sizes
         } catch {
             return nil
