@@ -602,7 +602,7 @@ final class ExportModel {
     /// The Export pane's subtitle, such as "1,243 not backed up", "about 1,200 not backed up" or "all backed up". Nil
     /// unless the primary action offers new photos only and the folder has backed-up photos.
     var notBackedUpSummary: String? {
-        guard offersNewPhotosOnly, newOnlyBackedUpCount > 0, let toGo = toGoCount else { return nil }
+        guard offersNewPhotosOnly, newOnlyBackedUpCount > 0, let toGo = trustedToGoCount else { return nil }
         if toGo == 0 { return "all backed up" }
         let about = isOnDriveCountApproximate ? "about " : ""
         return "\(about)\(toGo.formatted()) not backed up"
@@ -613,16 +613,40 @@ final class ExportModel {
         isExporting || isEngineRunning ? 0 : (onDriveCount ?? 0)
     }
 
-    /// Not backed up, exactly. Nil during a run, and when the iCloud count is approximate or unknown.
+    /// Not backed up, exactly. Nil during a run, and when the count isn't trusted (see `trustedToGoCount`).
     var newOnlyNotBackedUpCount: Int? {
-        isExporting || isEngineRunning || isOnDriveCountApproximate ? nil : toGoCount
+        isExporting || isEngineRunning ? nil : trustedToGoCount
     }
 
-    /// Whether the primary action can run. Without a folder it only needs a ready source.
+    /// Whether the primary action can run. Without a folder it only needs a ready source. The New Photos action
+    /// opens its sheet, which counts the photos itself, so it doesn't need the library's total.
     func primaryExportEnabled(total: Int?) -> Bool {
         if destination == nil { return !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady }
         if phase == .paused || offersResumeExport { return canStart }
+        if opensExportSince { return true }
         return canStart && selection.selectedCount(total: total ?? 0) > 0
+    }
+
+    /// Why the primary action is disabled, for its help, such as "Another task is running.". Nil when it can run.
+    func primaryExportDisabledReason(total: Int?) -> String? {
+        if primaryExportEnabled(total: total) { return nil }
+        if destination == nil {
+            if isExporting || isEngineRunning || isExportBlocked() { return "Another task is running." }
+            return "Your library isn’t ready yet."
+        }
+        if let reason = startBlockReason { return reason }
+        if phase == .paused || offersResumeExport { return nil }
+        if total == nil { return "Waiting for your library to load." }
+        return "Select at least one photo."
+    }
+
+    /// Why `canStart` is false, or nil when it's true.
+    private var startBlockReason: String? {
+        if phase == .paused { return nil }
+        if isExporting || isEngineRunning || isExportBlocked() { return "Another task is running." }
+        if let destinationIssue { return destinationIssue }
+        if !isSourceReady { return "Your library isn’t ready yet." }
+        return nil
     }
 
     /// Whether Export All Photos can run. Without a folder, it asks for one first. Not while paused or while an
@@ -1322,14 +1346,35 @@ final class ExportModel {
         return max(0, totalCount - processedCount)
     }
 
+    /// `toGoCount` when it can be shown as "not backed up": Photos on This Mac, or iCloud once a complete walk has
+    /// measured the items iCloud counts but never lists (`unlistedCount`). Until then the count includes those items,
+    /// so it's nil, and the New Photos count stands in for it. Approximate counts are nil too.
+    var trustedToGoCount: Int? {
+        guard !isOnDriveCountApproximate, let toGo = toGoCount, destination != nil else { return nil }
+        if source == .photosLibrary { return toGo }
+        return source == .iCloud && hasMeasuredUnlisted ? toGo : nil
+    }
+
+    /// Whether the destination's resume point, for the current layout, has `unlistedCount`. Read with the progress
+    /// (`refreshProgress`), never in a view body: the point lives on the backup drive.
+    private(set) var hasMeasuredUnlisted = false
+
     /// True when the on-drive count includes items counted from file paths ("about 9,200").
     private(set) var isOnDriveCountApproximate = false
 
-    /// "9,207 already on this drive · 83,808 to go", with "about" when counted from file paths.
+    /// "9,207 already on this drive · 83,808 to go", with "about" when counted from file paths. Without a trusted
+    /// "to go", it's "9,207 backed up", plus "· 4 new" when the hero shows new photos, so both show the same number.
     var onDriveSummaryText: String? {
-        guard let onDrive = onDriveCount, let toGo = toGoCount else { return nil }
+        guard let onDrive = onDriveCount else { return nil }
         let about = isOnDriveCountApproximate ? "about " : ""
-        return "\(about)\(onDrive.formatted()) backed up · \(about)\(toGo.formatted()) to go"
+        let backedUp = "\(about)\(onDrive.formatted()) backed up"
+        if let toGo = trustedToGoCount {
+            return "\(backedUp) · \(about)\(toGo.formatted()) to go"
+        }
+        if let status = newPhotosStatus, status.count > 0 || status.isAtLeast {
+            return "\(backedUp) · \(status.count.formatted())\(status.isAtLeast ? "+" : "") new"
+        }
+        return backedUp
     }
 
     /// Checks the drive now: `full` stats every file (Backup Tools > Check Drive); otherwise only folders
@@ -1530,6 +1575,10 @@ final class ExportModel {
         let selection = selection
         let layout = layout
         Task {
+            let measured = await Task.detached(priority: .utility) {
+                source == .iCloud
+                    && ICloudResumePoint.load(in: url).map { $0.layout == layout.rawValue && $0.unlistedCount != nil } == true
+            }.value
             let (progress, byLayout) = await Task.detached { () -> ((progress: LibraryProgress, isApproximate: Bool), [FolderLayout: Int]?) in
                 guard source == .iCloud else {
                     return ((PhotoLibrary.progress(toward: url, selection: selection), false), [:])
@@ -1556,6 +1605,7 @@ final class ExportModel {
                   self.layout == layout else { return }
             totalCount = progress.progress.total
             processedCount = progress.progress.exported
+            hasMeasuredUnlisted = measured
             isOnDriveCountApproximate = progress.isApproximate
             hasIncompleteRun = progress.progress.hasIncompleteRun
             interruptedRunWasExportAll = wasExportAll

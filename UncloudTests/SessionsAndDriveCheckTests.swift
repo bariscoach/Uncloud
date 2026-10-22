@@ -216,14 +216,51 @@ extension ExportCancellationTests {
             #expect(model.onDriveCount == 20)
             #expect(model.toGoCount == 1)
             #expect(model.offersNewPhotosOnly)
-            #expect(model.primaryExportHelp == NewPhotosTitle.newOnlyHelp)
+            #expect(model.primaryExportHelp(total: nil) == NewPhotosTitle.newOnlyHelp)
             // Items recorded by asset ID count exactly. Path-only records make the count approximate, and then the
             // title and subtitle drop the number (plan 1.3). Both are the same offer.
             if model.isOnDriveCountApproximate {
                 #expect(model.primaryExportTitle(total: nil) == "Export New Photos")
-                #expect(model.notBackedUpSummary == "about 1 not backed up")
             } else {
                 #expect(model.primaryExportTitle(total: nil) == "Export 1 New Photo")
+            }
+            // The subtitle's "not backed up" needs iCloud's unlisted items measured by a complete walk, which this run
+            // didn't leave behind, so the count is left out rather than shown as 1.
+            #expect(model.trustedToGoCount == nil)
+            #expect(model.notBackedUpSummary == nil)
+        }
+        await harness.tearDown()
+    }
+
+    /// "Not backed up" and "to go" are shown only once a complete walk has measured iCloud's unlisted items. The New
+    /// Photos action stays enabled without the library's total, since its sheet counts the photos itself.
+    @Test @MainActor func toGoIsTrustedOnlyOnceICloudsUnlistedItemsAreMeasured() async throws {
+        let fixture = try Fixture(icloudpd: ["--total", "20", "--rate", "0"])
+        let harness = ModelHarness(fixture: fixture, timing: Self.waitingResumes)
+        let model = harness.model
+        try await Self.withLibraryCount(21) {
+            model.startOrResume()
+            #expect(await harness.waitFor { model.phase == .completed })
+            #expect(await harness.waitFor { !model.isEngineRunning })
+            #expect(model.offersNewPhotosOnly)
+            #expect(model.primaryExportEnabled(total: nil))
+            #expect(model.primaryExportDisabledReason(total: nil) == nil)
+
+            // A point as a complete walk leaves it: the layout the model uses, with the unlisted count not yet measured.
+            var point = ICloudResumePoint(
+                account: "acct", layout: model.layout.rawValue, libraryCount: 21, coveredThrough: 21,
+                anchor: .init(id: "asset-0", rank: 20), lastFullWalkAt: nil, updatedAt: Date(), unlistedCount: nil
+            )
+            try point.save(in: fixture.destination)
+            #expect(model.toGoCount == 1)
+            #expect(model.trustedToGoCount == nil)
+            #expect(model.newOnlyNotBackedUpCount == nil)
+            #expect(model.notBackedUpSummary == nil)
+
+            point.unlistedCount = 0
+            try point.save(in: fixture.destination)
+            if !model.isOnDriveCountApproximate {
+                #expect(model.trustedToGoCount == 1)
                 #expect(model.notBackedUpSummary == "1 not backed up")
             }
         }
@@ -268,7 +305,8 @@ extension ExportCancellationTests {
             #expect(report.onDrive == 19, "20 − missing − truncated + the untracked download")
             #expect(report.isApproximate)
             #expect(model.processedCount == 19)
-            #expect(model.onDriveSummaryText == "about 19 backed up · about 1 to go")
+            // No complete walk has measured iCloud's unlisted items, so "to go" isn't shown (it would include them).
+            #expect(model.onDriveSummaryText == "about 19 backed up")
 
             // Set aside, never deleted; the records are gone, so the next export downloads both again.
             let aside = destination.appending(path: ".photo-export/set-aside/\(report.setAsideFolder)/\(truncated)")

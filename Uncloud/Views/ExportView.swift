@@ -105,8 +105,8 @@ private struct ExportToolbar: ToolbarContent {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.primaryExportEnabled(total: total))
-            .help(model.primaryExportHelp ?? "")
-            .accessibilityHint(model.primaryExportHelp ?? "")
+            .help(model.primaryExportHelp(total: total) ?? "")
+            .accessibilityHint(model.primaryExportHelp(total: total) ?? "")
         }
     }
 

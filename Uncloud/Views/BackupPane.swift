@@ -196,25 +196,25 @@ struct BackupPane: View {
         "Titles, captions, keywords and people aren’t available to other apps, so they can’t be included."
     }
 
-    /// The selection's estimated size and the destination's free space, as one row's value.
+    /// What still has to be exported, and the destination's free space, as one row's value.
     private var spaceValue: String? {
-        guard let text = model.storageEstimateText else { return nil }
-        let estimate = text.prefix(1).uppercased() + text.dropFirst()
-        var parts = [model.storageEstimate == nil ? estimate : "\(estimate) needed"]
-        if model.destination != nil, let free = model.destinationFreeBytes {
-            parts.append("\(StorageEstimate.format(free)) free")
-        }
-        return parts.joined(separator: " · ")
+        SpaceRowText.value(
+            estimateText: model.storageEstimateText,
+            hasEstimate: model.storageEstimate != nil,
+            backedUp: (model.onDriveCount ?? 0) > 0,
+            needed: model.toGoCount == 0 ? 0 : model.storageNeededBytes,
+            free: model.destination == nil ? nil : model.destinationFreeBytes
+        )
     }
 
-    /// The estimate's basis and the amount still to export, which were two captions. Now the row's help.
+    /// The whole library's estimate and the estimate's basis, which were two captions. Now the row's help.
     private var spaceHelp: String {
         var parts: [String] = []
+        if let estimate = model.storageEstimate {
+            parts.append("Your whole library is \(estimate.formatted).")
+        }
         if let note = model.storageEstimateNote {
             parts.append(note)
-        }
-        if let estimate = model.storageEstimate, let needed = model.storageNeededBytes, needed < estimate.bytes {
-            parts.append("About \(StorageEstimate.format(needed)) still to export.")
         }
         return parts.joined(separator: " ")
     }

@@ -322,6 +322,21 @@ struct StorageEstimateTests {
         #expect(StorageCheck.remainingBytes(of: estimate, selected: 0, exported: 0) == 1000)
     }
 
+    @Test func spaceRowSaysWhatIsLeftToExport() {
+        let gigabyte: Int64 = 1_000_000_000
+        // A first export: the whole selection is what's needed.
+        #expect(SpaceRowText.value(estimateText: "about 412 GB", hasEstimate: true, backedUp: false, needed: nil, free: 220 * gigabyte)
+            == "About 412 GB needed · \(StorageEstimate.format(220 * gigabyte)) free")
+        // Backed-up photos: only what's still to go.
+        #expect(SpaceRowText.value(estimateText: "about 3.92 TB", hasEstimate: true, backedUp: true, needed: 1000 * gigabyte, free: 2000 * gigabyte)
+            == "About \(StorageEstimate.format(1000 * gigabyte)) to export · \(StorageEstimate.format(2000 * gigabyte)) free")
+        // Nothing left to export.
+        #expect(SpaceRowText.value(estimateText: "about 3.92 TB", hasEstimate: true, backedUp: true, needed: 0, free: nil) == "Nothing to export")
+        // No estimate yet, and no free space without a destination.
+        #expect(SpaceRowText.value(estimateText: "estimating…", hasEstimate: false, backedUp: false, needed: nil, free: nil) == "Estimating…")
+        #expect(SpaceRowText.value(estimateText: nil, hasEstimate: false, backedUp: true, needed: nil, free: 5) == nil)
+    }
+
     @Test func readsFreeSpaceOfATemporaryFolder() throws {
         try withTemporaryDirectory { folder in
             let free = try #require(StorageCheck.freeBytes(at: folder))

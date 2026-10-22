@@ -232,6 +232,28 @@ struct AssetSizeTable: Equatable, Sendable {
     }
 }
 
+/// The Backup pane's Space row, as plain text, so each case can be tested without a view.
+enum SpaceRowText {
+    /// "About 3.92 TB to export · 2.01 TB free" once the drive has backed-up photos, "Nothing to export · 2.01 TB free"
+    /// when nothing is left. With none backed up (a first export, where the whole selection is what's needed), or
+    /// without `needed`, "About 3.92 TB needed · 2.01 TB free". Nil when there's no estimate to show.
+    static func value(estimateText: String?, hasEstimate: Bool, backedUp: Bool, needed: Int64?, free: Int64?) -> String? {
+        var text: String
+        if backedUp, let needed {
+            text = needed == 0 ? "Nothing to export" : "About \(StorageEstimate.format(needed)) to export"
+        } else if let estimateText {
+            let sentence = estimateText.prefix(1).uppercased() + estimateText.dropFirst()
+            text = hasEstimate ? "\(sentence) needed" : sentence
+        } else {
+            return nil
+        }
+        if let free {
+            text += " · \(StorageEstimate.format(free)) free"
+        }
+        return text
+    }
+}
+
 /// Whether the export fits on the destination's volume.
 enum StorageCheck {
     /// The part of `estimate` still to copy, when `exported` of `selected` items are already in the

@@ -74,7 +74,7 @@ struct NewPhotosSnapshotTests {
                 .frame(height: 72)
                 Button(model.primaryExportTitle(total: 93_015)) {}
                     .buttonStyle(.borderedProminent)
-                    .help(model.primaryExportHelp ?? "")
+                    .help(model.primaryExportHelp(total: 93_015) ?? "")
             }
             .padding(20)
             .frame(width: 320)
@@ -130,7 +130,9 @@ struct NewPhotosSnapshotTests {
         model.pane = .export
         #expect(model.onDriveCount == 91_772)
         #expect(model.primaryExportTitle(total: 93_015) == "Export 1,243 New Photos")
-        #expect(model.notBackedUpSummary == "1,243 not backed up")
+        // No complete walk has measured iCloud's unlisted items yet, so the "not backed up" count isn't shown.
+        #expect(model.trustedToGoCount == nil)
+        #expect(model.notBackedUpSummary == nil)
 
         var attachments: [(String, Data)] = []
         for scheme in [ColorScheme.light, .dark] {

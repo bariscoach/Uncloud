@@ -239,8 +239,8 @@ struct BackupHero: View {
         }
         .controlSize(.large)
         .disabled(!model.primaryExportEnabled(total: total))
-        .help(model.primaryExportHelp ?? "")
-        .accessibilityHint(model.primaryExportHelp ?? "")
+        .help(model.primaryExportHelp(total: total) ?? "")
+        .accessibilityHint(model.primaryExportHelp(total: total) ?? "")
     }
 
     /// A faint wash in the tone's colour behind the hero. On macOS 26 it follows the concentric corner of the row.
