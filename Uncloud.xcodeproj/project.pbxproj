@@ -131,6 +131,7 @@
 		5B7A44701414FEE705E465BE /* AccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E7F3EF375A0AFA26209E21 /* AccountService.swift */; };
 		5BE07B01948B75595DF42C72 /* AccountSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 328EFE4B7819217316D5DEF8 /* AccountSummary.swift */; };
 		5C045C6D8365B3A0ABF686AA /* LibraryGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB669F72B489554F906F4C1B /* LibraryGrid.swift */; };
+		5DF6477BFD2C05B1DE3F0A3E /* ICloudListingPrefetchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1494BA41A6CF0DDAEC3D6AE4 /* ICloudListingPrefetchTests.swift */; };
 		5EE535A61E9C5EF423D76777 /* DuplicateCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C10D098209F9365755A30B3 /* DuplicateCleanup.swift */; };
 		5FA9ABD8E1E81042C289E001 /* ICloudQuickUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE05EFEA80550DA9598D6094 /* ICloudQuickUpdateTests.swift */; };
 		5FBF69A7FAF543AF1FED52FB /* BackupTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEBA56640980AAD84951366 /* BackupTools.swift */; };
@@ -379,6 +380,7 @@
 		12E4BD93EDC5B0D73F9DE2FC /* offset-beyond-end.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "offset-beyond-end.bin"; sourceTree = "<group>"; };
 		13002368E1D5E592541568FB /* AccountConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountConfiguration.swift; sourceTree = "<group>"; };
 		148FDD3238D890C505CD79D1 /* AccountValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountValidationTests.swift; sourceTree = "<group>"; };
+		1494BA41A6CF0DDAEC3D6AE4 /* ICloudListingPrefetchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudListingPrefetchTests.swift; sourceTree = "<group>"; };
 		15336D3C30890C8F72FAA919 /* VerifyBackupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerifyBackupSheet.swift; sourceTree = "<group>"; };
 		1549549B53832802FDD7D5AA /* AccountLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountLinks.swift; sourceTree = "<group>"; };
 		15AF2D1A16CBAD87F2CF6A13 /* LibrarySelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySelection.swift; sourceTree = "<group>"; };
@@ -663,6 +665,7 @@
 				ED7625BEC23F02A6633B9E9F /* ICloudBridgeDownloadTests.swift */,
 				4CCF306428858A4445460385 /* ICloudCleanupTests.swift */,
 				D32A78308E7BE6A54DBA4130 /* ICloudDiagnosticsTests.swift */,
+				1494BA41A6CF0DDAEC3D6AE4 /* ICloudListingPrefetchTests.swift */,
 				AEC27406BA9D1C97FFE6E15D /* ICloudOutputParserTests.swift */,
 				FD7AF5335D7FF4CF5E319361 /* ICloudPageCacheTests.swift */,
 				CE05EFEA80550DA9598D6094 /* ICloudQuickUpdateTests.swift */,
@@ -1468,6 +1471,7 @@
 				42A6F73AEF79371223B788B2 /* ICloudBridgeDownloadTests.swift in Sources */,
 				FB6FADC337295BD35964853B /* ICloudCleanupTests.swift in Sources */,
 				7450C2D1883B31B1B384ED1D /* ICloudDiagnosticsTests.swift in Sources */,
+				5DF6477BFD2C05B1DE3F0A3E /* ICloudListingPrefetchTests.swift in Sources */,
 				B0ED6806E8D44772464AB94E /* ICloudOutputParserTests.swift in Sources */,
 				93B4F08EE07BB8CAC08D9742 /* ICloudPageCacheTests.swift in Sources */,
 				5FA9ABD8E1E81042C289E001 /* ICloudQuickUpdateTests.swift in Sources */,

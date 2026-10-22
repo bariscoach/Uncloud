@@ -21,7 +21,7 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
   {"cmd":"count"}                     -> {"event":"count","count":N}
   {"cmd":"albums"}                    -> {"event":"albums","albums":[names]}  (no smart albums)
   {"cmd":"download","mode":"only"|"allExcept","ids":[...],"dest":DIR,"layout":"month"|"album"|"none",
-   "album":NAME,"xmp":BOOL,"hints":{id: rank},"startRank":R}
+   "album":NAME,"xmp":BOOL,"hints":{id: rank},"startRank":R,"prefetch":N}  (prefetch as for stats)
       layout month: DEST/YYYY/MM/NAME; none: DEST/NAME (icloudpd's --folder-structure none, the
       "All in One Folder" layout); album: DEST/NAME for the items of album NAME.
       startRank (default 0): items at ranks below R are never visited, so a walk pages from rank R
@@ -47,12 +47,15 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
          {"event":"error","kind":"PyiCloudServiceUnavailableException"|"PyiCloudConnectionErrorException",
           "message":...,"asset","rank",...counts}, with no "done". The item named isn't finished.
       Cancelling stops between chunks of a file, not only between items, and removes that file's
-      partial download.
-  {"cmd":"stats","offset":O}          walks the library from O (icloudpd's order) a page at a time
+      partial download. Browsing (page, count, albums) is answered between chunks too, at most every 0.25 s;
+      the other requests wait for the download to end.
+  {"cmd":"stats","offset":O,"prefetch":N}  walks the library from O (icloudpd's order) a page at a time
       -> {"event":"statsProgress","done":D,"total":T,"bytes":B,"sizes":{id: bytes},"unsized":[ids]}
          per page, where D and B count this request's items so far, sizes holds the page's items and
          unsized the page's items without a size; finally
-         {"event":"stats","done":D,"total":T,"bytes":B,"complete":BOOL,"cancelled":BOOL}.
+         {"event":"stats","done":D,"total":T,"bytes":B,"complete":BOOL,"cancelled":BOOL,"timing":{...}}.
+         prefetch (optional, default 1 = off, at most 4) fetches that many pages ahead on worker threads.
+         A throttle switches the session back to 1 page at a time.
          An item's bytes are what a download writes for it with Uncloud's arguments: the original,
          plus the Live Photo movie when there is one (not XMP sidecars, a few KB each). Browsing
          requests are answered between pages, and the walk stops early (complete false) when a
@@ -85,6 +88,9 @@ is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting 
   {"cmd":"resume","target":ID}        still answered while it's held. Neither has a reply.
   {"cmd":"ping"}                      -> {"event":"pong"}, from the request loop itself (between items,
                                       pages and chunks), so a missing pong means the bridge is stuck.
+Timing: page, stats, download and delete/restore final events carry "timing": {"queries","items","bytes","seconds"}
+(record queries sent to Apple, the bytes of their replies, the items handled, the seconds taken). The same numbers
+go to stderr as one line: "timing cmd=page queries=2 items=200 bytes=1043112 seconds=1.31". Older apps ignore it.
 Errors: {"id"?, "event":"error","kind":...,"message":...}. Closing stdin or SIGTERM stops the bridge.
 Request lines have no length limit (an allExcept list of 100,000 IDs is a few MB).
 The password is never written anywhere.
@@ -105,6 +111,7 @@ class _Value:
 multiprocessing.Lock = threading.Lock
 multiprocessing.RawValue = _Value
 
+import builtins  # noqa: E402
 import copy  # noqa: E402
 import datetime  # noqa: E402
 import errno  # noqa: E402
@@ -116,9 +123,10 @@ import sys  # noqa: E402
 import time  # noqa: E402
 import urllib.parse  # noqa: E402
 from collections import deque  # noqa: E402
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 from functools import partial  # noqa: E402
 from itertools import islice  # noqa: E402
-from typing import Any, Callable, Dict, Iterable, List, Optional  # noqa: E402
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple  # noqa: E402
 
 # icloudpd's own page size; also the largest window fetched by one request.
 PAGE_CHUNK = 100
@@ -149,8 +157,36 @@ DELETE_ACTIONS = {
     "delete": {"album": "library", "isDeleted": 1, "changed": DELETE_CHANGED_MESSAGE},
     "restore": {"album": "recentlyDeleted", "isDeleted": 0, "changed": RESTORE_CHANGED_MESSAGE},
 }
+# Browsing answered during one chunk of a download: at most this many requests, and about this many seconds.
+BROWSE_REQUESTS_PER_CHUNK = 2
+BROWSE_SECONDS_PER_CHUNK = 1.0
 # Session errors that mean Apple is limiting requests, whatever class they come as.
 THROTTLE_MARKERS = ("ACCESS_DENIED", "429", "503")
+# A download answers browsing at most this often (seconds), between chunks of a file, so a large file doesn't hold
+# up the library grid. CLOCK is what measures that interval; tests replace it.
+SERVE_INTERVAL = 0.25
+CLOCK = time.monotonic
+# Pages a listing may fetch ahead on worker threads. 1 is off, which is the app's default; the app asks for more
+# only when the owner has turned the setting on.
+MAX_PREFETCH = 4
+# A prefetched page older than this (seconds) is fetched again before use: its download URLs and ranks go stale.
+PREFETCH_MAX_AGE = 300.0
+# Set when Apple throttles a listing: from then on this session fetches one page at a time.
+LISTING_STATE = {"throttled": False}
+# The CloudKit fields a listing reads: what describe(), download_bytes() and thumb_url() reach through PhotoAsset
+# (the filename, dates, size, type, versions and thumbnail), plus the record names the query loop joins on. Listing
+# requests (page, stats) ask only for these, and get the same items; download and delete walks keep icloudpd's
+# full list.
+LISTING_KEYS = [
+    "recordName", "recordType", "masterRef", "assetDate", "addedDate", "isDeleted", "isHidden",
+    "adjustmentRenderType", "itemType", "filenameEnc", "resOriginalWidth", "resOriginalHeight",
+    "resOriginalRes", "resOriginalFileType", "resOriginalAltRes", "resOriginalAltFileType",
+    "resOriginalVidComplRes", "resOriginalVidComplFileType", "resJPEGFullRes", "resJPEGFullFileType",
+    "resJPEGMedRes", "resJPEGMedFileType", "resJPEGThumbRes", "resJPEGThumbFileType",
+    "resVidMedRes", "resVidMedFileType", "resVidSmallRes", "resVidSmallFileType",
+]
+# Session files (pyicloud's session and cookie files) are rewritten by every request; this lock keeps two writes apart.
+_SESSION_FILE_LOCK = threading.Lock()
 
 LOGGER = logging.getLogger("photo_bridge")
 
@@ -194,6 +230,13 @@ class DeleteStopped(Exception):
 def is_throttle_error(error: BaseException) -> bool:
     text = f"{type(error).__name__} {error}"
     return any(marker in text for marker in THROTTLE_MARKERS)
+
+
+def is_real_throttle(error: BaseException) -> bool:
+    """Apple refusing to serve (a 503, a 429 or ACCESS_DENIED), and nothing else: a lost connection doesn't count."""
+    return is_throttle_error(error) or any(
+        cls.__name__ == "PyiCloudServiceUnavailableException" for cls in type(error).__mro__
+    )
 
 
 class FileAppeared(Exception):
@@ -474,6 +517,119 @@ def patch_icloudpd_for_bridge(notify: Optional[Callable[[str], None]] = None) ->
     base.truncate_middle = lambda text, _length: text
     patch_downloads_for_bridge()
     patch_indexing_state_for_bridge(notify)
+    patch_listing_keys_for_bridge()
+    patch_timing_for_bridge()
+    guard_session_files_for_bridge()
+
+
+def patch_listing_keys_for_bridge() -> None:
+    """A query for an album whose `_uncloud_keys` is set asks only for those fields (see LISTING_KEYS)."""
+    from pyicloud_ipd.services import photos
+
+    original = photos.PhotoAlbum._list_query_gen
+    if getattr(original, "_uncloud", False):
+        return
+
+    def _list_query_gen(self: Any, offset: int, list_type: str, query_filter: Any = None) -> Any:
+        query = original(self, offset, list_type, query_filter)
+        keys = getattr(self, "_uncloud_keys", None)
+        if keys is not None:
+            query["desiredKeys"] = list(keys)
+        return query
+
+    _list_query_gen._uncloud = True  # type: ignore[attr-defined]
+    photos.PhotoAlbum._list_query_gen = _list_query_gen
+
+
+def patch_timing_for_bridge() -> None:
+    """Every record query goes through here, so the request on top of the timer stack counts it (see RequestTimer)."""
+    from pyicloud_ipd.services import photos
+
+    original = photos.PhotoAlbum.photos_request
+    if getattr(original, "_uncloud", False):
+        return
+
+    def photos_request(self: Any) -> Any:
+        response = original(self)
+        note_query(self, response)
+        return response
+
+    photos_request._uncloud = True  # type: ignore[attr-defined]
+    photos.PhotoAlbum.photos_request = photos_request
+
+
+class _GuardedWrite:
+    """A file opened for writing that holds the session-files lock until it's closed."""
+
+    def __init__(self, path: Any, mode: str, args: tuple, kwargs: dict) -> None:
+        _SESSION_FILE_LOCK.acquire()
+        try:
+            self._file = builtins.open(path, mode, *args, **kwargs)
+        except BaseException:
+            _SESSION_FILE_LOCK.release()
+            raise
+
+    def __enter__(self) -> Any:
+        return self._file
+
+    def __exit__(self, *exc_info: Any) -> bool:
+        try:
+            self._file.close()
+        finally:
+            _SESSION_FILE_LOCK.release()
+        return False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._file, name)
+
+
+def _guarded_open(path: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+    if any(flag in mode for flag in "wax+"):
+        return _GuardedWrite(path, mode, args, kwargs)
+    return builtins.open(path, mode, *args, **kwargs)
+
+
+def guard_session_files_for_bridge() -> None:
+    """Listings run on worker threads (see PageReader), and each request rewrites pyicloud's session and cookie
+    files. Writes to them are serialized: pyicloud's session module opens its files through `_guarded_open`, and
+    the cookie jar's save runs under the same lock. Reads, and the HTTP requests themselves, are not serialized."""
+    import http.cookiejar
+
+    from pyicloud_ipd import session as pyicloud_session
+
+    pyicloud_session.open = _guarded_open  # type: ignore[attr-defined]
+    for cls in (http.cookiejar.FileCookieJar, http.cookiejar.LWPCookieJar, http.cookiejar.MozillaCookieJar):
+        original = cls.__dict__.get("save")
+        if original is None or getattr(original, "_uncloud", False):
+            continue
+
+        def save(self: Any, *args: Any, _original: Any = original, **kwargs: Any) -> Any:
+            # The jar's own lock too: extract_cookies adds cookies under it while another listing saves.
+            with _SESSION_FILE_LOCK, self._cookies_lock:
+                return _original(self, *args, **kwargs)
+
+        save._uncloud = True  # type: ignore[attr-defined]
+        cls.save = save  # type: ignore[method-assign]
+
+    # session_data is updated by every response (outside any file lock) while the session file is dumped. The dump
+    # takes a copy first, so it never iterates a dict that another thread is changing.
+    if not isinstance(getattr(pyicloud_session, "json", None), _SnapshotJson):
+        pyicloud_session.json = _SnapshotJson(pyicloud_session.json)  # type: ignore[attr-defined]
+
+
+class _SnapshotJson:
+    """pyicloud's session module's `json`, with `dump` writing a copy of a dict (see guard_session_files_for_bridge)."""
+
+    def __init__(self, module: Any) -> None:
+        self._module = module
+
+    def dump(self, obj: Any, fp: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(obj, dict):
+            obj = dict(obj)
+        return self._module.dump(obj, fp, *args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._module, name)
 
 
 INDEXING_NOTE = "iCloud is still indexing this library; continuing. Very recent changes may appear in a later export."
@@ -670,17 +826,104 @@ def _content_length(response: Any) -> Optional[int]:
 # MARK: - Library access
 
 
-def fetch_assets(album: Any, offset: int, limit: int) -> List[Any]:
-    """Items `offset..<offset+limit` of an album, in icloudpd's order, with its own paging."""
+def fetch_assets(album: Any, offset: int, limit: int, lean: bool = False) -> List[Any]:
+    """Items `offset..<offset+limit` of an album, in icloudpd's order, with its own paging. `lean` asks for
+    LISTING_KEYS only (a listing); otherwise the query has icloudpd's full list of fields."""
     if limit <= 0:
         return []
     view = copy.copy(album)
     view.offset = max(0, offset)
     view.page_size = min(limit, PAGE_CHUNK)
+    if lean:
+        view._uncloud_keys = LISTING_KEYS
     return list(islice(view.photos, limit))
 
 
-def walk(album: Any, start: int = 0) -> Iterable[tuple]:
+def listing_depth(requested: int) -> int:
+    """How many pages a listing fetches ahead: `requested` clamped to 1..MAX_PREFETCH, and 1 once Apple has throttled."""
+    if LISTING_STATE["throttled"]:
+        return 1
+    return min(max(requested, 1), MAX_PREFETCH)
+
+
+def parse_prefetch(request: Dict[str, Any]) -> int:
+    """The request's "prefetch" (pages ahead, default 1 = off)."""
+    value = request.get("prefetch", 1)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise RequestError("badRequest", "prefetch must be a number, 1 or more.")
+    return min(value, MAX_PREFETCH)
+
+
+class PageReader:
+    """Pages of an album for a listing, fetched one at a time, or up to `depth` ahead on worker threads (R11).
+
+    Every page is a query of its own (the startRank filter makes them independent), so they can come back in
+    any order. The walk or stats pass says which pages come next (`ahead`); a page that's asked for and wasn't
+    predicted is fetched in line, and the predictions that didn't come true are dropped. A prefetched page older
+    than `max_age` seconds when it's used is fetched again: download URLs and ranks go stale. A throttle, or any
+    run-ending error, is raised where the page is asked for, and the listing has to stop there. Queries made by a
+    prefetch count for the request that submitted it (see note_query)."""
+
+    def __init__(self, album: Any, depth: int = 1, lean: bool = False, max_age: Optional[float] = None) -> None:
+        self._album = album
+        self._depth = depth
+        self._lean = lean
+        self._max_age = PREFETCH_MAX_AGE if max_age is None else max_age
+        self._pool: Optional[ThreadPoolExecutor] = None
+        self._pending: Dict[tuple, Any] = {}
+
+    def get(self, offset: int, limit: int) -> List[Any]:
+        future = self._pending.pop((offset, limit), None)
+        if future is None:
+            self.drop()
+            return self._fetch(offset, limit)
+        fetched_at, page = future.result()
+        if time.monotonic() - fetched_at >= self._max_age:
+            return self._fetch(offset, limit)
+        return page
+
+    def ahead(self, keys: Iterable[tuple]) -> None:
+        """Starts fetching the pages (offset, limit) in `keys`, while there's room for `depth` of them."""
+        if self._depth <= 1:
+            return
+        for key in keys:
+            if key in self._pending or len(self._pending) >= self._depth:
+                continue
+            if self._pool is None:
+                self._pool = ThreadPoolExecutor(max_workers=self._depth, thread_name_prefix="photo_bridge_pages")
+            self._pending[key] = self._pool.submit(self._fetch_for_pool, key, current_timer())
+
+    def drop(self) -> None:
+        pending, self._pending = self._pending, {}
+        for future in pending.values():
+            future.cancel()
+
+    def close(self) -> None:
+        self.drop()
+        if self._pool is not None:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+            self._pool = None
+
+    def _fetch_for_pool(self, key: tuple, timer: Optional["RequestTimer"]) -> Tuple[float, List[Any]]:
+        _QUERY_TIMER.bound, _QUERY_TIMER.timer = True, timer
+        try:
+            page = self._fetch(*key)
+        finally:
+            _QUERY_TIMER.bound, _QUERY_TIMER.timer = False, None
+        return time.monotonic(), page
+
+    def _fetch(self, offset: int, limit: int) -> List[Any]:
+        try:
+            return fetch_assets(self._album, offset, limit, lean=self._lean)
+        except Exception as error:  # noqa: BLE001
+            if is_real_throttle(error):
+                LISTING_STATE["throttled"] = True
+            raise
+
+
+def walk(
+    album: Any, start: int = 0, depth: int = 1, eager: bool = True, ahead_allowed: Optional[Callable[[], bool]] = None,
+) -> Iterable[tuple]:
     """(rank, asset) for every item of an album from rank `start` on, PAGE_CHUNK items per query.
 
     CloudKit pages by offset, so an item removed above the walk's position while it runs would move
@@ -689,36 +932,50 @@ def walk(album: Any, start: int = 0) -> Iterable[tuple]:
     lines up on the last items already visited: if they moved up by more than that, it looks further
     back. Items moved down by an addition show up twice and are passed over the second time. Ranks
     are the items' ranks when their page was fetched. Pages a copy, so the album itself (albums are
-    cached) keeps its offset and can be walked again."""
+    cached) keeps its offset and can be walked again.
+
+    `depth` pages are fetched ahead while the caller handles the current one (see PageReader). The next
+    page starts WALK_OVERLAP items before the end of this one, so that is where the predictions point."""
     start = max(0, start)
     offset = start
     seen: set = set()
     recent: List[str] = []
-    while True:
-        back = WALK_OVERLAP if recent else 0
+    depth = listing_depth(depth)
+    pages = PageReader(album, depth)
+    try:
         while True:
-            low = max(start, offset - back)
-            limit = PAGE_CHUNK if back <= WALK_OVERLAP else (offset - low) + PAGE_CHUNK
-            page = fetch_assets(album, low, limit)
-            position = {asset.id: index for index, asset in enumerate(page)}
-            hit = next((position[i] for i in reversed(recent) if i in position), None)
-            if not recent or hit is not None or low == start:
-                break
-            # More than `back` items above were removed (or the last ones visited were): look further back.
-            back *= 4
-        first = 0 if hit is None else hit + 1
-        visited: List[str] = []
-        for index in range(first, len(page)):
-            asset = page[index]
-            if asset.id in seen:
-                continue
-            seen.add(asset.id)
-            visited.append(asset.id)
-            yield low + index, asset
-        if len(page) < limit:
-            return
-        recent = visited or recent
-        offset = low + len(page)
+            back = WALK_OVERLAP if recent else 0
+            while True:
+                low = max(start, offset - back)
+                limit = PAGE_CHUNK if back <= WALK_OVERLAP else (offset - low) + PAGE_CHUNK
+                page = pages.get(low, limit)
+                position = {asset.id: index for index, asset in enumerate(page)}
+                hit = next((position[i] for i in reversed(recent) if i in position), None)
+                if not recent or hit is not None or low == start:
+                    break
+                # More than `back` items above were removed (or the last ones visited were): look further back.
+                pages.drop()
+                back *= 4
+            first = 0 if hit is None else hit + 1
+            # A download (eager False) prefetches only while the walk is passing over known items: the pages it
+            # would skip are cheap to fetch ahead, and the items it downloads aren't held up by queries.
+            if len(page) == PAGE_CHUNK and (eager or ahead_allowed is None or ahead_allowed()):
+                step = PAGE_CHUNK - WALK_OVERLAP
+                pages.ahead((low + step * ahead, PAGE_CHUNK) for ahead in range(1, depth + 1))
+            visited: List[str] = []
+            for index in range(first, len(page)):
+                asset = page[index]
+                if asset.id in seen:
+                    continue
+                seen.add(asset.id)
+                visited.append(asset.id)
+                yield low + index, asset
+            if len(page) < limit:
+                return
+            recent = visited or recent
+            offset = low + len(page)
+    finally:
+        pages.close()
 
 
 def thumb_url(asset: Any) -> Optional[str]:
@@ -810,6 +1067,107 @@ def hint_windows(ranks: Iterable[int]) -> List[range]:
     return windows
 
 
+# MARK: - Timing
+
+# The requests whose work is timed and logged (R9).
+TIMED_COMMANDS = ("page", "count", "albums", "stats", "download", "delete", "restore")
+_TIMERS: List["RequestTimer"] = []
+_TIMERS_LOCK = threading.Lock()
+_FIRST_QUERY_LOGGED = {"done": False}
+
+
+class RequestTimer:
+    """What one request costs: the record queries it sends to Apple, the bytes of their replies, and the seconds it
+    takes. A query counts for the request on top of the timer stack, so a browsing request answered during a
+    download counts for itself, and the download's own queries count for the download."""
+
+    def __init__(self, command: str) -> None:
+        self.command = command
+        self.queries = 0
+        self.bytes = 0
+        self.started = time.monotonic()
+        self.result: Optional[Dict[str, Any]] = None
+        self._lock = threading.Lock()
+
+    def note_query(self, size: int) -> None:
+        with self._lock:
+            self.queries += 1
+            self.bytes += size
+
+    def finish(self, items: int = 0) -> Dict[str, Any]:
+        """The timing for the request. The first call logs the timing line; later calls return the same numbers."""
+        with self._lock:
+            if self.result is None:
+                seconds = time.monotonic() - self.started
+                self.result = {
+                    "queries": self.queries, "items": items, "bytes": self.bytes, "seconds": round(seconds, 3),
+                }
+                LOGGER.info(
+                    "timing cmd=%s queries=%d items=%d bytes=%d seconds=%.2f",
+                    self.command, self.queries, items, self.bytes, seconds,
+                )
+            return self.result
+
+
+def begin_timer(command: Any) -> Optional[RequestTimer]:
+    if command not in TIMED_COMMANDS:
+        return None
+    timer = RequestTimer(command)
+    with _TIMERS_LOCK:
+        _TIMERS.append(timer)
+    return timer
+
+
+def end_timer(timer: Optional[RequestTimer]) -> None:
+    if timer is None:
+        return
+    with _TIMERS_LOCK:
+        _TIMERS[:] = [entry for entry in _TIMERS if entry is not timer]
+
+
+def timing_field(timer: Optional[RequestTimer], items: int) -> Dict[str, Any]:
+    """The `timing` key for a final event, or nothing when the request isn't timed."""
+    if timer is None:
+        return {}
+    return {"timing": timer.finish(items)}
+
+
+def _response_size(response: Any) -> int:
+    try:
+        return len(response.content)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+# A prefetch worker's queries count for the request that submitted them (PageReader.ahead), not for whatever
+# request is on top of the stack when the query happens to run.
+_QUERY_TIMER = threading.local()
+
+
+def current_timer() -> Optional[RequestTimer]:
+    with _TIMERS_LOCK:
+        return _TIMERS[-1] if _TIMERS else None
+
+
+def note_query(album: Any, response: Any) -> None:
+    """Counts one record query for the request it belongs to (the one on top of the timer stack, or the one that
+    submitted a prefetch). The first query of the session also logs its resultsLimit against the records Apple
+    returned, so a short answer shows up in the log."""
+    if getattr(_QUERY_TIMER, "bound", False):
+        timer = _QUERY_TIMER.timer
+    else:
+        timer = current_timer()
+    if timer is not None:
+        timer.note_query(_response_size(response))
+    if not _FIRST_QUERY_LOGGED["done"]:
+        _FIRST_QUERY_LOGGED["done"] = True
+        try:
+            records = len(response.json().get("records", []))
+        except Exception:  # noqa: BLE001
+            records = -1
+        LOGGER.info("query resultsLimit=%d records=%d", int(album.page_size) * 2, records)
+
+
 # MARK: - Bridge
 
 
@@ -848,6 +1206,9 @@ class Bridge:
     def handle(self, request: Dict[str, Any], downloading: bool) -> None:
         request_id = request.get("id")
         command = request.get("cmd")
+        long_request = command in ("download", "stats", "delete", "restore")
+        # A long request that is deferred does no work now, so it's timed when it runs.
+        timer = None if downloading and long_request else begin_timer(command)
         try:
             if command == "page":
                 offset = int(request.get("offset", 0))
@@ -855,9 +1216,11 @@ class Bridge:
                 album = self._album(request.get("album"))
                 items = [
                     {**describe(a), "rank": max(0, offset) + i}
-                    for i, a in enumerate(fetch_assets(album, offset, limit))
+                    for i, a in enumerate(fetch_assets(album, offset, limit, lean=True))
                 ]
-                self.channel.send({"id": request_id, "event": "page", "offset": offset, "items": items})
+                reply = {"id": request_id, "event": "page", "offset": offset, "items": items}
+                reply.update(timing_field(timer, len(items)))
+                self.channel.send(reply)
             elif command == "count":
                 album = self._album(request.get("album"))
                 self.channel.send({"id": request_id, "event": "count", "count": len(album)})
@@ -868,30 +1231,43 @@ class Bridge:
 
                 names = [n for n in self.albums(refresh=True) if n not in PhotoLibrary.SMART_FOLDERS]
                 self.channel.send({"id": request_id, "event": "albums", "albums": names})
-            elif command in ("download", "stats", "delete", "restore"):
+            elif long_request:
                 if downloading:
                     self._deferred.append(request)
                 elif command == "download":
-                    self.download(request)
+                    self.download(request, timer)
                 elif command == "stats":
-                    self.stats(request)
+                    self.stats(request, timer)
                 else:
-                    self.delete(request, action=command)
+                    self.delete(request, action=command, timer=timer)
             else:
                 raise RequestError("badRequest", f"Unknown command {command!r}.")
         except RequestError as error:
             self.channel.error(request_id, error.kind, str(error))
         except Exception as error:  # noqa: BLE001
             self.channel.error(request_id, type(error).__name__, str(error))
+        finally:
+            if timer is not None:
+                # Already finished, with its items, when the request sent its final event; this logs the rest.
+                timer.finish()
+                end_timer(timer)
 
-    def serve_waiting(self) -> None:
-        """Answers browsing requests that arrived during a download, between its items."""
+    def serve_waiting(self, limit: Optional[int] = None, seconds: Optional[float] = None) -> None:
+        """Answers browsing requests that arrived during a download, between its items. With `limit` and `seconds`,
+        it answers at most that many requests and stops after about that long; the rest wait in the queue."""
         self.channel.answer_pings()
+        started = time.monotonic()
+        served = 0
         while True:
+            if limit is not None and served >= limit:
+                return
+            if seconds is not None and time.monotonic() - started >= seconds:
+                return
             request = self.channel.poll_request()
             if request is None:
                 return
             self.handle(request, downloading=True)
+            served += 1
 
     def _album(self, name: Any) -> Any:
         """The album a request names: Recently Deleted for "recentlyDeleted", the library otherwise."""
@@ -908,18 +1284,17 @@ class Bridge:
 
     # Sizes
 
-    def stats(self, request: Dict[str, Any]) -> None:
+    def stats(self, request: Dict[str, Any], timer: Optional[RequestTimer] = None) -> None:
         """Streams each item's download size, a page at a time, from `offset` to the end."""
         request_id = request.get("id")
         try:
             offset = max(0, int(request.get("offset") or 0))
         except (TypeError, ValueError):
             raise RequestError("badRequest", "offset must be a number.")
+        depth = listing_depth(parse_prefetch(request))
         album = self.library.all
         total = len(album)
-        view = copy.copy(album)
-        view.offset = offset
-        view.page_size = PAGE_CHUNK
+        pages = PageReader(album, depth, lean=True)
         done = 0
         total_bytes = 0
         sizes: Dict[str, int] = {}
@@ -934,40 +1309,58 @@ class Bridge:
                 "bytes": total_bytes, "sizes": sizes, "unsized": unsized,
             })
 
-        for asset in view.photos:
-            size = download_bytes(asset)
-            if size is not None:
-                sizes[asset.id] = size
-                total_bytes += size
-            else:
-                unsized.append(asset.id)
-            done += 1
-            in_page += 1
-            if in_page < PAGE_CHUNK:
-                continue
-            report()
-            sizes = {}
-            unsized = []
-            in_page = 0
-            if self.channel.is_cancelled(request_id):
-                cancelled, complete = True, False
-                break
-            # Browsing goes first; a download that arrived meanwhile ends the walk.
-            self.serve_waiting()
-            if self._deferred or self.channel.is_cancelled(request_id):
-                cancelled = self.channel.is_cancelled(request_id)
-                complete = False
-                break
+        try:
+            position = offset
+            walking = True
+            while walking:
+                page = pages.get(position, PAGE_CHUNK)
+                if not page:
+                    break
+                if len(page) == PAGE_CHUNK:
+                    pages.ahead((position + PAGE_CHUNK * ahead, PAGE_CHUNK) for ahead in range(1, depth + 1))
+                for asset in page:
+                    size = download_bytes(asset)
+                    if size is not None:
+                        sizes[asset.id] = size
+                        total_bytes += size
+                    else:
+                        unsized.append(asset.id)
+                    done += 1
+                    in_page += 1
+                    if in_page < PAGE_CHUNK:
+                        continue
+                    report()
+                    sizes = {}
+                    unsized = []
+                    in_page = 0
+                    if self.channel.is_cancelled(request_id):
+                        cancelled, complete, walking = True, False, False
+                        break
+                    # Browsing goes first; a download that arrived meanwhile ends the walk.
+                    self.serve_waiting()
+                    if self._deferred or self.channel.is_cancelled(request_id):
+                        cancelled = self.channel.is_cancelled(request_id)
+                        complete, walking = False, False
+                        break
+                if not walking:
+                    break
+                position += len(page)
+                if len(page) < PAGE_CHUNK:
+                    break
+        finally:
+            pages.close()
         if in_page or done == 0:
             report()
-        self.channel.send({
+        final = {
             "id": request_id, "event": "stats", "done": done, "total": total, "bytes": total_bytes,
             "complete": complete, "cancelled": cancelled,
-        })
+        }
+        final.update(timing_field(timer, done))
+        self.channel.send(final)
 
     # Downloading
 
-    def download(self, request: Dict[str, Any]) -> None:
+    def download(self, request: Dict[str, Any], timer: Optional[RequestTimer] = None) -> None:
         request_id = request.get("id")
         mode = request.get("mode")
         if mode not in ("only", "allExcept"):
@@ -987,6 +1380,7 @@ class Bridge:
         stop_at = request.get("stopAt")
         if stop_at is not None and (mode != "allExcept" or not isinstance(stop_at, str)):
             raise RequestError("badRequest", "stopAt is an asset ID, for allExcept downloads.")
+        depth = listing_depth(parse_prefetch(request))
 
         if layout == "album":
             name = request.get("album")
@@ -1000,9 +1394,9 @@ class Bridge:
             self.username, self.cookie_directory, destination, layout, bool(request.get("xmp"))
         )
         plan = self.plan_factory(args, self.download_logger)
-        run = _DownloadRun(self, request_id, plan)
+        run = _DownloadRun(self, request_id, plan, timer)
         try:
-            self._download(run, album, mode, layout, ids, hints, start_rank, stop_at)
+            self._download(run, album, mode, layout, ids, hints, start_rank, stop_at, depth)
         except DownloadStopped as stopped:
             run.stop(stopped)
             return
@@ -1017,11 +1411,11 @@ class Bridge:
 
     def _download(
         self, run: "_DownloadRun", album: Any, mode: str, layout: str, ids: set, hints: Dict[str, Any],
-        start_rank: int, stop_at: Optional[str] = None,
+        start_rank: int, stop_at: Optional[str] = None, depth: int = 1,
     ) -> None:
         if mode == "allExcept":
             run.set_total(max(0, len(album) - start_rank))
-            for rank, asset in walk(album, start_rank):
+            for rank, asset in walk(album, start_rank, depth, eager=False, ahead_allowed=run.mostly_idle):
                 if run.should_stop():
                     break
                 if stop_at is not None and asset.id == stop_at:
@@ -1045,7 +1439,7 @@ class Bridge:
             # Membership is only known by walking the album; the total grows with each match.
             run.set_total(0)
         if remaining and not run.should_stop():
-            for rank, asset in walk(album, start_rank):
+            for rank, asset in walk(album, start_rank, depth, eager=False, ahead_allowed=run.mostly_idle):
                 if run.should_stop():
                     break
                 if asset.id in remaining:
@@ -1088,7 +1482,7 @@ class Bridge:
 
     # Deleting
 
-    def delete(self, request: Dict[str, Any], action: str = "delete") -> None:
+    def delete(self, request: Dict[str, Any], action: str = "delete", timer: Optional[RequestTimer] = None) -> None:
         """Deletes items from iCloud Photos (action "delete"), or recovers them from Recently Deleted ("restore").
         Resolves every target first (never changing the album while walking, which would shift the offsets), then
         sends CloudKit modify requests of `batchSize` items. See the protocol notes."""
@@ -1105,7 +1499,7 @@ class Bridge:
             raise RequestError("badRequest", "confirmedCount is required: the number of items the user confirmed, 0 or more.")
         ids = set(str(i) for i in (request.pop("ids", None) or []))
         hints = request.get("hints") or {}
-        run = _DeleteRun(self, request_id)
+        run = _DeleteRun(self, request_id, timer)
         missing = 0
         stopped = message = None
         try:
@@ -1213,10 +1607,11 @@ class Bridge:
 class _RequestRun:
     """What a long request (a download or a delete) needs from the request loop: pings, pause and cancel."""
 
-    def __init__(self, bridge: Bridge, request_id: Any):
+    def __init__(self, bridge: Bridge, request_id: Any, timer: Optional[RequestTimer] = None):
         self.bridge = bridge
         self.channel = bridge.channel
         self.request_id = request_id
+        self.timer = timer
 
     def should_stop(self) -> bool:
         """Checked before each item: answers pings, holds while paused, then says whether to stop."""
@@ -1230,6 +1625,10 @@ class _RequestRun:
             self.bridge.serve_waiting()
             self.channel.wait_for_input(0.05)
         return not self.channel.is_cancelled(self.request_id)
+
+    def _timing(self, items: int) -> Dict[str, Any]:
+        """The `timing` key for this request's final event (nothing when it isn't timed)."""
+        return timing_field(self.timer, items)
 
 
 class _DeleteTarget:
@@ -1251,8 +1650,8 @@ class _DeleteTarget:
 class _DeleteRun(_RequestRun):
     """Reports a delete's progress and runs its batches; see Bridge.delete."""
 
-    def __init__(self, bridge: Bridge, request_id: Any):
-        super().__init__(bridge, request_id)
+    def __init__(self, bridge: Bridge, request_id: Any, timer: Optional[RequestTimer] = None):
+        super().__init__(bridge, request_id, timer)
         self._announced: Optional[tuple] = None
         self._ticks = 0
         self.counts = {"deleted": 0, "failed": 0}
@@ -1325,27 +1724,41 @@ class _DeleteRun(_RequestRun):
             "id": self.request_id, "event": "deleteDone", "deleted": self.counts["deleted"],
             "failed": self.counts["failed"], "missing": missing, "cancelled": cancelled,
             "stopped": stopped, "message": message,
+            **self._timing(self.counts["deleted"] + self.counts["failed"]),
         })
 
 
 class _DownloadRun(_RequestRun):
-    def __init__(self, bridge: Bridge, request_id: Any, plan: DownloadPlan):
-        super().__init__(bridge, request_id)
+    def __init__(self, bridge: Bridge, request_id: Any, plan: DownloadPlan, timer: Optional[RequestTimer] = None):
+        super().__init__(bridge, request_id, timer)
         self.plan = plan
         self.total = 0
         self.done = 0
         self.counts = {"downloaded": 0, "skipped": 0, "failed": 0}
         self._announced: Optional[tuple] = None
         self._since_poll = 0
+        self._served_at = float("-inf")
+        self._idle_streak = 0
 
     def between_chunks(self) -> Optional[str]:
         """Checked after each chunk of a file: "cancel", "pause" or None."""
         self.channel.answer_pings()
+        self._serve_browsing_if_due()
         if self.channel.is_cancelled(self.request_id):
             return "cancel"
         if self.channel.is_paused(self.request_id):
             return "pause"
         return None
+
+    def _serve_browsing_if_due(self) -> None:
+        """Answers the browsing requests that arrived during the download, at most every SERVE_INTERVAL seconds.
+        Without this a large file would hold up the library grid until it finished."""
+        now = CLOCK()
+        if now - self._served_at < SERVE_INTERVAL:
+            return
+        self._served_at = now
+        # At most two requests, and about a second: the rest wait for the next interval, so a slow page can't stall the file.
+        self.bridge.serve_waiting(limit=BROWSE_REQUESTS_PER_CHUNK, seconds=BROWSE_SECONDS_PER_CHUNK)
 
     def set_total(self, total: int) -> None:
         self.total = max(0, total)
@@ -1361,14 +1774,20 @@ class _DownloadRun(_RequestRun):
         """Called for items passed over, so browsing stays answered during long scans. With a rank, the walk's
         position is reported every PAGE_CHUNK items too."""
         self._since_poll += 1
+        self._idle_streak += 1
         if self._since_poll >= PAGE_CHUNK:
             self._since_poll = 0
             if rank is not None:
                 self.channel.send({"id": self.request_id, "event": "walked", "rank": rank})
             self.bridge.serve_waiting()
 
+    def mostly_idle(self) -> bool:
+        """Whether the walk has passed over most of the last page (a long run of known items, not downloads)."""
+        return self._idle_streak >= PAGE_CHUNK // 2
+
     def process(self, asset: Any, rank: Optional[int] = None) -> None:
         global _ACTIVE_RUN
+        self._idle_streak = 0
         capture = self.bridge.capture
         capture.reset()
         filename = asset.id
@@ -1423,7 +1842,10 @@ class _DownloadRun(_RequestRun):
         self._progress()
         cancelled = self.channel.is_cancelled(self.request_id)
         self.channel.forget(self.request_id)
-        self.channel.send({"id": self.request_id, "event": "done", "cancelled": cancelled, **self.counts})
+        self.channel.send({
+            "id": self.request_id, "event": "done", "cancelled": cancelled, **self.counts,
+            **self._timing(self.done),
+        })
 
     def stop(self, stopped: DownloadStopped) -> None:
         """Ends the download with a run-ending error instead of `done`; the app treats it as the run's
@@ -1437,6 +1859,7 @@ class _DownloadRun(_RequestRun):
             reply["asset"] = stopped.asset_id
         if stopped.rank is not None:
             reply["rank"] = stopped.rank
+        reply.update(self._timing(self.done))
         self.channel.send(reply)
 
 

@@ -25,6 +25,23 @@ struct ICloudBridgeRequest: Encodable, Sendable {
     var batchSize: Int?
     /// Delete only: how many items the user confirmed. The bridge deletes nothing if more resolve.
     var confirmedCount: Int?
+    /// Stats and download: pages the bridge fetches ahead of its walk. Left out unless the setting is on (see
+    /// `ICloudListingPrefetch`), so requests are unchanged for the default.
+    var prefetch: Int?
+}
+
+/// How many listing pages the bridge fetches ahead of a walk (`prefetch` in stats and download requests).
+/// Off by default: the bridge then fetches one page at a time. The setting is the `iCloudListingPrefetch` default,
+/// 2 to 4. After Apple throttles the bridge it goes back to one page at a time for the rest of its session.
+enum ICloudListingPrefetch {
+    static let defaultsKey = "iCloudListingPrefetch"
+    static let maximum = 4
+
+    /// The depth to send, or nil when it's off (1 or unset), so the request is left as it always was.
+    static func requested(in defaults: UserDefaults = .standard) -> Int? {
+        let depth = min(defaults.integer(forKey: defaultsKey), maximum)
+        return depth > 1 ? depth : nil
+    }
 }
 
 /// One line from `photo_bridge.py`. Replies to a request carry its `id`; `asset` is an iCloud asset ID.
@@ -154,7 +171,8 @@ struct ICloudBridgeDownloadOptions: Sendable, Equatable {
             xmp: writesSidecars,
             hints: rankHints,
             startRank: startRank > 0 ? startRank : nil,
-            stopAt: stopAt
+            stopAt: stopAt,
+            prefetch: ICloudListingPrefetch.requested()
         )
     }
 }
@@ -533,7 +551,7 @@ final class ICloudBridge: Sendable {
     /// Walks the library from `offset` (icloudpd's order), streaming `statsProgress` with each page's
     /// item sizes, through the final `stats`. Ending the stream early stops the walk after its page.
     func stats(offset: Int) async throws -> AsyncThrowingStream<ICloudBridgeMessage, Error> {
-        try await send(ICloudBridgeRequest(cmd: "stats", offset: offset))
+        try await send(ICloudBridgeRequest(cmd: "stats", offset: offset, prefetch: ICloudListingPrefetch.requested()))
     }
 
     /// Starts a download and streams its events through the final `done`. Ending the stream early
