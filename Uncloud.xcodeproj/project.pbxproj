@@ -28,6 +28,7 @@
 		123A13BAFBE0150016EB09E9 /* AccountSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 328EFE4B7819217316D5DEF8 /* AccountSummary.swift */; };
 		12583BE5C3E344933A0F61E3 /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 655C300B76FB724B130CF7D1 /* MenuBarContent.swift */; };
 		125C822CF4463532024F759E /* AlbumIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0C8614EAB4109DA0E3B572 /* AlbumIndex.swift */; };
+		13A4E01B6F92CB87923BCD9E /* ExportManifestParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EFE604855CD9E0687BCB4E /* ExportManifestParsingTests.swift */; };
 		14654A51FF988A0F9F40A47D /* ICloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6F349CDF700C94CEDBA6D2B /* ICloudAccount.swift */; };
 		15CEC2A081834367951CE199 /* ProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF20D22FA931E55EA0D92FC4 /* ProgressCard.swift */; };
 		16D39D3EBEFA1B66351ABCF4 /* ExportSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A63BBA2CCB30F318CDF74D6 /* ExportSession.swift */; };
@@ -418,6 +419,7 @@
 		7160C3417C041E24FEDC94E1 /* test_fake_bridge.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = test_fake_bridge.py; sourceTree = "<group>"; };
 		72CFB4A34A07951EA9D32692 /* fake_bridge.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = fake_bridge.py; sourceTree = "<group>"; };
 		73403DB8D52CBF5E36D3874C /* AccountConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountConfigurationTests.swift; sourceTree = "<group>"; };
+		74EFE604855CD9E0687BCB4E /* ExportManifestParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportManifestParsingTests.swift; sourceTree = "<group>"; };
 		752C89F694B7D658751F1D20 /* ResumePoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumePoint.swift; sourceTree = "<group>"; };
 		753BE8E749B9AAD1310028EB /* AccountURLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountURLTests.swift; sourceTree = "<group>"; };
 		760AE024957625564089BF6E /* ExportManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportManifest.swift; sourceTree = "<group>"; };
@@ -611,6 +613,7 @@
 				F3BDC90C181D5417F5F5D4AC /* EntitlementPolicyTests.swift */,
 				A1E105D6E8BC4F5C26C36A89 /* EntitlementVerifierTests.swift */,
 				A0D2268BB87ECAD5B6FDB234 /* ExportCancellationTests.swift */,
+				74EFE604855CD9E0687BCB4E /* ExportManifestParsingTests.swift */,
 				3485816830987AAD03ECC120 /* ExportManifestTests.swift */,
 				FC80BA807F0FB4F49BBBA081 /* ExportPaneRenameTests.swift */,
 				8E283FB6F0B0DB61E6E48DFA /* ExportSessionTests.swift */,
@@ -1008,7 +1011,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\nSRC=\"$SRCROOT/Vendor/icloudpd-runtime\"\nDEST=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n# Hardened runtime only with a real identity: Python loads its own extension modules,\n# and ad hoc signatures have no team ID for library validation to match.\nRUNTIME=\"\"\nif [ \"$IDENTITY\" != \"-\" ]; then RUNTIME=\"--options runtime\"; fi\nif [ ! -f \"$SRC/.stamp\" ]; then\n    echo \"error: $SRC is missing; run scripts/build-icloudpd.sh\" >&2\n    exit 1\nfi\nmkdir -p \"$DEST\"\nrsync -a --delete --exclude .stamp \"$SRC/\" \"$DEST/\"\n# The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain\n# resource, sealed by the app's signature like the rest of the runtime's Python files.\ncp \"$SRCROOT/Uncloud/Helper/photo_bridge.py\" \"$DEST/photo_bridge.py\"\nINTERPRETER=\"$DEST/python/bin/python3.13\"\n# Sign the libraries and extension modules first, then the interpreter. Only the\n# interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.\nfind \"$DEST\" -type f ! -path \"$INTERPRETER\" -print0 | while IFS= read -r -d '' f; do\n    if file -b \"$f\" | grep -q '^Mach-O'; then\n        codesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \"$f\"\n    fi\ndone\ncodesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \\\n    --entitlements \"$SRCROOT/Uncloud/Helper.entitlements\" \"$INTERPRETER\"\n";
+			shellScript = "set -eu\nSRC=\"$SRCROOT/Vendor/icloudpd-runtime\"\nDEST=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n# Hardened runtime only with a Developer ID: Python loads its own extension modules, and ad hoc or\n# self-signed (scripts/make-local-signing-identity.sh) signatures have no team ID for library validation.\nRUNTIME=\"\"\ncase \"$IDENTITY\" in \"Developer ID\"*) RUNTIME=\"--options runtime\" ;; esac\nif [ ! -f \"$SRC/.stamp\" ]; then\n    echo \"error: $SRC is missing; run scripts/build-icloudpd.sh\" >&2\n    exit 1\nfi\nmkdir -p \"$DEST\"\nrsync -a --delete --exclude .stamp \"$SRC/\" \"$DEST/\"\n# The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain\n# resource, sealed by the app's signature like the rest of the runtime's Python files.\ncp \"$SRCROOT/Uncloud/Helper/photo_bridge.py\" \"$DEST/photo_bridge.py\"\nINTERPRETER=\"$DEST/python/bin/python3.13\"\n# Sign the libraries and extension modules first, then the interpreter. Only the\n# interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.\nfind \"$DEST\" -type f ! -path \"$INTERPRETER\" -print0 | while IFS= read -r -d '' f; do\n    if file -b \"$f\" | grep -q '^Mach-O'; then\n        codesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \"$f\"\n    fi\ndone\ncodesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \\\n    --entitlements \"$SRCROOT/Uncloud/Helper.entitlements\" \"$INTERPRETER\"\n";
 		};
 		AA032B2C2D586AA2713EB6D0 /* Embed icloudpd runtime */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1029,7 +1032,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\nSRC=\"$SRCROOT/Vendor/icloudpd-runtime\"\nDEST=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n# Hardened runtime only with a real identity: Python loads its own extension modules,\n# and ad hoc signatures have no team ID for library validation to match.\nRUNTIME=\"\"\nif [ \"$IDENTITY\" != \"-\" ]; then RUNTIME=\"--options runtime\"; fi\nif [ ! -f \"$SRC/.stamp\" ]; then\n    echo \"error: $SRC is missing; run scripts/build-icloudpd.sh\" >&2\n    exit 1\nfi\nmkdir -p \"$DEST\"\nrsync -a --delete --exclude .stamp \"$SRC/\" \"$DEST/\"\n# The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain\n# resource, sealed by the app's signature like the rest of the runtime's Python files.\ncp \"$SRCROOT/Uncloud/Helper/photo_bridge.py\" \"$DEST/photo_bridge.py\"\nINTERPRETER=\"$DEST/python/bin/python3.13\"\n# Sign the libraries and extension modules first, then the interpreter. Only the\n# interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.\nfind \"$DEST\" -type f ! -path \"$INTERPRETER\" -print0 | while IFS= read -r -d '' f; do\n    if file -b \"$f\" | grep -q '^Mach-O'; then\n        codesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \"$f\"\n    fi\ndone\ncodesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \\\n    --entitlements \"$SRCROOT/Uncloud/Helper.entitlements\" \"$INTERPRETER\"\n";
+			shellScript = "set -eu\nSRC=\"$SRCROOT/Vendor/icloudpd-runtime\"\nDEST=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n# Hardened runtime only with a Developer ID: Python loads its own extension modules, and ad hoc or\n# self-signed (scripts/make-local-signing-identity.sh) signatures have no team ID for library validation.\nRUNTIME=\"\"\ncase \"$IDENTITY\" in \"Developer ID\"*) RUNTIME=\"--options runtime\" ;; esac\nif [ ! -f \"$SRC/.stamp\" ]; then\n    echo \"error: $SRC is missing; run scripts/build-icloudpd.sh\" >&2\n    exit 1\nfi\nmkdir -p \"$DEST\"\nrsync -a --delete --exclude .stamp \"$SRC/\" \"$DEST/\"\n# The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain\n# resource, sealed by the app's signature like the rest of the runtime's Python files.\ncp \"$SRCROOT/Uncloud/Helper/photo_bridge.py\" \"$DEST/photo_bridge.py\"\nINTERPRETER=\"$DEST/python/bin/python3.13\"\n# Sign the libraries and extension modules first, then the interpreter. Only the\n# interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.\nfind \"$DEST\" -type f ! -path \"$INTERPRETER\" -print0 | while IFS= read -r -d '' f; do\n    if file -b \"$f\" | grep -q '^Mach-O'; then\n        codesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \"$f\"\n    fi\ndone\ncodesign --force --timestamp=none $RUNTIME -s \"$IDENTITY\" \\\n    --entitlements \"$SRCROOT/Uncloud/Helper.entitlements\" \"$INTERPRETER\"\n";
 		};
 		B606D1DEA7EB1500AE2F5A4B /* Build icloudpd helper */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1369,6 +1372,7 @@
 				66F9DE8354791F3CF1919600 /* EntitlementVector.swift in Sources */,
 				52BEEB9C7DA1D9AD56E473F4 /* EntitlementVerifierTests.swift in Sources */,
 				3A13214A4B22BF66A635A4BA /* ExportCancellationTests.swift in Sources */,
+				13A4E01B6F92CB87923BCD9E /* ExportManifestParsingTests.swift in Sources */,
 				E6D31645B351D8A4D09A8A9D /* ExportManifestTests.swift in Sources */,
 				E77E027958DFCF55D339DE3C /* ExportPaneRenameTests.swift in Sources */,
 				941DEF00DBA5168F46A3A94E /* ExportSessionTests.swift in Sources */,

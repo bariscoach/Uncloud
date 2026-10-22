@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Records which library items have been exported to a destination, so a later
 /// run can skip them. Lives in a hidden `.photo-export` folder inside the
@@ -27,6 +28,8 @@ final class ExportManifest {
     static let iCloudPathPrefix = "icloud:"
 
     private let destination: URL
+    private let journalURL: URL
+    private let checksumsURL: URL
     private let markerURL: URL
     private let layoutURL: URL
     private let journal: FileHandle
@@ -39,14 +42,12 @@ final class ExportManifest {
         let directory = Self.folder(in: destination)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let journalURL = directory.appending(path: Self.journalName)
-        let contents = Self.readLines(at: journalURL)
-        exportedIDs = Set(contents.lines.compactMap { Self.firstField(of: $0) })
-        journal = try Self.openForAppending(journalURL, endsMidLine: contents.endsMidLine)
+        journalURL = directory.appending(path: Self.journalName)
+        exportedIDs = ManifestTextCache.ids(at: journalURL)
+        journal = try Self.openForAppending(journalURL, endsMidLine: Self.endsMidLine(at: journalURL))
 
-        let checksumsURL = directory.appending(path: Self.checksumsName)
-        let checksumContents = Self.readLines(at: checksumsURL)
-        checksumJournal = try Self.openForAppending(checksumsURL, endsMidLine: checksumContents.endsMidLine)
+        checksumsURL = directory.appending(path: Self.checksumsName)
+        checksumJournal = try Self.openForAppending(checksumsURL, endsMidLine: Self.endsMidLine(at: checksumsURL))
 
         markerURL = directory.appending(path: Self.markerName)
         layoutURL = directory.appending(path: Self.layoutName)
@@ -65,6 +66,7 @@ final class ExportManifest {
     func recordExport(of localIdentifier: String, files: [String]) throws {
         let line = ([localIdentifier] + files).joined(separator: "\t") + "\n"
         try journal.write(contentsOf: Data(line.utf8))
+        ManifestTextCache.invalidate(journalURL)
         exportedIDs.insert(localIdentifier)
     }
 
@@ -73,6 +75,7 @@ final class ExportManifest {
         let text = checksums.sorted { $0.key < $1.key }.map { "\($0.key)\t\($0.value)\n" }.joined()
         guard !text.isEmpty else { return }
         try checksumJournal.write(contentsOf: Data(text.utf8))
+        ManifestTextCache.invalidate(checksumsURL)
     }
 
     func recordLayout(_ layout: FolderLayout) throws {
@@ -90,6 +93,7 @@ final class ExportManifest {
         }
         let line = Self.iCloudIDPrefix + fields.joined(separator: "\t") + "\n"
         try journal.write(contentsOf: Data(line.utf8))
+        ManifestTextCache.invalidate(journalURL)
         exportedIDs.insert(Self.iCloudIDPrefix + id)
     }
 
@@ -103,6 +107,7 @@ final class ExportManifest {
         }
         let line = Self.iCloudPartialPrefix + fields.joined(separator: "\t") + "\n"
         try journal.write(contentsOf: Data(line.utf8))
+        ManifestTextCache.invalidate(journalURL)
     }
 
     /// Writes the files.tsv snapshot. The file is replaced as a whole, so a crash leaves the old snapshot or the new one.
@@ -199,10 +204,11 @@ final class ExportManifest {
         let directory = folder(in: destination)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: journalName)
-        let handle = try openForAppending(url, endsMidLine: readLines(at: url).endsMidLine)
+        let handle = try openForAppending(url, endsMidLine: endsMidLine(at: url))
         defer { try? handle.close() }
         let text = records.map { ([$0.key] + $0.paths).joined(separator: "\t") + "\n" }.joined()
         try handle.write(contentsOf: Data(text.utf8))
+        ManifestTextCache.invalidate(url)
     }
 
     func markRunFinished() {
@@ -212,20 +218,12 @@ final class ExportManifest {
     // MARK: - Reading without starting a run
 
     static func exportedIDs(in destination: URL) -> Set<String> {
-        let directory = destination.appending(path: folderName, directoryHint: .isDirectory)
-        return readJournal(at: directory.appending(path: journalName)).ids
+        ManifestTextCache.ids(at: folder(in: destination).appending(path: journalName))
     }
 
     /// The relative paths recorded for each item, from `exported.tsv`. A later line for the same item replaces the earlier one.
     static func records(in destination: URL) -> [String: [String]] {
-        let url = folder(in: destination).appending(path: journalName)
-        var records: [String: [String]] = [:]
-        for line in readLines(at: url).lines {
-            let fields = line.split(separator: "\t").map(String.init)
-            guard let id = fields.first else { continue }
-            records[id] = Array(fields.dropFirst())
-        }
-        return records
+        ManifestTextCache.records(at: folder(in: destination).appending(path: journalName))
     }
 
     /// The last `limit` records of `exported.tsv`, oldest first: each item's ID and relative paths. The journal is
@@ -251,15 +249,9 @@ final class ExportManifest {
     }
 
     /// The recorded SHA-256 for each relative path, from `checksums.tsv`. A later line for the same path wins.
+    /// A line cut short by a crash has an incomplete digest; it is skipped so the file reads as unverifiable, not damaged.
     static func checksums(in destination: URL) -> [String: String] {
-        var checksums: [String: String] = [:]
-        for line in readLines(at: folder(in: destination).appending(path: checksumsName)).lines {
-            let fields = line.split(separator: "\t", maxSplits: 1)
-            // A line cut short by a crash has an incomplete digest; skip it so the file reads as unverifiable, not damaged.
-            guard fields.count == 2, fields[1].count == 64, fields[1].allSatisfy(\.isHexDigit) else { continue }
-            checksums[String(fields[0])] = String(fields[1])
-        }
-        return checksums
+        ManifestTextCache.checksums(at: folder(in: destination).appending(path: checksumsName))
     }
 
     /// Removes items from `exported.tsv` and their paths from `checksums.tsv`, so the next run exports them again.
@@ -369,31 +361,32 @@ final class ExportManifest {
         }
     }
 
-    private static func readJournal(at url: URL) -> (ids: Set<String>, endsMidLine: Bool) {
-        let contents = readLines(at: url)
-        let ids = contents.lines.compactMap { firstField(of: $0) }
-        return (Set(ids), contents.endsMidLine)
-    }
-
     /// The complete lines of a file, without a partial last line.
-    private static func readLines(at url: URL) -> (lines: [Substring], endsMidLine: Bool) {
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return ([], false) }
-        let text = String(decoding: data, as: UTF8.self)
-        var lines = text.split(separator: "\n")
-        let endsMidLine = !text.hasSuffix("\n")
-        if endsMidLine {
-            lines.removeLast()
-        }
-        return (lines, endsMidLine)
+    private static func readLines(at url: URL) -> (lines: [String], endsMidLine: Bool) {
+        guard let data = try? Data(contentsOf: url) else { return ([], false) }
+        return ManifestLines.lines(in: data)
     }
 
-    private static func firstField(of line: Substring) -> String? {
+    /// Whether a file ends in the middle of a line, read from its last two bytes only.
+    private static func endsMidLine(at url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd(), size > 0 else { return false }
+        let from = size > 2 ? size - 2 : 0
+        guard (try? handle.seek(toOffset: from)) != nil, let tail = try? handle.read(upToCount: Int(size - from)) else {
+            return false
+        }
+        return ManifestLines.endsMidLine(lastBytes: tail)
+    }
+
+    private static func firstField(of line: String) -> String? {
         line.split(separator: "\t", maxSplits: 1).first.map(String.init)
     }
 
     /// Opens a file for appending, creating it if needed. A partial last line is cut off first: readers
     /// already skip it, and finishing it with a newline would make it a complete, wrong record.
     private static func openForAppending(_ url: URL, endsMidLine: Bool) throws -> FileHandle {
+        ManifestTextCache.invalidate(url)
         if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             try Data().write(to: url)
         }
@@ -424,6 +417,7 @@ final class ExportManifest {
         } else {
             try FileManager.default.moveItem(at: temporary, to: url)
         }
+        ManifestTextCache.invalidate(url)
         // The rename itself, best effort: not every file system supports syncing a folder.
         let descriptor = open(directory.path(percentEncoded: false), O_RDONLY)
         if descriptor >= 0 {
@@ -492,5 +486,246 @@ struct FilesSnapshot: Equatable, Sendable {
             lines.append("dir\t\(folder)\t\(modified)")
         }
         return lines.sorted().map { $0 + "\n" }.joined()
+    }
+}
+
+/// Byte-level readers for the manifest's tab-separated text. They keep the semantics of the `String.split` parsing
+/// they replaced, which the tests check against a copy of that parser:
+/// - an LF ends a line, unless a CR comes right before it (Swift reads CR LF as one character, so splitting on LF
+///   never broke there);
+/// - empty lines are dropped, and so are empty fields;
+/// - a last line with no LF is partial and is skipped;
+/// - `checksums` and `exportedIDs` split at the first tab only, skipping leading tabs as `split(maxSplits: 1)` does.
+enum ManifestLines {
+    static let lf: UInt8 = 0x0A
+    static let cr: UInt8 = 0x0D
+    static let tab: UInt8 = 0x09
+
+    /// Calls `body` with the byte range of each complete, non-empty line. Returns whether the data ends mid-line.
+    /// The first `byte` in `bytes[from..<to]`, or `to` when there is none. `memchr` does the scan, so the search
+    /// costs the same in an unoptimized build as in a release one.
+    static func find(_ byte: UInt8, in bytes: UnsafeRawBufferPointer, from: Int, to: Int) -> Int {
+        guard from < to, let base = bytes.baseAddress else { return to }
+        guard let found = memchr(base + from, Int32(byte), to - from) else { return to }
+        return base.distance(to: UnsafeRawPointer(found))
+    }
+
+    /// Calls `body` with the byte range of each complete, non-empty line. Returns whether the data ends mid-line.
+    static func forEachLine(in bytes: UnsafeRawBufferPointer, _ body: (Range<Int>) -> Void) -> Bool {
+        let count = bytes.count
+        var start = 0
+        var search = 0
+        while search < count {
+            let index = find(lf, in: bytes, from: search, to: count)
+            guard index < count else { break }
+            search = index + 1
+            // CR LF is one character to Swift, so the line doesn't end at this LF.
+            if index > 0 && bytes[index - 1] == cr { continue }
+            if index > start { body(start..<index) }
+            start = index + 1
+        }
+        return start < count
+    }
+
+    /// Calls `body` with each non-empty tab-separated field of a line.
+    static func forEachField(in bytes: UnsafeRawBufferPointer, _ line: Range<Int>, _ body: (Range<Int>) -> Void) {
+        var index = line.lowerBound
+        while index < line.upperBound {
+            if bytes[index] == tab {
+                index += 1
+                continue
+            }
+            let end = find(tab, in: bytes, from: index, to: line.upperBound)
+            body(index..<end)
+            index = end
+        }
+    }
+
+    /// The key and the rest of a line, as `split(separator: "\t", maxSplits: 1)` gives them with empty pieces dropped:
+    /// the key is the first non-empty piece, and `rest` is everything after the next tab (tabs and all), or nil.
+    static func keyAndRest(in bytes: UnsafeRawBufferPointer, _ line: Range<Int>) -> (key: Range<Int>, rest: Range<Int>?)? {
+        var index = line.lowerBound
+        while index < line.upperBound && bytes[index] == tab { index += 1 }
+        guard index < line.upperBound else { return nil }
+        let end = find(tab, in: bytes, from: index, to: line.upperBound)
+        guard end + 1 < line.upperBound else { return (index..<end, nil) }
+        return (index..<end, (end + 1)..<line.upperBound)
+    }
+
+    static func isASCIIHexDigit(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte) || (0x41...0x46).contains(byte) || (0x61...0x66).contains(byte)
+    }
+
+    /// Whether data ends mid-line, given its last one or two bytes.
+    static func endsMidLine(lastBytes tail: Data) -> Bool {
+        guard tail.last == lf else { return !tail.isEmpty }
+        return tail.count == 2 && tail.first == cr
+    }
+
+    /// The complete lines of `data`, as text. Same result as splitting the whole text, but decodes one line at a time.
+    static func lines(in data: Data) -> (lines: [String], endsMidLine: Bool) {
+        data.withUnsafeBytes { raw in
+            var lines: [String] = []
+            let endsMidLine = forEachLine(in: raw) { lines.append(String(decoding: raw[$0], as: UTF8.self)) }
+            return (lines, endsMidLine)
+        }
+    }
+
+    /// `exported.tsv` as the relative paths of each item. A later line for an item replaces the earlier one.
+    static func parseRecords(_ data: Data) -> [String: [String]] {
+        data.withUnsafeBytes { raw in
+            var records: [String: [String]] = [:]
+            _ = forEachLine(in: raw) { line in
+                var fields: [String] = []
+                forEachField(in: raw, line) { fields.append(String(decoding: raw[$0], as: UTF8.self)) }
+                guard let id = fields.first else { return }
+                records[id] = Array(fields.dropFirst())
+            }
+            return records
+        }
+    }
+
+    /// `exported.tsv` as the set of its item keys (the first field of each line).
+    static func parseIDs(_ data: Data) -> Set<String> {
+        data.withUnsafeBytes { raw in
+            var ids: Set<String> = []
+            _ = forEachLine(in: raw) { line in
+                guard let parts = keyAndRest(in: raw, line) else { return }
+                ids.insert(String(decoding: raw[parts.key], as: UTF8.self))
+            }
+            return ids
+        }
+    }
+
+    /// `checksums.tsv` as relative path to digest. A later line for a path wins; lines without a 64-character hex
+    /// digest are skipped.
+    static func parseChecksums(_ data: Data) -> [String: String] {
+        data.withUnsafeBytes { raw in
+            var checksums: [String: String] = [:]
+            _ = forEachLine(in: raw) { line in
+                guard let parts = keyAndRest(in: raw, line), let rest = parts.rest else { return }
+                // Fast path: 64 ASCII hex bytes are a 64-character digit. Anything else takes the exact check the
+                // String-based parser used (Character.isHexDigit also accepts fullwidth digits, for one).
+                let isPlainDigest = rest.count == 64 && raw[rest].allSatisfy(isASCIIHexDigit)
+                let digest = String(decoding: raw[rest], as: UTF8.self)
+                guard isPlainDigest || (digest.count == 64 && digest.allSatisfy(\.isHexDigit)) else { return }
+                checksums[String(decoding: raw[parts.key], as: UTF8.self)] = digest
+            }
+            return checksums
+        }
+    }
+}
+
+/// Parsed copies of the manifest's text files, kept while the file is unchanged. An entry is reused only while the
+/// file's device, inode, size and modification time (to the nanosecond) match the ones it was read with, so a change
+/// by another process, a replacement by a new file, or a drive swap is picked up. `ExportManifest` also drops the
+/// entry after each of its own writes. Internal rather than private so the tests can check that the cache is used.
+enum ManifestTextCache {
+    struct Stamp: Equatable, Sendable {
+        let device: dev_t
+        let inode: ino_t
+        let size: off_t
+        let modifiedSeconds: Int
+        let modifiedNanoseconds: Int
+
+        init?(path: String) {
+            var info = stat()
+            guard stat(path, &info) == 0 else { return nil }
+            device = info.st_dev
+            inode = info.st_ino
+            size = info.st_size
+            modifiedSeconds = info.st_mtimespec.tv_sec
+            modifiedNanoseconds = info.st_mtimespec.tv_nsec
+        }
+    }
+
+    private struct Entry<Value: Sendable>: Sendable {
+        let stamp: Stamp
+        let value: Value
+    }
+
+    private struct State: Sendable {
+        var ids: [String: Entry<Set<String>>] = [:]
+        var records: [String: Entry<[String: [String]]>] = [:]
+        var checksums: [String: Entry<[String: String]>] = [:]
+        /// Parses per file path, so a test can count its own file's parses without interference from other tests.
+        var parses: [String: Int] = [:]
+    }
+
+    private static let state = OSAllocatedUnfairLock(initialState: State())
+
+    static func ids(at url: URL) -> Set<String> {
+        let path = key(for: url)
+        guard let stamp = Stamp(path: path) else {
+            invalidate(url)
+            return []
+        }
+        if let hit = state.withLock({ $0.ids[path] }), hit.stamp == stamp {
+            return hit.value
+        }
+        let value = ManifestLines.parseIDs(contents(of: url))
+        state.withLock {
+            $0.ids[path] = Entry(stamp: stamp, value: value)
+            $0.parses[path, default: 0] += 1
+        }
+        return value
+    }
+
+    static func records(at url: URL) -> [String: [String]] {
+        let path = key(for: url)
+        guard let stamp = Stamp(path: path) else {
+            invalidate(url)
+            return [:]
+        }
+        if let hit = state.withLock({ $0.records[path] }), hit.stamp == stamp {
+            return hit.value
+        }
+        let value = ManifestLines.parseRecords(contents(of: url))
+        state.withLock {
+            $0.records[path] = Entry(stamp: stamp, value: value)
+            $0.parses[path, default: 0] += 1
+        }
+        return value
+    }
+
+    static func checksums(at url: URL) -> [String: String] {
+        let path = key(for: url)
+        guard let stamp = Stamp(path: path) else {
+            invalidate(url)
+            return [:]
+        }
+        if let hit = state.withLock({ $0.checksums[path] }), hit.stamp == stamp {
+            return hit.value
+        }
+        let value = ManifestLines.parseChecksums(contents(of: url))
+        state.withLock {
+            $0.checksums[path] = Entry(stamp: stamp, value: value)
+            $0.parses[path, default: 0] += 1
+        }
+        return value
+    }
+
+    /// How many times the file at `url` has been parsed (not served from the cache).
+    static func parseCount(at url: URL) -> Int {
+        state.withLock { $0.parses[key(for: url)] ?? 0 }
+    }
+
+    /// Drops every cached value for the file at `url`.
+    static func invalidate(_ url: URL) {
+        let path = key(for: url)
+        state.withLock {
+            $0.ids[path] = nil
+            $0.records[path] = nil
+            $0.checksums[path] = nil
+        }
+    }
+
+    private static func key(for url: URL) -> String {
+        url.standardizedFileURL.path(percentEncoded: false)
+    }
+
+    /// The file's bytes, read after its stamp was taken (see the callers). An unreadable file counts as empty.
+    private static func contents(of url: URL) -> Data {
+        (try? Data(contentsOf: url)) ?? Data()
     }
 }
