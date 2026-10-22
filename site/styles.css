@@ -166,6 +166,26 @@ a {
   border-radius: 7px;
 }
 
+/* The wordmark is an inline SVG (brand/uncloud-wordmark.svg) that takes the text colour (currentColor). */
+.wordmark {
+  display: block;
+  width: auto;
+  height: auto;
+  aspect-ratio: 3825 / 769;
+  fill: currentColor;
+  color: var(--text);
+}
+
+.brand-wordmark {
+  height: 18px;
+  width: auto;
+}
+
+.hero-wordmark {
+  width: 130px;
+  margin: 0 auto 13px;
+}
+
 .topbar-cta {
   display: inline-flex;
   align-items: center;

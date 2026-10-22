@@ -37,7 +37,7 @@ struct LandingView: View {
 
     private var hero: some View {
         VStack(spacing: Tokens.Space.s) {
-            AppLogo(size: 64)
+            AppLockup(iconSize: 64)
                 .padding(.bottom, Tokens.Space.m)
                 .accessibilityHidden(true)
             Text("Connect Your Photos")

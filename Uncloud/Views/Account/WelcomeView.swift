@@ -44,7 +44,7 @@ struct WelcomeView: View {
 
     private var hero: some View {
         VStack(spacing: Tokens.Space.m) {
-            AppLogo(size: 88)
+            AppLockup(iconSize: 88)
                 .accessibilityHidden(true)
             VStack(spacing: Tokens.Space.s) {
                 Text("Take Your Photos Home")
