@@ -35,23 +35,36 @@ enum CatalogRows {
         let rankCount = max(libraryCount, offset + items.count)
         let seenAt = Date()
         return items.enumerated().map { index, asset in
-            ICloudCatalog.Row(
-                id: asset.id,
-                master: asset.master,
-                added: asset.added,
-                created: asset.created,
-                filename: asset.filename,
-                isVideo: asset.isVideo,
-                size: nil,
-                bytes: asset.bytes,
-                latitude: asset.latitude,
-                longitude: asset.longitude,
-                timeZoneOffset: asset.timeZoneOffset,
-                rank: offset + index,
-                rankCount: rankCount,
-                seenAt: seenAt
-            )
+            row(asset, rank: offset + index, rankCount: rankCount, seenAt: seenAt)
         }
+    }
+
+    /// The rows for bridge items that carry their ranks (a `stats` page). Items without a rank are left out.
+    static func rows(for items: [ICloudBridgeMessage.Item], libraryCount: Int) -> [ICloudCatalog.Row] {
+        let seenAt = Date()
+        return items.compactMap { item in
+            guard let rank = item.rank else { return nil }
+            return row(item.asset, rank: rank, rankCount: max(libraryCount, rank + 1), seenAt: seenAt)
+        }
+    }
+
+    static func row(_ asset: ICloudAsset, rank: Int, rankCount: Int, seenAt: Date) -> ICloudCatalog.Row {
+        ICloudCatalog.Row(
+            id: asset.id,
+            master: asset.master,
+            added: asset.added,
+            created: asset.created,
+            filename: asset.filename,
+            isVideo: asset.isVideo,
+            size: nil,
+            bytes: asset.bytes,
+            latitude: asset.latitude,
+            longitude: asset.longitude,
+            timeZoneOffset: asset.timeZoneOffset,
+            rank: rank,
+            rankCount: rankCount,
+            seenAt: seenAt
+        )
     }
 }
 

@@ -461,6 +461,7 @@ class Bridge:
         channel = self.channel
         request_id = request.get("id")
         offset = max(0, int(request.get("offset") or 0))
+        self.log(f"stats offset={offset}")
         total = self.total
         done = 0
         total_bytes = 0
@@ -472,8 +473,15 @@ class Bridge:
                 time.sleep(self.fake["stats_delay"])
             done += len(sizes)
             total_bytes += sum(sizes.values())
+            page_items = []
+            for rank in range(start, min(total, start + 100)):
+                asset_id, number = self.order[rank]
+                page_items.append({"id": asset_id, "rank": rank, "filename": display_name(self.fake, number),
+                                   "created": None, "added": fake_added(number), "type": "image",
+                                   "size": fake_bytes(number), "bytes": fake_bytes(number),
+                                   "master": asset_id, "lat": None, "lon": None, "tz": None})
             channel.send({"id": request_id, "event": "statsProgress", "done": done, "total": total,
-                          "bytes": total_bytes, "sizes": sizes, "unsized": []})
+                          "bytes": total_bytes, "sizes": sizes, "unsized": [], "items": page_items})
             if channel.is_cancelled(request_id):
                 complete = False
                 break

@@ -162,3 +162,92 @@ struct CatalogFeedingTests {
         #expect(try await catalog.status().topUpAt == nil)
     }
 }
+
+private final class CatalogBundleToken {}
+
+/// R12d: the storage estimate's scan answers from a trusted catalog, and walks (feeding the catalog) otherwise. Runs
+/// through the fake bridge, whose launch log records each `stats` request.
+@Suite("Catalog sizes (R12d)")
+struct CatalogSizesTests {
+    private static let total = 500
+
+    private static func fakeBridge(root: URL, appleID: String, log: URL) throws -> ICloudBridge {
+        let python = try #require(ICloudAccount.helperURL ?? ICloudAccount.helperOverride?.executableURL)
+        let fake = try #require(Bundle(for: CatalogBundleToken.self).url(forResource: "fake_bridge", withExtension: "py"))
+        return ICloudBridge(
+            appleID: appleID,
+            executableURL: python,
+            arguments: ["-I", "-B", fake.path(percentEncoded: false), "--total", "\(total)",
+                        "--launch-log", log.path(percentEncoded: false), "--",
+                        "-u", appleID, "--cookie-directory", root.path(percentEncoded: false)]
+        )
+    }
+
+    private static func openCatalog(root: URL) throws -> ICloudCatalog {
+        try ICloudCatalog.open(account: "feed1234feed5678", directory: root.appending(path: "catalog"))
+    }
+
+    private static func tempRoot() throws -> URL {
+        FileManager.default.temporaryDirectory.appending(path: "catalog-sizes-\(UUID().uuidString)", directoryHint: .isDirectory)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aTrustedCatalogAnswersWithoutAStatsWalk() async throws {
+        let root = try Self.tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let appleID = "fake-trusted@example.invalid"
+        let log = root.appending(path: "launch.log")
+        let bridge = try Self.fakeBridge(root: root, appleID: appleID, log: log)
+        defer { bridge.terminate() }
+
+        let catalog = try Self.openCatalog(root: root)
+        let started = Date().addingTimeInterval(-60)
+        try await catalog.beginFullWalk(at: started)
+        let items = (0..<Self.total).map { index in
+            ICloudAsset(id: "asset-\(index)", filename: "IMG_\(index).JPG", created: nil, isVideo: false,
+                        thumbnailURL: nil, bytes: Int64(1000 + index))
+        }
+        try await catalog.upsert(CatalogRows.rows(for: items, offset: 0, libraryCount: Self.total))
+        _ = try await catalog.completeFullWalk(startedAt: started, libraryCount: Self.total, unlistedCount: nil)
+
+        let index = AssetSizeIndex(table: AssetSizeTable(kind: .measured))
+        let outcome = await ICloudSizeScanner.scan(
+            bridge: bridge, index: index, libraryCount: Self.total, catalog: catalog, onProgress: {}
+        )
+        guard case .complete = outcome else {
+            Issue.record("The scan didn't complete: \(outcome)")
+            return
+        }
+        let expected = Int64((0..<Self.total).reduce(0) { $0 + 1000 + $1 })
+        #expect(await index.estimate(for: .everything, libraryCount: Self.total)?.bytes == expected)
+        let launches = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        #expect(!launches.contains("stats offset="), Comment(rawValue: launches))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func anUntrustedCatalogWalksAndFeedsItself() async throws {
+        let root = try Self.tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let appleID = "fake-untrusted@example.invalid"
+        let log = root.appending(path: "launch.log")
+        let bridge = try Self.fakeBridge(root: root, appleID: appleID, log: log)
+        defer { bridge.terminate() }
+
+        let catalog = try Self.openCatalog(root: root)
+        let index = AssetSizeIndex(table: AssetSizeTable(kind: .measured))
+        let outcome = await ICloudSizeScanner.scan(
+            bridge: bridge, index: index, libraryCount: Self.total, catalog: catalog, onProgress: {}
+        )
+        guard case .complete = outcome else {
+            Issue.record("The scan didn't complete: \(outcome)")
+            return
+        }
+        let expected = Int64((0..<Self.total).reduce(0) { $0 + 1000 + $1 })
+        #expect(await index.estimate(for: .everything, libraryCount: Self.total)?.bytes == expected)
+        let launches = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        #expect(launches.contains("stats offset=0"))
+        // The walk fed the catalog and marked a full walk as ended.
+        #expect(try await catalog.status().rowCount == Self.total)
+        #expect(try await catalog.status().fullWalkEndedAt != nil)
+    }
+}

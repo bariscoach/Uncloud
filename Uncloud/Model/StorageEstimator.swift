@@ -67,6 +67,7 @@ final class StorageEstimator {
                 bridge: .shared(appleID: account),
                 index: index,
                 libraryCount: libraryCount,
+                catalog: ICloudCatalogStore.shared(appleID: account),
                 onProgress: onProgress
             )
         }

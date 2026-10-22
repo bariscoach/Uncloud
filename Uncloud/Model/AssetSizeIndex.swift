@@ -81,6 +81,19 @@ actor AssetSizeIndex {
     var isComplete: Bool { table.isComplete }
     var libraryCount: Int { table.libraryCount }
 
+    /// Makes the table complete for `libraryCount` from the local catalog's sizes (R12d). Items without a size stay
+    /// unknown. The table is saved, as a finished scan's would be.
+    func replaceFromCatalog(sizes: [String: Int64], libraryCount: Int) {
+        var fresh = AssetSizeTable(kind: table.kind)
+        fresh.reserveCapacity(sizes.count)
+        fresh.merge(sizes)
+        fresh.libraryCount = libraryCount
+        fresh.scannedThrough = libraryCount
+        fresh.isComplete = true
+        table = fresh
+        save()
+    }
+
     /// Sizes the browser has seen, for items the table doesn't have.
     func addSamples(_ sizes: [String: Int64]) {
         guard !table.isComplete, !sizes.isEmpty else { return }
@@ -267,13 +280,21 @@ enum ICloudSizeScanner {
     }
 
     /// Scans from where the table left off. `onProgress` is called at most every `progressInterval`.
+    /// With a `catalog` (R12d), a trusted catalog answers first, with no `stats` walk. Otherwise the walk feeds the
+    /// catalog as it goes, and a walk from the start that completes marks a full walk in the catalog.
     static func scan(
         bridge: ICloudBridge,
         index: AssetSizeIndex,
         libraryCount: Int?,
+        catalog: ICloudCatalog? = nil,
         progressInterval: Duration = .seconds(2),
         onProgress: @escaping @Sendable () async -> Void
     ) async -> Outcome {
+        if let catalog, let libraryCount,
+           let sizes = await trustedCatalogSizes(bridge: bridge, catalog: catalog, libraryCount: libraryCount) {
+            await index.replaceFromCatalog(sizes: sizes, libraryCount: libraryCount)
+            return .complete
+        }
         let start: Int
         switch await index.scanPlan(libraryCount: libraryCount) {
         case .upToDate:
@@ -293,6 +314,10 @@ enum ICloudSizeScanner {
             start = 0
         }
         await index.beginScan(from: start, libraryCount: libraryCount)
+        let walkStart = Date()
+        if start == 0, let catalog {
+            try? await catalog.beginFullWalk(at: walkStart)
+        }
         var lastReport = ContinuousClock.now
         do {
             for try await message in try await bridge.stats(offset: start) {
@@ -304,11 +329,17 @@ enum ICloudSizeScanner {
                         scannedThrough: start + (message.done ?? 0),
                         libraryCount: message.total
                     )
+                    if let catalog {
+                        await feed(catalog: catalog, message: message)
+                    }
                     if lastReport.duration(to: .now) >= progressInterval {
                         lastReport = .now
                         await onProgress()
                     }
                 case "stats":
+                    if start == 0, message.complete == true, let catalog {
+                        await completeCatalogWalk(catalog: catalog, startedAt: walkStart, libraryCount: message.total)
+                    }
                     // A walk the library changed under ends incomplete, and the next one starts over.
                     let complete = await index.endScan(complete: message.complete == true, libraryCount: message.total)
                     return complete ? .complete : .interrupted
@@ -322,5 +353,44 @@ enum ICloudSizeScanner {
             await index.endScan(complete: false, libraryCount: nil)
             return error is CancellationError || (error as? ICloudError) == .interrupted ? .interrupted : .failed(error)
         }
+    }
+
+    /// The catalog's sizes when the catalog is trusted for this library (R12d), after a top-up in this call. Nil when it
+    /// isn't, or when the top-up or the check fails: the caller then walks as before.
+    private static func trustedCatalogSizes(
+        bridge: ICloudBridge, catalog: ICloudCatalog, libraryCount: Int
+    ) async -> [String: Int64]? {
+        do {
+            let result = try await CatalogTopUp.run(
+                fetcher: ICloudBridgeFetcher(bridge: bridge),
+                catalog: catalog,
+                recentlyDeleted: ICloudBridgeFetcher(bridge: bridge, album: .recentlyDeleted)
+            )
+            guard case .current = result else { return nil }
+            let maxAge = ICloudResumeSettings().fullCheckInterval + 5 * 24 * 60 * 60
+            guard try await catalog.isTrusted(libraryCount: libraryCount, now: Date(), maxAge: maxAge, toppedUp: true)
+            else { return nil }
+            return try await catalog.sizes().sizes
+        } catch {
+            return nil
+        }
+    }
+
+    /// Feeds one `stats` page to the catalog: the export sizes of its items, and the items themselves (R12d). Catalog
+    /// errors are ignored: they never stop the walk.
+    private static func feed(catalog: ICloudCatalog, message: ICloudBridgeMessage) async {
+        try? await catalog.updateBytes(message.sizes ?? [:])
+        let items = message.items ?? []
+        if !items.isEmpty {
+            try? await catalog.upsert(CatalogRows.rows(for: items, libraryCount: message.total ?? 0))
+        }
+    }
+
+    /// A `stats` walk from the start that reached the end: prunes what it didn't see, if it saw enough (R12d).
+    private static func completeCatalogWalk(catalog: ICloudCatalog, startedAt: Date, libraryCount: Int?) async {
+        guard let libraryCount, let status = try? await catalog.status() else { return }
+        _ = try? await catalog.completeFullWalk(
+            startedAt: startedAt, libraryCount: libraryCount, unlistedCount: status.unlistedCount
+        )
     }
 }
