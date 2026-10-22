@@ -363,8 +363,12 @@ final class ICloudBrowserBackend: LibraryBrowserBackend {
 
     init(appleID: String, album: ICloudBridgeAlbum = .library) {
         let directory = ICloudLibrary.browserThumbnailDirectory
+        // The library's pages feed the local catalog (R12c); Recently Deleted never does.
+        let bridgeFetcher = ICloudBridgeFetcher(bridge: .shared(appleID: appleID), album: album)
         cache = ICloudPageCache(
-            fetcher: ICloudBridgeFetcher(bridge: .shared(appleID: appleID), album: album),
+            fetcher: album == .library
+                ? CatalogFeedingFetcher(base: bridgeFetcher, catalog: ICloudCatalogStore.shared(appleID: appleID))
+                : bridgeFetcher,
             thumbnailDirectory: directory,
             pageSize: LibraryBrowser.pageSize,
             maxPages: LibraryBrowser.maxPages

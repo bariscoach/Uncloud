@@ -76,7 +76,11 @@ final class NewPhotosTracker {
                 return NewPhotosCandidate.library(context: context, ids: ids, exportedAt: date)
             case .iCloud:
                 guard let appleID = context.appleID else { return nil }
-                let newest = try await ICloudBridgeFetcher(bridge: .shared(appleID: appleID)).assets(offset: 0, limit: 1).first
+                let fetcher = CatalogFeedingFetcher(
+                    base: ICloudBridgeFetcher(bridge: .shared(appleID: appleID)),
+                    catalog: ICloudCatalogStore.shared(appleID: appleID)
+                )
+                let newest = try await fetcher.assets(offset: 0, limit: 1).first
                 return NewPhotosCandidate.iCloud(
                     context: context,
                     newest: newest,
@@ -183,7 +187,10 @@ final class NewPhotosTracker {
             return .counted(NewPhotosStatus(count: count, isAtLeast: false, since: since))
         case .iCloud:
             guard let appleID = context.appleID else { return .counted(nil) }
-            let fetcher = ICloudBridgeFetcher(bridge: .shared(appleID: appleID))
+            let fetcher = CatalogFeedingFetcher(
+                base: ICloudBridgeFetcher(bridge: .shared(appleID: appleID)),
+                catalog: ICloudCatalogStore.shared(appleID: appleID)
+            )
             do {
                 let result = try await NewPhotosCounter.countICloud(since: watermark, fetcher: fetcher)
                 return .counted(NewPhotosStatus(count: result.count, isAtLeast: result.isAtLeast, since: since))

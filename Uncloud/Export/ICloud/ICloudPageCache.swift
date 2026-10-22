@@ -13,6 +13,11 @@ struct ICloudAsset: Sendable, Hashable, Identifiable {
     var bytes: Int64? = nil
     /// When the item was added to the library. Nil when the bridge doesn't say.
     var added: Date? = nil
+    /// The CPLMaster record name, the location and the time zone offset, when the bridge sends them (R12b). Nil otherwise.
+    var master: String? = nil
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    var timeZoneOffset: Int? = nil
 }
 
 /// Where pages of the library come from: the bridge in the app, a fake in tests.

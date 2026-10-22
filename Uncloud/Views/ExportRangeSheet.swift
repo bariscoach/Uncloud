@@ -185,11 +185,14 @@ struct ExportRangeSheet: View {
 
     /// The iCloud fetcher for the sheet's walks. Waits for the bridge to sign in first: the first walk after launch
     /// used to fail while the bridge wasn't ready. Nil without an Apple ID.
-    private func iCloudFetcher() async throws -> ICloudBridgeFetcher? {
+    private func iCloudFetcher() async throws -> (any ICloudPageFetching)? {
         guard let appleID = ICloudAccount.appleID else { return nil }
         let bridge = ICloudBridge.shared(appleID: appleID)
         try await bridge.ready()
-        return ICloudBridgeFetcher(bridge: bridge)
+        return CatalogFeedingFetcher(
+            base: ICloudBridgeFetcher(bridge: bridge),
+            catalog: ICloudCatalogStore.shared(appleID: appleID)
+        )
     }
 
     /// The date of the newest backed-up photo, for the start of the range. Nil when none can be found.
