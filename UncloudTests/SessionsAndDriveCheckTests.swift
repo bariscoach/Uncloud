@@ -213,8 +213,8 @@ extension ExportCancellationTests {
             #expect(await harness.waitFor { !model.isEngineRunning })
             // The run left no watermark, as with runs that had a failed item or came before New Photos.
             #expect(model.newPhotosStatus == nil)
-            #expect(model.onDriveCount == 20)
-            #expect(model.toGoCount == 1)
+            // The counts are refreshed after the run ends; wait for them rather than reading them at once.
+            #expect(await harness.waitFor { model.onDriveCount == 20 && model.toGoCount == 1 })
             #expect(model.offersNewPhotosOnly)
             #expect(model.primaryExportHelp(total: nil) == NewPhotosTitle.newOnlyHelp)
             // Items recorded by asset ID count exactly. Path-only records make the count approximate, and then the
