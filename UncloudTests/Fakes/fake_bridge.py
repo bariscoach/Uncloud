@@ -558,6 +558,17 @@ class Bridge:
                   if rank >= start_rank and ((asset_id in ids) == only)]
         counts = {"downloaded": 0, "skipped": 0, "failed": 0}
         channel.send({"id": request_id, "event": "progress", "done": 0, "total": len(chosen)})
+        if not only:
+            # A walk reports each page it accepts, as the bridge does (R12g); counts don't change.
+            for low in range(start_rank, len(walked), 100):
+                listed = []
+                for rank in range(low, min(len(walked), low + 100)):
+                    asset_id, number = walked[rank]
+                    listed.append({"id": asset_id, "rank": rank, "filename": display_name(self.fake, number),
+                                   "created": None, "added": fake_added(number), "type": "image",
+                                   "size": fake_bytes(number), "bytes": fake_bytes(number),
+                                   "master": asset_id, "lat": None, "lon": None, "tz": None})
+                channel.send({"id": request_id, "event": "listed", "offset": low, "items": listed})
         rate = self.fake["rate"]
         started = time.monotonic()
         done = 0
