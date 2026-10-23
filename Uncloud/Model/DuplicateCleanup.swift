@@ -28,6 +28,8 @@ final class DuplicateCleanup {
     private(set) var notCheckedCount = 0
     /// The destination the groups were found in, so a changed destination never removes anything.
     private(set) var scannedDestination: URL?
+    /// The last scan or removal that reached a terminal state. `reset()` keeps it, so the Tools pane can show it (this session only).
+    private(set) var lastResult: ToolResult?
     @ObservationIgnored private var excludedGroupIDs: Set<String> = []
     /// How files are moved to the Trash. Tests replace it, so they never touch the real Trash.
     @ObservationIgnored var trasher: @Sendable (URL) throws -> Void = DuplicateFinder.moveToTrash
@@ -124,6 +126,9 @@ final class DuplicateCleanup {
                 excludedGroupIDs = []
                 scannedDestination = destination
                 state = result.groups.isEmpty ? .noneFound(notChecked: result.notCheckedCount) : .found
+                if result.groups.isEmpty {
+                    lastResult = ToolResult(date: .now, text: "No duplicates", isProblem: false)
+                }
                 Self.logger.info("Duplicate scan: \(result.groups.count, privacy: .public) groups, \(self.duplicateCount, privacy: .public) extra copies, \(result.notCheckedCount, privacy: .public) not checked.")
             } catch is CancellationError {
                 guard run == self.run else { return }
@@ -131,6 +136,7 @@ final class DuplicateCleanup {
             } catch {
                 guard run == self.run else { return }
                 state = .failed("The backup couldn’t be searched. \(error.localizedDescription)")
+                lastResult = ToolResult(date: .now, text: "Couldn’t be searched", isProblem: true)
             }
         }
     }
@@ -237,6 +243,11 @@ final class DuplicateCleanup {
         excludedGroupIDs = []
         scannedDestination = nil
         state = .finished(RemovalSummary(result: result))
+        lastResult = ToolResult(
+            date: .now,
+            text: countText(result.removedCopies, "duplicate") + " removed",
+            isProblem: result.failedCopies > 0
+        )
         model.refreshProgress()
     }
 }

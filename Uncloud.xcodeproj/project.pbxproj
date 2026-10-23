@@ -18,6 +18,7 @@
 		05A121E4124685404543F2EF /* CatalogTopUp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20B3501E29AC47D1AAE9975 /* CatalogTopUp.swift */; };
 		05F26E3428DD3FDC8C402567 /* ActivitySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4684CBB84E2FD289A7FFC70 /* ActivitySection.swift */; };
 		0632BCA610969ADBB48D3526 /* AssetFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD6AEDB8709BB238DAF496E /* AssetFiles.swift */; };
+		066AA61DDAAEE77457EF7829 /* ToolsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1058278D992EAFB99D363B32 /* ToolsPane.swift */; };
 		080188438C3AAE977ADC3FD9 /* AssetMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874540AC2D921C7BEC2C5966 /* AssetMetadata.swift */; };
 		0815950082C8EBE22A2DDB1B /* AppleDoubleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC2E434836CF3DA4922C6C8 /* AppleDoubleTests.swift */; };
 		0A95BCA3FB255DD6F752A3F9 /* FeatureRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6B652F3ECA2D2D7D9C246D /* FeatureRow.swift */; };
@@ -197,6 +198,7 @@
 		8273BACBA4230C610F484747 /* XMPSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7969932EFE828540123751 /* XMPSidecar.swift */; };
 		8278C0D260858BEA05B1BD88 /* StorageEstimateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */; };
 		8347C6BB23321F88D1DFC23A /* ComponentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CBDFC7BDF43687E84FFE84C /* ComponentsTests.swift */; };
+		8388A06E00D3572AC7024954 /* ToolsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1058278D992EAFB99D363B32 /* ToolsPane.swift */; };
 		83F4DA4EF7120D6A93F9F878 /* BenefitsCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 821EA74597FF85E3A54C40A4 /* BenefitsCarousel.swift */; };
 		844917F08447A2103CF09E45 /* XMPSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7969932EFE828540123751 /* XMPSidecar.swift */; };
 		84C9BA605D6ACE67FA253A16 /* BenefitsCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 821EA74597FF85E3A54C40A4 /* BenefitsCarousel.swift */; };
@@ -316,6 +318,7 @@
 		D0701C4947E26106BDC6F32F /* DuplicateCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C10D098209F9365755A30B3 /* DuplicateCleanup.swift */; };
 		D156A62F751EE7DA9C088D2C /* DriveInventory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70A300DF4673C88C709BEBC /* DriveInventory.swift */; };
 		D3D4C12B67F65F54EBD90117 /* AccountSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BC4B1EF57F928BED5150B1A /* AccountSummaryTests.swift */; };
+		D3F53E6D458103855122CAAE /* ToolsPaneContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B66429204FB9FE9020A7E1E /* ToolsPaneContentTests.swift */; };
 		D41675A00F291037B8D005D0 /* ICloudSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F242D7D8C735C12BFF2E8E /* ICloudSignIn.swift */; };
 		D665AFD91B7DBA989AEBA75F /* CleanupSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2365FA09B0B08E64F8F111 /* CleanupSnapshotTests.swift */; };
 		D7EB9C51DD57FE1E5C322BA1 /* AccountURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22768CDD308DC49B3B5EFE83 /* AccountURL.swift */; };
@@ -411,6 +414,7 @@
 		0D04F6760B4A90BD72367DC6 /* HowItWorksSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowItWorksSteps.swift; sourceTree = "<group>"; };
 		0E218676D68C4DA961121E42 /* DuplicateFinderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateFinderTests.swift; sourceTree = "<group>"; };
 		0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosAccessView.swift; sourceTree = "<group>"; };
+		1058278D992EAFB99D363B32 /* ToolsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolsPane.swift; sourceTree = "<group>"; };
 		11B015F204A6F7749332AD89 /* quarantine-provenance.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "quarantine-provenance.bin"; sourceTree = "<group>"; };
 		12E4BD93EDC5B0D73F9DE2FC /* offset-beyond-end.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "offset-beyond-end.bin"; sourceTree = "<group>"; };
 		13002368E1D5E592541568FB /* AccountConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountConfiguration.swift; sourceTree = "<group>"; };
@@ -439,6 +443,7 @@
 		2A114CA2BFC125B8205CD464 /* DriveCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveCheckTests.swift; sourceTree = "<group>"; };
 		2A14EF6C191BC2FD24D44985 /* ICloudPageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudPageCache.swift; sourceTree = "<group>"; };
 		2A53F7553B85EB4F7EC1ECBF /* NewPhotosTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPhotosTests.swift; sourceTree = "<group>"; };
+		2B66429204FB9FE9020A7E1E /* ToolsPaneContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolsPaneContentTests.swift; sourceTree = "<group>"; };
 		2B68145150CC146CB358866A /* PaywallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallSheet.swift; sourceTree = "<group>"; };
 		2D6FDEDC2CDBB9D4157159BD /* empty.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = empty.bin; sourceTree = "<group>"; };
 		2FDC54E21128C8108A56AEC3 /* BrowseIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseIndex.swift; sourceTree = "<group>"; };
@@ -678,6 +683,7 @@
 				0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */,
 				AF20D22FA931E55EA0D92FC4 /* ProgressCard.swift */,
 				9A6AF9958305D6F4037AE0BB /* SettingsView.swift */,
+				1058278D992EAFB99D363B32 /* ToolsPane.swift */,
 				15336D3C30890C8F72FAA919 /* VerifyBackupSheet.swift */,
 				12EBBB6E2F7EF352E86D8AD5 /* Account */,
 			);
@@ -762,6 +768,7 @@
 				D017031E21B7F448819A6FD9 /* SettingsTabTests.swift */,
 				9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */,
 				306E893DE47FB41133F84A46 /* TestSupport.swift */,
+				2B66429204FB9FE9020A7E1E /* ToolsPaneContentTests.swift */,
 				BF7C7DA906ABE74D20333B53 /* UIRefreshSnapshotTests.swift */,
 				180E7A3BD0B9CF299674774F /* VerifySheetSnapshotTests.swift */,
 				22113C53D164A922FB8234B0 /* XMPSidecarTests.swift */,
@@ -1381,6 +1388,7 @@
 				4666E103364636568F5945FD /* SettingsView.swift in Sources */,
 				998017548E20F6CBDEA8A09E /* StorageEstimate.swift in Sources */,
 				4EF6AA108AED82C40E82DEF6 /* StorageEstimator.swift in Sources */,
+				8388A06E00D3572AC7024954 /* ToolsPane.swift in Sources */,
 				61F8787D5071CFA1840923BA /* UncloudApp.swift in Sources */,
 				EBFDF2FE3705EBD42325E4E0 /* VerifyBackupSheet.swift in Sources */,
 				95CC85DA385D200ED203D4EF /* VerifyCheckpoint.swift in Sources */,
@@ -1525,6 +1533,7 @@
 				4113ACA390EE898D2271BE93 /* SettingsView.swift in Sources */,
 				1B6C5C5966E8A04515959EB8 /* StorageEstimate.swift in Sources */,
 				24167CE7E0C69E9DCF6EB022 /* StorageEstimator.swift in Sources */,
+				066AA61DDAAEE77457EF7829 /* ToolsPane.swift in Sources */,
 				25CE95878FDD7E11A60B1E6A /* UncloudApp.swift in Sources */,
 				4F3B1BFD2685672271D1B28E /* VerifyBackupSheet.swift in Sources */,
 				CE23B75FB978DAB059E34C87 /* VerifyCheckpoint.swift in Sources */,
@@ -1614,6 +1623,7 @@
 				A43BAF06C629BCC7BCFE191F /* SettingsTabTests.swift in Sources */,
 				8278C0D260858BEA05B1BD88 /* StorageEstimateTests.swift in Sources */,
 				A0446530BAD6A985F678DFA5 /* TestSupport.swift in Sources */,
+				D3F53E6D458103855122CAAE /* ToolsPaneContentTests.swift in Sources */,
 				8C249CB624DC68ABB8F33D20 /* UIRefreshSnapshotTests.swift in Sources */,
 				6FF6089C733457B65C332573 /* VerifySheetSnapshotTests.swift in Sources */,
 				622B6CE6B8F8CEF35742BEEB /* XMPSidecarTests.swift in Sources */,

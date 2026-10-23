@@ -86,6 +86,8 @@ final class BackupVerification {
     private(set) var state: State
     /// The saved full check, read when the sheet opens and again after a full check stops or finishes.
     private(set) var savedCheck: SavedCheck
+    /// The last run that reached a terminal state. `reset()` keeps it, so the Tools pane can show it (this session only).
+    private(set) var lastResult: ToolResult?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var run = 0
     private let model: ExportModel
@@ -175,12 +177,14 @@ final class BackupVerification {
                     let report = try await Self.runQuick(destination: destination)
                     guard run == self.run else { return }
                     state = .quickFinished(Self.quickSummary(of: report, destination: destination))
+                    recordResult()
                 } catch is CancellationError {
                     guard run == self.run else { return }
                     state = .ready
                 } catch {
                     guard run == self.run else { return }
                     state = .failed("The backup couldn’t be checked. \(error.localizedDescription)")
+                    recordResult()
                 }
             }
             return
@@ -220,6 +224,7 @@ final class BackupVerification {
                 }
                 guard run == self.run else { return }
                 state = .finished(Self.summary(of: report, destination: destination, libraryIDs: libraryIDs))
+                recordResult()
                 refreshSavedCheck()
             } catch is CancellationError {
                 guard run == self.run else { return }
@@ -228,8 +233,45 @@ final class BackupVerification {
             } catch {
                 guard run == self.run else { return }
                 state = .failed("The backup couldn’t be checked. \(error.localizedDescription)")
+                recordResult()
             }
         }
+    }
+
+    /// Keeps the outcome of a run that reached a terminal state, as the Tools pane's "Last check" line.
+    private func recordResult() {
+        let now = Date.now
+        switch state {
+        case let .quickFinished(quick):
+            lastResult = ToolResult(
+                date: now,
+                text: Self.resultText(checked: quick.report.checkedFiles, problems: quick.affectedFileCount, unverifiable: 0),
+                isProblem: quick.affectedFileCount > 0
+            )
+        case let .finished(summary):
+            lastResult = ToolResult(
+                date: now,
+                text: Self.resultText(checked: summary.checkedFileCount, problems: summary.affectedFileCount, unverifiable: summary.unverifiableCount),
+                isProblem: summary.affectedFileCount > 0 || summary.unverifiableCount > 0
+            )
+        case .failed:
+            lastResult = ToolResult(date: now, text: "Couldn’t be checked", isProblem: true)
+        case let .reexported(message, isProblem):
+            lastResult = ToolResult(date: now, text: message, isProblem: isProblem)
+        default:
+            break
+        }
+    }
+
+    /// "91,772 files OK", "3 files need attention", or "2 items couldn’t be verified" when none of the files are missing.
+    private static func resultText(checked: Int, problems: Int, unverifiable: Int) -> String {
+        if problems > 0 {
+            return problems == 1 ? "1 file needs attention" : "\(problems.formatted()) files need attention"
+        }
+        if unverifiable > 0 {
+            return unverifiable == 1 ? "1 item couldn’t be verified" : "\(unverifiable.formatted()) items couldn’t be verified"
+        }
+        return countText(checked, "file") + " OK"
     }
 
     /// Continues a stopped full check, or starts one when there's nothing to continue.
@@ -347,6 +389,7 @@ final class BackupVerification {
                     message: "An export started, so nothing was changed. Verify again when it finishes.",
                     isProblem: true
                 )
+                recordResult()
                 return
             }
             do {
@@ -356,6 +399,7 @@ final class BackupVerification {
                     message: "The damaged files were removed, but Uncloud couldn’t update its records. \(error.localizedDescription)",
                     isProblem: true
                 )
+                recordResult()
                 return
             }
             model.refreshProgress()
@@ -374,6 +418,7 @@ final class BackupVerification {
                 message += " \(countText(skipped, "photo")) couldn’t be prepared and were left as they are."
             }
             state = .reexported(message: message, isProblem: skipped > 0 || removal.clearedIDs.isEmpty)
+            recordResult()
         }
     }
 }
