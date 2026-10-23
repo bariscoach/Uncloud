@@ -192,7 +192,7 @@ struct NewPhotosTests {
         #expect(title(folder: false) == "Choose Backup Folder…")
         #expect(title(folder: false, backedUp: 1_243) == "Choose Backup Folder…")
         // New photos apply to everything only.
-        #expect(title() == "Export New Photos")
+        #expect(title() == "Export Photos by Date…")
         #expect(title(everything: false, fallback: "Export 3 Photos") == "Export 3 Photos")
         #expect(title(everything: false, backedUp: 1_243, fallback: "Export 3 Photos") == "Export 3 Photos")
         // No complete export yet: the default.
@@ -212,11 +212,11 @@ struct NewPhotosTests {
             )
         }
         // A folder with backed-up photos: no number, since the sheet counts what it will export.
-        #expect(title(backedUp: 9_207) == "Export New Photos")
-        #expect(title(backedUp: 9_207, status: true) == "Export New Photos")
+        #expect(title(backedUp: 9_207) == "Export Photos by Date…")
+        #expect(title(backedUp: 9_207, status: true) == "Export Photos by Date…")
         // A first export: nothing backed up, so the default stays, with or without a watermark.
         #expect(title(backedUp: 0) == "Export All Photos")
-        #expect(title(backedUp: 0, status: true) == "Export New Photos")
+        #expect(title(backedUp: 0, status: true) == "Export Photos by Date…")
     }
 
     @Test func offersNewOnlyMatchesTheTable() {

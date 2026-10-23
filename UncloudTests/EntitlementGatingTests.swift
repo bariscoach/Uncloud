@@ -154,6 +154,6 @@ struct EntitlementGatingTests {
                                              isEverything: true, hasNewPhotosStatus: false, backedUpCount: 9_207))
         #expect(NewPhotosTitle.primary(isPaused: false, hasInterruptedRun: false, needsFolder: false, isEverything: true,
                                        hasNewPhotosStatus: false, backedUpCount: 9_207,
-                                       fallback: "Export All Photos") == "Export New Photos")
+                                       fallback: "Export All Photos") == "Export Photos by Date…")
     }
 }

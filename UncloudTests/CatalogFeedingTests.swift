@@ -317,20 +317,6 @@ struct CatalogRangeTests {
         }
     }
 
-    @Test func aTrustedCatalogSuggestsTheSameDateAsTheWalk() async throws {
-        let root = try Self.tempRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let items = Self.library()
-        let library = DatedLibrary(items: items)
-        let catalog = try await Self.trustedCatalog(items, root: root.appending(path: "catalog"))
-        let known: Set<String> = ["dated-40", "dated-900"]
-
-        let walked = try await ExportSince.iCloudSuggestedDate(known: known, fetcher: library)
-        let answered = try await ExportSince.iCloudSuggestedDate(known: known, catalog: catalog)
-        #expect(walked != nil)
-        #expect(answered == walked)
-    }
-
     @Test func anUntrustedCatalogIsNotTrusted() async throws {
         let root = try Self.tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -122,9 +122,9 @@ struct ExportCommands: Commands {
                         .keyboardShortcut("r", modifiers: [.command, .option])
                         .disabled(true)
                 } else {
-                    // The same title and action as the primary button: the selection, or a folder first. The ellipsis
-                    // says the button asks for more first when it opens the Export New Photos sheet.
-                    Button(model.primaryExportTitle(total: model.browser?.count) + (model.opensExportSince ? "…" : "")) {
+                    // The same title and action as the primary button: the selection, or a folder first. Its ellipsis
+                    // comes from the title when it opens the Export Photos by Date sheet.
+                    Button(model.primaryExportTitle(total: model.browser?.count)) {
                         model.performPrimaryAction()
                     }
                     .keyboardShortcut("r")

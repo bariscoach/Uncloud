@@ -1,15 +1,15 @@
 import OSLog
 import SwiftUI
 
-/// Export New Photos from a date range: the photos taken from one date to another, counted as the dates change.
-/// The primary action opens it when the backup already has photos from this source. It shows when the last export
-/// ran and the newest photo it wrote, and starts the range at that photo's date.
+/// Export Photos by Date: the photos taken from one day to another, counted as the dates change. A preset sets the
+/// dates, and editing a date switches to Custom. The export runs to the end of the To day, and photos already in the
+/// backup are skipped.
 struct ExportRangeSheet: View {
     @Environment(ExportModel.self) private var model
-    @State private var from = Date.now
-    @State private var to = Date.now
-    @State private var lastExport: Date?
-    @State private var newestPhoto: ExportSince.ExportedPhoto?
+    /// Both at the start of their day. The export runs to the end of `to`.
+    @State private var from: Date
+    @State private var to: Date
+    @State private var preset: ExportSince.DatePreset = .last30Days
     /// The photos already in the backup, by ID: left out of the count and the export. Nil until read.
     @State private var backedUp: Set<String>?
     @State private var counted: Counted = .counting
@@ -30,34 +30,38 @@ struct ExportRangeSheet: View {
         case failed(String)
     }
 
+    init() {
+        let days = ExportSince.DatePreset.last30Days.days(now: .now) ?? (from: .now, to: .now)
+        _from = State(initialValue: days.from)
+        _to = State(initialValue: days.to)
+    }
+
     var body: some View {
-        FormSheetScaffold("Export New Photos", content: {
-            if lastExport != nil || newestPhoto != nil {
-                Section {
-                    if let lastExport {
-                        LabeledContent("Last export", value: lastExport.formatted(date: .abbreviated, time: .shortened))
+        FormSheetScaffold("Export Photos by Date", content: {
+            Section {
+                Picker("Range", selection: $preset) {
+                    ForEach(ExportSince.DatePreset.allCases, id: \.self) { option in
+                        Text(option.title).tag(option)
                     }
-                    if let newestPhoto {
-                        LabeledContent("Newest photo", value: "\(newestPhoto.fileName), taken \(newestPhoto.taken.formatted(date: .abbreviated, time: .shortened))")
-                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .onChange(of: preset) { _, new in
+                    guard let days = new.days(now: .now) else { return }
+                    from = days.from
+                    to = days.to
                 }
             }
 
-            Section("Export photos taken") {
-                DatePicker("From", selection: $from, in: ...to, displayedComponents: [.date, .hourAndMinute])
-                    .datePickerStyle(.stepperField)
-                HStack {
-                    DatePicker("To", selection: $to, in: from...Date(), displayedComponents: [.date, .hourAndMinute])
-                        .datePickerStyle(.stepperField)
-                    Button("Now") {
-                        to = .now
-                    }
-                }
+            Section("Photos taken") {
+                DatePicker("From", selection: fromBinding, in: ...to, displayedComponents: .date)
+                DatePicker("To", selection: toBinding, in: from...today, displayedComponents: .date)
             }
 
             Section {
                 LabeledContent("Photos", value: countText)
             } footer: {
+                Text("Photos already in your backup are skipped.")
                 if case let .failed(reason) = counted {
                     Text("Couldn’t reach iCloud Photos. \(reason)")
                     Button("Try Again") {
@@ -72,26 +76,16 @@ struct ExportRangeSheet: View {
             buttons
         })
         .task {
-            to = .now
-            from = watermarkDate ?? Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .now
-            lastExport = await readLastExport()
-            newestPhoto = await readNewestPhoto()
-            let known = await readBackedUp()
-            let suggested = await findSuggestion(known: known)
-            if let start = newestPhoto?.taken ?? suggested {
-                from = min(start, to)
-            }
-            // Set last, so the count starts once the range is final.
-            backedUp = known
+            // Waits for the backed-up photos, so the count never includes them.
+            backedUp = await readBackedUp()
         }
-        // A new range cancels the count in progress. The short pause keeps a run of stepper clicks from counting each one.
-        // Waits for the backed-up photos, so the count never includes them.
+        // A new range cancels the count in progress. The short pause keeps a run of picker clicks from counting each one.
         .task(id: CountRequest(from: from, to: to, isReady: backedUp != nil, attempt: attempt)) {
             counted = .counting
             guard let backedUp else { return }
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
-            let result = await countPhotos(from: from, to: to, backedUp: backedUp)
+            let result = await countPhotos(from: from, to: ExportSince.endOfDay(to), backedUp: backedUp)
             guard !Task.isCancelled else { return }
             counted = result
         }
@@ -106,13 +100,27 @@ struct ExportRangeSheet: View {
 
             Button("Export") {
                 if case let .found(items, _, _) = counted {
-                    model.exportRange(from: from, to: to, items: items)
+                    model.exportRange(from: from, to: ExportSince.endOfDay(to), items: items)
                 }
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
             .disabled(!canExport)
         }
+    }
+
+    /// Editing a date makes the range a custom one, so the preset selection follows the dates no longer.
+    private var fromBinding: Binding<Date> {
+        Binding(get: { from }, set: { from = $0; preset = .custom })
+    }
+
+    private var toBinding: Binding<Date> {
+        Binding(get: { to }, set: { to = $0; preset = .custom })
+    }
+
+    /// The start of today: the latest day the range can end on.
+    private var today: Date {
+        Calendar.current.startOfDay(for: .now)
     }
 
     private var canExport: Bool {
@@ -127,16 +135,7 @@ struct ExportRangeSheet: View {
         case .failed:
             return "Couldn’t count the photos."
         case let .found(items, isAtLeast, backedUp):
-            if isAtLeast {
-                return "More than \(ExportSince.iCloudLimit.formatted()) photos"
-            }
-            if items.isEmpty {
-                guard backedUp > 0 else { return "No photos taken in this range" }
-                let photos = Self.photos(backedUp)
-                return "All \(photos) \(backedUp == 1 ? "is" : "are") already backed up"
-            }
-            let text = "\(Self.photos(items.count)) not backed up yet"
-            return backedUp > 0 ? "\(text) · \(backedUp.formatted()) already backed up" : text
+            return ExportSince.countText(toExport: items.count, backedUp: backedUp, isAtLeast: isAtLeast)
         }
     }
 
@@ -145,33 +144,6 @@ struct ExportRangeSheet: View {
             return "Only the newest \(ExportSince.iCloudLimit.formatted()) are exported this time."
         }
         return nil
-    }
-
-    /// "1 photo" or "312 photos".
-    private static func photos(_ count: Int) -> String {
-        "\(count.formatted()) \(count == 1 ? "photo" : "photos")"
-    }
-
-    /// The date the New Photos watermark recorded for the newest photo of the last complete export, if any.
-    private var watermarkDate: Date? {
-        guard let context = model.newPhotosContext else { return nil }
-        return model.newPhotos.store.watermark(for: context)?.newestAddedDate
-    }
-
-    /// The last export's end, from the destination's session files. Nil when none, or the drive isn't connected.
-    private func readLastExport() async -> Date? {
-        guard let destination = model.destination?.url else { return nil }
-        return await Task.detached(priority: .utility) {
-            ExportSince.lastExport(in: SessionStore(destination: destination))
-        }.value
-    }
-
-    /// The newest photo the backup wrote, from the manifest and the files' dates. Nil when none can be read.
-    private func readNewestPhoto() async -> ExportSince.ExportedPhoto? {
-        guard let destination = model.destination?.url else { return nil }
-        return await Task.detached(priority: .utility) {
-            ExportSince.newestExportedPhoto(in: destination)
-        }.value
     }
 
     /// The photos already in the backup, from the manifest (no drive scan), read off the main actor.
@@ -198,7 +170,7 @@ struct ExportRangeSheet: View {
         )
     }
 
-    /// The account's catalog, topped up and checked once per sheet (R12e), so each From-date change is a local query.
+    /// The account's catalog, topped up and checked once per sheet (R12e), so each date change is a local query.
     /// Nil when the catalog isn't trusted or can't be checked: the walks then run as before.
     private func rangeCatalogIfTrusted() async throws -> ICloudCatalog? {
         if rangeCatalogChecked {
@@ -227,28 +199,6 @@ struct ExportRangeSheet: View {
         return rangeCatalog
     }
 
-    /// The date of the newest backed-up photo, for the start of the range. Nil when none can be found.
-    private func findSuggestion(known: Set<String>) async -> Date? {
-        switch model.source {
-        case .iCloud:
-            do {
-                guard let fetcher = try await iCloudFetcher() else { return nil }
-                if let catalog = try await rangeCatalogIfTrusted() {
-                    return try await ExportSince.iCloudSuggestedDate(known: known, catalog: catalog)
-                }
-                return try await ExportSince.iCloudSuggestedDate(known: known, fetcher: fetcher)
-            } catch {
-                guard !Task.isCancelled else { return nil }
-                Self.logger.error("Export New Photos couldn't find the newest backed-up photo: \(error.localizedDescription, privacy: .public)")
-                return nil
-            }
-        case .photosLibrary:
-            return await Task.detached(priority: .utility) {
-                ExportSince.photosLibrarySuggestedDate(exported: known)
-            }.value
-        }
-    }
-
     /// The photos taken in the range that aren't backed up yet. A cancelled count throws, and the caller then keeps nothing.
     private func countPhotos(from: Date, to: Date, backedUp: Set<String>) async -> Counted {
         func found(_ all: [String: Int], isAtLeast: Bool) -> Counted {
@@ -270,7 +220,7 @@ struct ExportRangeSheet: View {
                 return found(result.items, isAtLeast: result.isAtLeast)
             } catch {
                 guard !Task.isCancelled else { return .counting }
-                Self.logger.error("Export New Photos couldn't count iCloud photos: \(error.localizedDescription, privacy: .public)")
+                Self.logger.error("Export Photos by Date couldn't count iCloud photos: \(error.localizedDescription, privacy: .public)")
                 return .failed(error.localizedDescription)
             }
         case .photosLibrary:

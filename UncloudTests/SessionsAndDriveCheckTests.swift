@@ -219,11 +219,8 @@ extension ExportCancellationTests {
             #expect(model.primaryExportHelp(total: nil) == NewPhotosTitle.newOnlyHelp)
             // Items recorded by asset ID count exactly. Path-only records make the count approximate, and then the
             // title and subtitle drop the number (plan 1.3). Both are the same offer.
-            if model.isOnDriveCountApproximate {
-                #expect(model.primaryExportTitle(total: nil) == "Export New Photos")
-            } else {
-                #expect(model.primaryExportTitle(total: nil) == "Export 1 New Photo")
-            }
+            // The title never carries a count: the sheet counts what it will export.
+            #expect(model.primaryExportTitle(total: nil) == "Export Photos by Date…")
             // The subtitle's "not backed up" needs iCloud's unlisted items measured by a complete walk, which this run
             // didn't leave behind, so the count is left out rather than shown as 1.
             #expect(model.trustedToGoCount == nil)

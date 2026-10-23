@@ -57,7 +57,7 @@ final class ExportModel {
     /// The space the destination's volume has for new files, or nil when unknown.
     private(set) var destinationFreeBytes: Int64?
     var isChoosingDestination = false
-    /// Shows the Export New Photos sheet, which exports the photos added since a date the owner picks.
+    /// Shows the Export Photos by Date sheet, which exports the photos taken in a date range the owner picks.
     var isChoosingExportSince = false
     /// Set by the primary button when no folder is chosen yet: export as soon as the folder is picked.
     @ObservationIgnored private var startsAfterChoosingDestination = false
@@ -574,7 +574,7 @@ final class ExportModel {
     }
 
     /// The primary action of the Library toolbar and the Export menu: picks a folder first when none is set. With new
-    /// photos only, it opens the sheet that exports the photos added since a date, instead of starting at once.
+    /// photos only, it opens the sheet that exports a date range, instead of starting at once.
     func performPrimaryAction() {
         if destination == nil {
             chooseFolderThenExport()
@@ -585,7 +585,7 @@ final class ExportModel {
         }
     }
 
-    /// True when the primary action opens the Export New Photos sheet: it offers new photos only, and can start now.
+    /// True when the primary action opens the Export Photos by Date sheet: it offers new photos only, and can start now.
     var opensExportSince: Bool {
         offersNewPhotosOnly && canStart
     }
@@ -595,7 +595,7 @@ final class ExportModel {
     func exportRange(from: Date, to: Date, items: [String: Int]) {
         isChoosingExportSince = false
         guard canStart, !items.isEmpty else { return }
-        record(.info, "Exporting photos taken from \(from.formatted(date: .abbreviated, time: .shortened)) to \(to.formatted(date: .abbreviated, time: .shortened)).")
+        record(.info, "Exporting photos taken from \(from.formatted(date: .abbreviated, time: .omitted)) to \(to.formatted(date: .abbreviated, time: .omitted)).")
         startRun(selection: .only(Set(items.keys)), skipsDriveCheck: true, rankHints: items)
     }
 
@@ -612,7 +612,7 @@ final class ExportModel {
         )
     }
 
-    /// True when the primary action exports new photos only (the title's "Export New Photos"), so the help and
+    /// True when the primary action exports new photos only (the title's "Export Photos by Date…"), so the help and
     /// the subtitle can say so. It reads the manifest's counts, not the watermark, so it holds for any history.
     var offersNewPhotosOnly: Bool {
         NewPhotosTitle.offersNewOnly(

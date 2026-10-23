@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Uncloud
 
-/// The Export New Photos from a date walk, against a fake library (newest first). No Apple account, no network.
+/// The Export Photos by Date walk and its date presets, against a fake library (newest first). No Apple account, no network.
 struct ExportSinceTests {
     /// Serves pages of a fixed list, newest first, like the bridge does.
     private struct FakeLibrary: ICloudPageFetching {
@@ -114,199 +114,96 @@ struct ExportSinceTests {
         #expect(!result.isAtLeast)
     }
 
-    // MARK: - Suggested date
+    // MARK: - Date presets
 
-    @Test func suggestionIsTheNewestKnownItemsAddedDate() async throws {
+    /// A fixed calendar in UTC, so the dates below don't depend on the machine's time zone.
+    private static var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    private static func day(_ year: Int, _ month: Int, _ day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0) -> Date {
+        utc.date(from: DateComponents(
+            timeZone: TimeZone(identifier: "UTC"), year: year, month: month, day: day,
+            hour: hour, minute: minute, second: second
+        ))!
+    }
+
+    @Test func last30DaysCovers30CalendarDaysIncludingToday() {
+        let now = Self.day(2026, 10, 22, hour: 15, minute: 30)
+        let days = ExportSince.DatePreset.last30Days.days(now: now, calendar: Self.utc)
+        #expect(days?.from == Self.day(2026, 9, 23))
+        #expect(days?.to == Self.day(2026, 10, 22))
+    }
+
+    @Test func last7DaysCovers7CalendarDaysIncludingToday() {
+        let now = Self.day(2026, 10, 22, hour: 0, minute: 5)
+        let days = ExportSince.DatePreset.last7Days.days(now: now, calendar: Self.utc)
+        #expect(days?.from == Self.day(2026, 10, 16))
+        #expect(days?.to == Self.day(2026, 10, 22))
+    }
+
+    @Test func last30DaysCrossesAMonthAndLeapDay() {
+        let now = Self.day(2028, 3, 10, hour: 12)
+        let days = ExportSince.DatePreset.last30Days.days(now: now, calendar: Self.utc)
+        #expect(days?.from == Self.day(2028, 2, 10))
+        #expect(days?.to == Self.day(2028, 3, 10))
+    }
+
+    @Test func thisYearStartsOnJanuaryFirst() {
+        let now = Self.day(2026, 10, 22, hour: 18)
+        let days = ExportSince.DatePreset.thisYear.days(now: now, calendar: Self.utc)
+        #expect(days?.from == Self.day(2026, 1, 1))
+        #expect(days?.to == Self.day(2026, 10, 22))
+    }
+
+    @Test func thisYearOnJanuaryFirstIsTheFirstDayOnly() {
+        let now = Self.day(2027, 1, 1, hour: 9)
+        let days = ExportSince.DatePreset.thisYear.days(now: now, calendar: Self.utc)
+        #expect(days?.from == Self.day(2027, 1, 1))
+        #expect(days?.to == Self.day(2027, 1, 1))
+    }
+
+    @Test func customHasNoPresetDates() {
+        #expect(ExportSince.DatePreset.custom.days(now: Self.day(2026, 10, 22), calendar: Self.utc) == nil)
+    }
+
+    @Test func endOfDayIsTheLastSecondOfTheCalendarDay() {
+        #expect(ExportSince.endOfDay(Self.day(2026, 10, 22, hour: 9), calendar: Self.utc) == Self.day(2026, 10, 22, hour: 23, minute: 59, second: 59))
+        #expect(ExportSince.endOfDay(Self.day(2028, 2, 28), calendar: Self.utc) == Self.day(2028, 2, 28, hour: 23, minute: 59, second: 59))
+        #expect(ExportSince.endOfDay(Self.day(2028, 2, 29, hour: 23, minute: 59), calendar: Self.utc) == Self.day(2028, 2, 29, hour: 23, minute: 59, second: 59))
+    }
+
+    @Test func aRangeEndingOnADayTakesInItsLastSecond() async throws {
+        let dayStart = Self.day(2026, 10, 22)
         let library = FakeLibrary(items: [
-            Self.asset("a", added: 300),
-            Self.asset("b", added: 200, created: 100),
-            Self.asset("c", added: 100),
+            Self.asset("late", added: dayStart.addingTimeInterval(23 * 3_600 + 59 * 60 + 59).timeIntervalSince1970 + 100),
+            Self.asset("last", added: nil, created: dayStart.addingTimeInterval(23 * 3_600 + 59 * 60 + 59).timeIntervalSince1970),
+            Self.asset("next", added: nil, created: dayStart.addingTimeInterval(24 * 3_600).timeIntervalSince1970),
+            Self.asset("early", added: nil, created: dayStart.timeIntervalSince1970 - 1),
         ])
-        let suggested = try await ExportSince.iCloudSuggestedDate(known: ["b", "c"], fetcher: library)
-        #expect(suggested == Self.date(200))
+        let end = ExportSince.endOfDay(dayStart, calendar: Self.utc)
+        let result = try await ExportSince.iCloudItems(takenFrom: dayStart, to: end, fetcher: library)
+        #expect(result.items == ["last": 1])
     }
 
-    @Test func suggestionFallsBackToCreatedWithoutAddedDate() async throws {
-        let library = FakeLibrary(items: [
-            Self.asset("a", added: 300),
-            Self.asset("b", added: nil, created: 250),
-        ])
-        let suggested = try await ExportSince.iCloudSuggestedDate(known: ["b"], fetcher: library)
-        #expect(suggested == Self.date(250))
+    // MARK: - Count text
+
+    @Test func countTextNamesThePhotosToExportAndTheBackedUpOnes() {
+        #expect(ExportSince.countText(toExport: 312, backedUp: 4, isAtLeast: false) == "312 photos to export · 4 already backed up")
+        #expect(ExportSince.countText(toExport: 312, backedUp: 0, isAtLeast: false) == "312 photos to export")
+        #expect(ExportSince.countText(toExport: 1, backedUp: 0, isAtLeast: false) == "1 photo to export")
+        #expect(ExportSince.countText(toExport: 1, backedUp: 1, isAtLeast: false) == "1 photo to export · 1 already backed up")
     }
 
-    @Test func suggestionIsNilWhenNoKnownItemIsWithinTheScanLimit() async throws {
-        var items = (0..<10).map { Self.asset("u\($0)", added: TimeInterval(1_000 - $0)) }
-        items.append(Self.asset("known", added: 10))
-        let library = FakeLibrary(items: items)
-
-        let beyondLimit = try await ExportSince.iCloudSuggestedDate(known: ["known"], fetcher: library, pageSize: 3, scanLimit: 4)
-        #expect(beyondLimit == nil)
-
-        let withinLimit = try await ExportSince.iCloudSuggestedDate(known: ["known"], fetcher: library, pageSize: 3, scanLimit: 11)
-        #expect(withinLimit == Self.date(10))
-
-        let noneKnown = try await ExportSince.iCloudSuggestedDate(known: [], fetcher: library)
-        #expect(noneKnown == nil)
+    @Test func countTextSaysWhenEverythingIsBackedUp() {
+        #expect(ExportSince.countText(toExport: 0, backedUp: 4, isAtLeast: false) == "All 4 photos are already backed up")
+        #expect(ExportSince.countText(toExport: 0, backedUp: 1, isAtLeast: false) == "All 1 photo is already backed up")
+        #expect(ExportSince.countText(toExport: 0, backedUp: 0, isAtLeast: false) == "No photos taken in this range")
     }
 
-    // MARK: - Newest exported photo
-
-    private static func writeFile(_ path: String, modified: TimeInterval, in destination: URL) throws {
-        let url = destination.appending(path: path)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data().write(to: url)
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSince1970: modified)],
-            ofItemAtPath: url.path(percentEncoded: false)
-        )
-    }
-
-    private static func writeJournal(_ lines: [String], in destination: URL) throws {
-        let folder = destination.appending(path: ".photo-export", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try lines.map { $0 + "\n" }.joined().write(to: folder.appending(path: "exported.tsv"), atomically: false, encoding: .utf8)
-    }
-
-    @Test func newestPhotoIsTheLatestModifiedFileInTheJournalTail() throws {
-        try withTemporaryDirectory { destination in
-            try Self.writeFile("2024/07/a.HEIC", modified: 1_700_000_000, in: destination)
-            try Self.writeFile("2026/10/b.HEIC", modified: 1_750_000_000, in: destination)
-            try Self.writeJournal(["icloud-id:A\t2024/07/a.HEIC", "icloud-id:B\t2026/10/b.HEIC"], in: destination)
-
-            let newest = ExportSince.newestExportedPhoto(in: destination)
-            #expect(newest == ExportSince.ExportedPhoto(fileName: "b.HEIC", taken: Self.date(1_750_000_000)))
-        }
-    }
-
-    @Test func newestPhotoOnlyLooksAtTheLastRecords() throws {
-        try withTemporaryDirectory { destination in
-            try Self.writeFile("old.HEIC", modified: 1_800_000_000, in: destination)
-            try Self.writeFile("new.HEIC", modified: 1_750_000_000, in: destination)
-            try Self.writeJournal(["icloud-id:OLD\told.HEIC", "icloud-id:NEW\tnew.HEIC"], in: destination)
-
-            let newest = ExportSince.newestExportedPhoto(in: destination, limit: 1)
-            #expect(newest?.fileName == "new.HEIC")
-        }
-    }
-
-    @Test func newestPhotoSkipsFilesThatAreMissing() throws {
-        try withTemporaryDirectory { destination in
-            try Self.writeFile("kept.HEIC", modified: 1_700_000_000, in: destination)
-            try Self.writeJournal(["icloud-id:GONE\tmissing.HEIC", "icloud-id:KEPT\tkept.HEIC"], in: destination)
-
-            #expect(ExportSince.newestExportedPhoto(in: destination)?.fileName == "kept.HEIC")
-        }
-    }
-
-    @Test func newestPhotoIsNilWhenNothingCanBeRead() throws {
-        try withTemporaryDirectory { destination in
-            #expect(ExportSince.newestExportedPhoto(in: destination) == nil)
-
-            try Self.writeJournal(["icloud-id:GONE\tmissing.HEIC"], in: destination)
-            #expect(ExportSince.newestExportedPhoto(in: destination) == nil)
-        }
-    }
-
-    /// The per-file version `newestExportedPhoto` had before the bulk listing, kept to compare the two.
-    private static func perFileNewestExportedPhoto(in destination: URL, limit: Int) -> ExportSince.ExportedPhoto? {
-        var newest: ExportSince.ExportedPhoto?
-        for record in ExportManifest.recentRecords(in: destination, limit: limit) {
-            for path in record.paths where ExportManifest.isSafeRelativePath(path) {
-                let url = destination.appending(path: path)
-                guard let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else {
-                    continue
-                }
-                if let current = newest, current.taken >= modified { continue }
-                newest = ExportSince.ExportedPhoto(fileName: url.lastPathComponent, taken: modified)
-            }
-        }
-        return newest
-    }
-
-    @Test func newestPhotoMatchesThePerFileVersionOnAFixture() throws {
-        try withTemporaryDirectory { destination in
-            try Self.writeFile("2024/07/a.HEIC", modified: 1_700_000_000, in: destination)
-            // A tie: the earlier record keeps the title.
-            try Self.writeFile("2024/07/b.HEIC", modified: 1_700_000_000, in: destination)
-            try Self.writeFile("2026/10/c.mov", modified: 1_750_000_000.25, in: destination)
-            try Self.writeFile("IMG_root.jpg", modified: 1_740_000_000, in: destination)
-            try FileManager.default.createDirectory(
-                at: destination.appending(path: "2026/10/folder.HEIC", directoryHint: .isDirectory),
-                withIntermediateDirectories: true
-            )
-            try Self.writeJournal([
-                "icloud-id:A\t2024/07/a.HEIC",
-                "icloud-id:B\t2024/07/b.HEIC",
-                "icloud-id:C\t2026/10/c.mov",
-                "icloud-id:D\tIMG_root.jpg",
-                "icloud-id:E\t2024/07/missing.HEIC",
-                "icloud-id:F\t../escape.jpg",
-                "icloud-id:G\t2026/10/folder.HEIC",
-            ], in: destination)
-
-            for limit in [1, 2, 3, 500] {
-                let bulk = ExportSince.newestExportedPhoto(in: destination, limit: limit)
-                let perFile = Self.perFileNewestExportedPhoto(in: destination, limit: limit)
-                #expect(bulk?.fileName == perFile?.fileName, "limit \(limit)")
-                #expect(bulk?.taken.timeIntervalSince1970 == perFile?.taken.timeIntervalSince1970, "limit \(limit)")
-            }
-        }
-    }
-
-    // MARK: - Last export
-
-    private static func session(
-        endedAt: TimeInterval?,
-        updatedAt: TimeInterval = 1_000,
-        exported: Int,
-        status: ExportSession.Status
-    ) -> ExportSession {
-        var session = ExportSession(
-            trigger: .manual,
-            startedAt: Date(timeIntervalSince1970: 1_000),
-            appVersion: "test",
-            launchID: UUID(),
-            source: .iCloud,
-            layout: .month,
-            writesSidecars: false,
-            selection: ExportSession.SelectionSummary(kind: .everything, count: 0)
-        )
-        session.counts.exported = exported
-        session.result = ExportSession.Result(status: status)
-        session.updatedAt = Date(timeIntervalSince1970: updatedAt)
-        session.endedAt = endedAt.map { Date(timeIntervalSince1970: $0) }
-        return session
-    }
-
-    @Test func lastExportIsTheNewestSessionThatExportedFiles() throws {
-        try withTemporaryDirectory { destination in
-            let store = SessionStore(destination: destination)
-            try store.write(Self.session(endedAt: 3_000, exported: 0, status: .completed))
-            try store.write(Self.session(endedAt: 2_000, exported: 2, status: .completed))
-            try store.write(Self.session(endedAt: 2_500, exported: 5, status: .interrupted))
-            try store.write(Self.session(endedAt: nil, updatedAt: 4_000, exported: 9, status: .running))
-
-            #expect(ExportSince.lastExport(in: store) == Self.date(2_500))
-        }
-    }
-
-    @Test func lastExportUsesTheUpdateTimeWithoutAnEndTime() throws {
-        try withTemporaryDirectory { destination in
-            let store = SessionStore(destination: destination)
-            try store.write(Self.session(endedAt: nil, updatedAt: 2_600, exported: 1, status: .cancelled))
-
-            #expect(ExportSince.lastExport(in: store) == Self.date(2_600))
-        }
-    }
-
-    @Test func lastExportIsNilWithoutAnyExport() throws {
-        try withTemporaryDirectory { destination in
-            let store = SessionStore(destination: destination)
-            #expect(ExportSince.lastExport(in: store) == nil)
-
-            try store.write(Self.session(endedAt: 2_000, exported: 0, status: .completed))
-            #expect(ExportSince.lastExport(in: store) == nil)
-        }
+    @Test func countTextSaysWhenTheWalkStoppedAtTheLimit() {
+        #expect(ExportSince.countText(toExport: 20_000, backedUp: 0, isAtLeast: true) == "More than 20,000 photos")
     }
 }

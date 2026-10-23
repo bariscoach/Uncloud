@@ -1,17 +1,72 @@
 import Foundation
 import Photos
 
-/// Export New Photos from a date range: the photos taken within it, which the owner picks, plus what the sheet
-/// shows about the backup: when the last export ran and the newest photo it wrote. The iCloud walks are pure and
-/// tested with a fake fetcher. The Photos library parts are thin wrappers over PhotoKit.
+/// Export Photos by Date: the photos taken within a date range the owner picks. The presets, the end of the range
+/// and the count's wording are pure and tested. The iCloud walks are tested with a fake fetcher, and the Photos
+/// library parts are thin wrappers over PhotoKit.
 enum ExportSince {
     /// The most photos the iCloud walk lists before it stops and says there are more.
     static let iCloudLimit = 20_000
 
-    /// The newest photo the backup wrote: its file name and when it was taken (the file's modification date).
-    struct ExportedPhoto: Equatable, Sendable {
-        let fileName: String
-        let taken: Date
+    /// The quick ranges the sheet offers. `custom` keeps whatever dates are set.
+    enum DatePreset: CaseIterable, Sendable {
+        case last7Days
+        case last30Days
+        case thisYear
+        case custom
+
+        var title: String {
+            switch self {
+            case .last7Days: "Last 7 Days"
+            case .last30Days: "Last 30 Days"
+            case .thisYear: "This Year"
+            case .custom: "Custom"
+            }
+        }
+
+        /// The first and last day the preset picks, both at the start of their day. "Last 7 Days" and "Last 30 Days"
+        /// cover that many calendar days, today included. Nil for `custom`, which keeps the dates.
+        func days(now: Date, calendar: Calendar = .current) -> (from: Date, to: Date)? {
+            let today = calendar.startOfDay(for: now)
+            switch self {
+            case .last7Days:
+                return (calendar.date(byAdding: .day, value: -6, to: today) ?? today, today)
+            case .last30Days:
+                return (calendar.date(byAdding: .day, value: -29, to: today) ?? today, today)
+            case .thisYear:
+                let start = calendar.date(from: calendar.dateComponents([.year], from: now)) ?? today
+                return (calendar.startOfDay(for: start), today)
+            case .custom:
+                return nil
+            }
+        }
+    }
+
+    /// The last second of `day`'s calendar day (23:59:59), so a range that ends on it takes in the whole day.
+    static func endOfDay(_ day: Date, calendar: Calendar = .current) -> Date {
+        let start = calendar.startOfDay(for: day)
+        let nextStart = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+        return nextStart.addingTimeInterval(-1)
+    }
+
+    /// The count line once a range has been counted: "312 photos to export · 4 already backed up". `toExport` are the
+    /// photos in the range that aren't backed up; `backedUp` are the ones that are. `isAtLeast` means the walk stopped
+    /// at `iCloudLimit`.
+    static func countText(toExport: Int, backedUp: Int, isAtLeast: Bool) -> String {
+        if isAtLeast {
+            return "More than \(iCloudLimit.formatted()) photos"
+        }
+        if toExport == 0 {
+            guard backedUp > 0 else { return "No photos taken in this range" }
+            return "All \(photos(backedUp)) \(backedUp == 1 ? "is" : "are") already backed up"
+        }
+        let text = "\(photos(toExport)) to export"
+        return backedUp > 0 ? "\(text) · \(backedUp.formatted()) already backed up" : text
+    }
+
+    /// "1 photo" or "312 photos".
+    private static func photos(_ count: Int) -> String {
+        "\(count.formatted()) \(count == 1 ? "photo" : "photos")"
     }
 
     /// iCloud: walks pages newest-first by `added` from rank 0. Returns the ids (with ranks, for rank hints) of items
@@ -46,27 +101,6 @@ enum ExportSince {
         }
     }
 
-    /// iCloud: the newest backed-up item's date: walks from rank 0 until the first id in `known`; returns its
-    /// `added ?? created`. Gives up (nil) after `scanLimit` items.
-    static func iCloudSuggestedDate(known: Set<String>, fetcher: any ICloudPageFetching, pageSize: Int = 200,
-                                    scanLimit: Int = 5_000) async throws -> Date? {
-        var offset = 0
-        while offset < scanLimit {
-            try Task.checkCancellation()
-            let page = try await fetcher.assets(offset: offset, limit: pageSize)
-            if page.isEmpty {
-                return nil
-            }
-            for (index, asset) in page.enumerated() where offset + index < scanLimit {
-                if known.contains(asset.id), let when = asset.added ?? asset.created {
-                    return when
-                }
-            }
-            offset += page.count
-        }
-        return nil
-    }
-
     /// iCloud, from a trusted catalog (R12e): the items taken in `from...to`, with the rank hints as values, read from
     /// the catalog's rows. The caller has checked the catalog (`CatalogTopUp.trustedAfterTopUp`); nothing is fetched.
     static func iCloudItems(takenFrom from: Date, to: Date, catalog: ICloudCatalog,
@@ -81,29 +115,6 @@ enum ExportSince {
         return (items, isAtLeast)
     }
 
-    /// iCloud, from a trusted catalog (R12e): the newest backed-up item's date, the first known item in rank-hint
-    /// order that has a date. Gives up (nil) after `scanLimit` items.
-    static func iCloudSuggestedDate(known: Set<String>, catalog: ICloudCatalog, pageSize: Int = 200,
-                                    scanLimit: Int = 5_000) async throws -> Date? {
-        let libraryCount = try await catalog.status().libraryCount ?? 0
-        var offset = 0
-        while offset < scanLimit {
-            try Task.checkCancellation()
-            let page = try await catalog.page(offset: offset, limit: min(pageSize, scanLimit - offset),
-                                              libraryCount: libraryCount)
-            if page.isEmpty {
-                return nil
-            }
-            for row in page where known.contains(row.id) {
-                if let when = row.added ?? row.created {
-                    return when
-                }
-            }
-            offset += page.count
-        }
-        return nil
-    }
-
     /// Photos library: the assets taken in `from...to`, keyed by local identifier. The value is always 0, as the
     /// Photos library has no ranks.
     static func photosLibraryItems(takenFrom from: Date, to: Date) -> [String: Int] {
@@ -114,69 +125,5 @@ enum ExportSince {
             items[asset.localIdentifier] = 0
         }
         return items
-    }
-
-    /// Photos library: the creation date of the newest asset already in the backup. Gives up (nil) after `scanLimit`.
-    static func photosLibrarySuggestedDate(exported: Set<String>, scanLimit: Int = 5_000) -> Date? {
-        let options = BackupFiles.libraryFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        let assets = PHAsset.fetchAssets(with: options)
-        for index in 0..<min(assets.count, scanLimit) {
-            let asset = assets.object(at: index)
-            if exported.contains(asset.localIdentifier) {
-                return asset.creationDate
-            }
-        }
-        return nil
-    }
-
-    /// When the last export ran: the end of the newest session that exported files and didn't stop while running.
-    /// Completed, completed with failures, cancelled and interrupted sessions all count. Nil when there is none.
-    static func lastExport(in store: SessionStore) -> Date? {
-        let finished: Set<ExportSession.Status> = [.completed, .completedWithFailures, .cancelled, .interrupted]
-        return store.list()
-            .filter { $0.counts.exported > 0 && finished.contains($0.result.status) }
-            .map { $0.endedAt ?? $0.updatedAt }
-            .max()
-    }
-
-    /// The newest photo the backup wrote: among the last `limit` records of the manifest (the journal is append-only,
-    /// so its tail holds the latest exports), the file with the newest modification date. icloudpd and the PhotoKit
-    /// export set that date to when the photo was taken. Nil when no recorded file can be read.
-    static func newestExportedPhoto(in destination: URL, limit: Int = 500) -> ExportedPhoto? {
-        let records = ExportManifest.recentRecords(in: destination, limit: limit)
-        // Each folder is listed once, in one bulk pass, for the modification dates. A lookup per file is slow on exFAT.
-        var datesByFolder: [String: [String: Double]] = [:]
-        for record in records {
-            for path in record.paths where ExportManifest.isSafeRelativePath(path) {
-                let folder = (path as NSString).deletingLastPathComponent
-                if datesByFolder[folder] == nil {
-                    datesByFolder[folder] = modificationDates(inFolder: folder, in: destination)
-                }
-            }
-        }
-
-        var newest: ExportedPhoto?
-        for record in records {
-            for path in record.paths where ExportManifest.isSafeRelativePath(path) {
-                let folder = (path as NSString).deletingLastPathComponent
-                let name = (path as NSString).lastPathComponent
-                guard let modified = datesByFolder[folder]?[name] else { continue }
-                let taken = Date(timeIntervalSince1970: modified)
-                if let current = newest, current.taken >= taken {
-                    continue
-                }
-                newest = ExportedPhoto(fileName: name, taken: taken)
-            }
-        }
-        return newest
-    }
-
-    /// The modification time of each entry in `folder` (a relative path, `""` for the destination), by name. Empty
-    /// when the folder can't be listed, so its files are skipped as missing.
-    private static func modificationDates(inFolder folder: String, in destination: URL) -> [String: Double] {
-        let url = folder.isEmpty ? destination : destination.appending(path: folder, directoryHint: .isDirectory)
-        guard let entries = try? BulkDirectoryLister.list(url) else { return [:] }
-        return Dictionary(entries.map { ($0.name, $0.modified) }, uniquingKeysWith: { first, _ in first })
     }
 }

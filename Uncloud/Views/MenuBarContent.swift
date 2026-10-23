@@ -25,10 +25,12 @@ struct MenuBarContent: View {
             }
         }
 
-        Button("Export New Photos") {
-            model.backUpAutomatically(reason: "from the menu bar")
+        Button("Export Photos by Date…") {
+            openWindow(id: "main")
+            NSApp.activate()
+            model.isChoosingExportSince = true
         }
-        .disabled(!model.canBackUpAutomatically)
+        .disabled(!model.canStart || model.phase == .paused)
 
         Button("Open Uncloud") {
             openWindow(id: "main")

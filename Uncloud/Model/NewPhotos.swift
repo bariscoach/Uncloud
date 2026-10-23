@@ -167,9 +167,10 @@ enum NewPhotosCounter {
 
 /// The primary button's title. `fallback` is the title the rest of the Library uses (for example, "Export All Photos").
 enum NewPhotosTitle {
-    static let exportNewPhotos = "Export New Photos"
+    /// Opens the Export Photos by Date sheet. The ellipsis says it asks for a date range first.
+    static let exportByDate = "Export Photos by Date…"
     static let chooseFolder = "Choose Backup Folder…"
-    static let newOnlyHelp = "Exports only photos that aren’t in your backup yet. Photos already backed up are never exported twice."
+    static let newOnlyHelp = "Choose a date range. Uncloud exports the photos taken in it that aren’t in your backup yet."
 
     /// True when the primary action is presented as new photos only: everything is selected, a folder is chosen, no run
     /// is paused or interrupted, and the folder already has backed-up photos (or a New Photos watermark exists).
@@ -207,7 +208,7 @@ enum NewPhotosTitle {
             hasNewPhotosStatus: hasNewPhotosStatus,
             backedUpCount: backedUpCount
         ) else { return fallback }
-        return exportNewPhotos
+        return exportByDate
     }
 }
 
