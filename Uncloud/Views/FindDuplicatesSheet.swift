@@ -180,7 +180,8 @@ private struct DuplicatesLibrary: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Duplicates")
                     .font(.title2.weight(.semibold))
-                Text("\(countText(totals.copies + totals.photos, "copy", "copies")) of \(countText(totals.photos, "photo")) · \(DuplicateWording.byteText(totals.bytes))")
+                // The same count as the footer and the confirmation: the copies that go, not the originals that stay.
+                Text("\(countText(totals.copies, "duplicate")) of \(countText(totals.photos, "photo")) · \(DuplicateWording.byteText(totals.bytes)) to free")
                     .font(.callout.weight(.medium))
                     .monospacedDigit()
                 HelpText("Uncloud keeps the original of each photo, the first copy it saved, and removes the other copies.")
