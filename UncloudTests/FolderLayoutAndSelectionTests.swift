@@ -50,13 +50,10 @@ struct FolderLayoutFlatTests {
         #expect(!FolderLayout.flat.usesAlbums)
     }
 
-    @Test func captionsNameTheCollisionRuleOfEachSource() {
-        let iCloud = FolderLayout.flat.caption(for: .iCloud) ?? ""
-        #expect(iCloud.hasPrefix("Everything goes straight into your backup folder, with no subfolders."))
-        #expect(iCloud.contains("like IMG_0001-2483921.HEIC."))
-        let photos = FolderLayout.flat.caption(for: .photosLibrary) ?? ""
-        #expect(photos.contains("the second gets a number"))
-        #expect(photos.contains("IMG_0001 (1).HEIC"))
+    @Test func flatCaptionHasNoClashRule() {
+        // The clash rule moved to File Names (FolderLayout.clashRule(for:)); see FolderOrganizationTests.
+        #expect(FolderLayout.flat.caption(for: .iCloud) == "Everything goes straight into your backup folder, with no subfolders.")
+        #expect(FolderLayout.flat.caption(for: .photosLibrary) == FolderLayout.flat.caption(for: .iCloud))
         #expect(FolderLayout.month.caption(for: .iCloud) == nil)
     }
 }

@@ -30,18 +30,22 @@ enum FolderLayout: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// The caption shown under the picker when this layout is selected, for the given source.
-    /// Only `flat` has source-specific wording: icloudpd adds the file size to a clashing name, while
-    /// PhotoKit exports add a number (see `ExportEngine.availableURL`).
+    /// The caption shown under the picker when this layout is selected. Only `flat` has one. Its clashing-name
+    /// rule is separate, in `clashRule(for:)`, shown under File Names.
     func caption(for source: LibrarySource) -> String? {
         guard self == .flat else { return nil }
+        return "Everything goes straight into your backup folder, with no subfolders."
+    }
+
+    /// The File Names rule for a clashing name. Only `flat` puts every file in one folder, but the rule is the same
+    /// for the whole library. icloudpd adds the file size to a clashing name, while PhotoKit exports add a number
+    /// (see `ExportEngine.availableURL`).
+    static func clashRule(for source: LibrarySource) -> String {
         switch source {
         case .iCloud:
-            return "Everything goes straight into your backup folder, with no subfolders. "
-                + "When two files share a name, the second gets its size added, like IMG_0001-2483921.HEIC."
+            "If two files share a name, the second gets its size added: IMG_0001-2483921.HEIC."
         case .photosLibrary:
-            return "Everything goes straight into your backup folder, with no subfolders. "
-                + "When two files share a name, the second gets a number, like IMG_0001 (1).HEIC."
+            "If two files share a name, the second gets a number: IMG_0001 (1).HEIC."
         }
     }
 
