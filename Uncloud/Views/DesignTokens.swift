@@ -70,7 +70,7 @@ enum Tokens {
     /// `drive` remain, for Getting Started illustrations. Colour no longer marks sections or places.
     enum Tint {
         static let library = Color.pink        // photos (also "Photos on This Mac" in the footer)
-        static let iCloud = Color.blue         // anything iCloud: footer, Clean Up iCloud row
+        static let iCloud = Color.blue         // anything iCloud: footer, Delete from iCloud row
         static let drive = Color.teal          // Backup row, Save To
     }
 

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Which backup state the grid's selection and dimming follow, for Clean Up iCloud.
+/// Which backup state the grid's selection and dimming follow, for Delete from iCloud.
 enum BackupFilter: String, CaseIterable, Identifiable, Sendable {
     case all
     case backedUp
@@ -36,7 +36,7 @@ enum BackupFilter: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// The library as a lazy grid of thumbnails that can be selected, with tap, Shift-click range, Space and ⌘A.
-/// The Export pane and Clean Up iCloud both show it; each passes its own selection.
+/// The Export pane and Delete from iCloud both show it; each passes its own selection.
 struct LibraryGrid: View {
     let browser: LibraryBrowser
     @Binding var selection: LibrarySelection

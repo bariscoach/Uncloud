@@ -183,7 +183,7 @@ enum Plural {
     }
 }
 
-/// The Clean Up iCloud command, published with `.focusedValue` so the menu item is enabled and opens the sheet only
+/// The Delete from iCloud command, published with `.focusedValue` so the menu item is enabled and opens the sheet only
 /// while that window has focus. The action only opens an existing confirmation; it never deletes.
 struct CleanupCommandActions {
     let title: String

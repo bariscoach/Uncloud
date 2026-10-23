@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Clean Up iCloud pane: pick photos in the iCloud library and delete them from iCloud Photos, or pick photos in
+/// The Delete from iCloud pane: pick photos in the iCloud library and delete them from iCloud Photos, or pick photos in
 /// Recently Deleted and recover them. Deleted photos move to Recently Deleted, where they stay for 30 days. The backup
 /// on the drive is never changed.
 struct CleanupView: View {
@@ -21,9 +21,9 @@ struct CleanupView: View {
                 )
             } else if model.source == .photosLibrary {
                 ContentUnavailableView {
-                    Label("Clean Up iCloud", systemImage: "icloud")
+                    Label("Delete from iCloud", systemImage: "icloud")
                 } description: {
-                    Text("Clean Up iCloud works with iCloud Photos. To make room on this Mac instead, use Free Up Space.")
+                    Text("Delete from iCloud works with iCloud Photos. To make room on this Mac instead, use Free Up Space.")
                 } actions: {
                     Button("Switch to iCloud Photos") {
                         model.source = .iCloud
@@ -86,7 +86,7 @@ struct CleanupGridView: View {
 
     var body: some View {
         Group {
-            // Clean Up iCloud is locked as a whole by MainWindow for free accounts, so this view never shows the lock.
+            // Delete from iCloud is locked as a whole by MainWindow for free accounts, so this view never shows the lock.
             if cleanup.mode == .recentlyDeleted, browser.count == 0 {
                 ContentUnavailableView("No Recently Deleted Photos", systemImage: "trash")
             } else if browser.count != nil {

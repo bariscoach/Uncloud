@@ -3,7 +3,7 @@ import SwiftUI
 import Testing
 @testable import Uncloud
 
-/// Renders the Clean Up iCloud screens for design review, in light and dark: the grid with a selection and its
+/// Renders the Delete from iCloud screens for design review, in light and dark: the grid with a selection and its
 /// badges, the confirmation, the progress while deleting, and the finished summary. Runs only when the
 /// `UNCLOUD_SNAPSHOT_DIR` environment variable names a folder, and writes the PNGs there.
 /// The library is fabricated: a test browser backend stands in for the bridge's pages, and the fake bridge
@@ -13,7 +13,7 @@ private let cleanupSnapshotDirectory: URL? = ProcessInfo.processInfo.environment
 }
 
 @MainActor
-@Suite("Clean Up iCloud snapshots", .enabled(if: cleanupSnapshotDirectory != nil))
+@Suite("Delete from iCloud snapshots", .enabled(if: cleanupSnapshotDirectory != nil))
 struct CleanupSnapshotTests {
     private final class BundleToken {}
 

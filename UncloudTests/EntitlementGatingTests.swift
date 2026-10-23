@@ -124,7 +124,12 @@ struct EntitlementGatingTests {
         #expect(CleanupGridView.mayStart(mode: .recentlyDeleted, allowsCleanUp: true))
     }
 
-    @Test("Only Clean Up iCloud has a locked note, and it says where recoverable photos stay")
+    @Test("The iCloud cleanup feature is named Delete from iCloud")
+    func cleanUpTitle() {
+        #expect(PaidFeature.cleanUpICloud.title == "Delete from iCloud")
+    }
+
+    @Test("Only Delete from iCloud has a locked note, and it says where recoverable photos stay")
     func cleanUpLockedNote() {
         let note = PaidFeature.cleanUpICloud.lockedNote ?? ""
         #expect(note.contains("30 days"))
@@ -134,7 +139,7 @@ struct EntitlementGatingTests {
         }
     }
 
-    @Test("Clean Up iCloud shows its grid when the plan allows it or a run is going, and the lock otherwise")
+    @Test("Delete from iCloud shows its grid when the plan allows it or a run is going, and the lock otherwise")
     func cleanupPaneGate() {
         #expect(MainWindow.showsCleanup(allowed: false, isRunning: false) == false)
         #expect(MainWindow.showsCleanup(allowed: false, isRunning: true))

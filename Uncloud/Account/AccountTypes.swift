@@ -91,7 +91,7 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
         case .findDuplicates: "Find Duplicates"
         case .verifyBackup: "Verify Backup"
         case .freeUpSpace: "Free Up Space"
-        case .cleanUpICloud: "Clean Up iCloud"
+        case .cleanUpICloud: "Delete from iCloud"
         }
     }
 
