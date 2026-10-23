@@ -76,10 +76,11 @@ struct CleanupGridView: View {
         cleanup.mode == .library ? library : recentlyDeleted
     }
 
-    /// The window subtitle: the selection count, and in Recently Deleted, how long photos stay there.
+    /// The window subtitle. With a selection, it is the selection's count and size. Otherwise, in Recently Deleted, it is how
+    /// many photos are there and how long they stay. The note waits for the empty selection, since the subtitle truncates.
     private var subtitle: String {
-        let count = countText
-        guard cleanup.mode == .recentlyDeleted else { return count }
+        guard cleanup.mode == .recentlyDeleted, cleanup.selectedCount == 0 else { return countText }
+        let count = total.map { Plural.photos($0) } ?? ""
         let note = "Deleted for good after 30 days"
         return count.isEmpty ? note : "\(count) · \(note)"
     }
@@ -121,6 +122,14 @@ struct CleanupGridView: View {
             }
         }
         .animation(reduceMotion ? nil : .smooth, value: showsStatus)
+        // The backstop for the toolbar: while something is selected, its count and the main action stay in view.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsSelectionBar {
+                selectionBar
+                    .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth, value: showsSelectionBar)
         .navigationSubtitle(subtitle)
         .sheet(isPresented: isConfirming) {
             if cleanup.mode == .library {
@@ -176,20 +185,18 @@ struct CleanupGridView: View {
         }
     }
 
-    /// Library or Recently Deleted, with the count of Recently Deleted. Locked while a run works on one of them.
+    /// Library or Recently Deleted. Locked while a run works on one of them. The count of Recently Deleted is in the
+    /// subtitle, so the segments stay short enough for the toolbar at the window's minimum width.
     /// It sits in the toolbar's centre, where switching views belongs on macOS, rather than in a bar under it.
     private var modePicker: some View {
         Picker("Show", selection: Binding(get: { cleanup.mode }, set: { cleanup.setMode($0) })) {
             Text("Library").tag(ICloudCleanup.Mode.library)
-            Text(recentlyDeletedTitle).tag(ICloudCleanup.Mode.recentlyDeleted)
+            Text("Recently Deleted").tag(ICloudCleanup.Mode.recentlyDeleted)
         }
         .pickerStyle(.segmented)
+        .controlSize(.small)
         .labelsHidden()
         .disabled(cleanup.isRunning)
-    }
-
-    private var recentlyDeletedTitle: String {
-        recentlyDeleted.count.map { "Recently Deleted (\($0.formatted()))" } ?? "Recently Deleted"
     }
 
     private var showsStatus: Bool {
@@ -197,6 +204,11 @@ struct CleanupGridView: View {
         case .idle, .confirming: false
         case .finding, .deleting, .waitingAfterThrottle, .finished, .failed: true
         }
+    }
+
+    /// Something is selected, and no run's status card is up in its place.
+    private var showsSelectionBar: Bool {
+        cleanup.selectedCount > 0 && !showsStatus
     }
 
     private var isConfirming: Binding<Bool> {
@@ -217,6 +229,9 @@ struct CleanupGridView: View {
         allowsCleanUp
     }
 
+    /// Three items: the mode picker in the centre, then Select with its filter, then the main action, which stays last.
+    /// The main action is icon-only here, because the picker, Select and a titled button don't fit at the minimum width
+    /// with the sidebar showing. Its title is its tooltip and accessibility label, and the selection bar shows the title.
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) {
@@ -224,65 +239,114 @@ struct CleanupGridView: View {
         }
 
         ToolbarItem(placement: .primaryAction) {
-            // One button that switches between the two actions. Each keeps its own enabled condition: Select All
-            // needs a loaded list, and Deselect All needs a selection.
-            Group {
-                if cleanup.selection.isNothing {
-                    Button("Select All") {
-                        cleanup.selection = filter.selection(backedUp: backedUp)
-                    }
-                    .disabled(browser.count == nil)
-                } else {
-                    Button("Deselect All") {
-                        cleanup.selection = .only([])
-                    }
-                }
-            }
-            .help("Select or deselect every photo")
+            selectMenu
         }
 
         ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Picker("Show", selection: $filter) {
-                    ForEach(BackupFilter.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                Label(filter.title, systemImage: "line.3.horizontal.decrease.circle")
+            mainAction(showsTitle: false)
+        }
+    }
+
+    /// Select All, Deselect All and the filter that Select All uses. Select All needs a loaded list, and Deselect All
+    /// needs a selection. The filter's title stays on the label when it isn't All, so the filter in use is visible.
+    private var selectMenu: some View {
+        Menu {
+            Button("Select All") {
+                cleanup.selection = filter.selection(backedUp: backedUp)
             }
-            .help("Choose which photos Select All selects, and which are dimmed")
-            .accessibilityLabel("Filter, \(filter.title)")
-        }
+            .disabled(browser.count == nil)
 
-        if #available(macOS 26, *) {
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-        }
+            Button("Deselect All") {
+                cleanup.selection = .only([])
+            }
+            .disabled(cleanup.selection.isNothing)
 
-        ToolbarItem(placement: .primaryAction) {
-            if cleanup.mode == .library {
-                // Not prominent: the red, typed confirmation is where the deletion is committed. The trash glyph and the
-                // ellipsis say what the button does.
-                Button {
-                    cleanup.requestConfirmation()
-                } label: {
-                    Label(deleteTitle, systemImage: "trash")
+            Divider()
+
+            Picker("Show", selection: $filter) {
+                ForEach(BackupFilter.allCases) { option in
+                    Text(option.title).tag(option)
                 }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label(selectTitle, systemImage: "checkmark.circle")
                 .labelStyle(.titleAndIcon)
-                .buttonStyle(.bordered)
-                .disabled(!cleanup.canRequestConfirmation)
-                .help(deleteHelp)
-            } else {
-                // Recovering isn't destructive, so this is the prominent button without the red.
-                Button(recoverTitle) {
-                    cleanup.requestConfirmation()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!cleanup.canRequestConfirmation)
-                .help(recoverHelp)
-            }
         }
+        .help("Select or deselect every photo. The filter chooses which photos Select All selects, and which are dimmed")
+    }
+
+    private var selectTitle: String {
+        filter == .all ? "Select" : "Select · \(filter.title)"
+    }
+
+    /// The action for the selection, in the toolbar (icon-only) and in the selection bar (with its title). Each is the
+    /// same button, with the same rules. Recover is prominent in the bar. In the toolbar it is bordered, since a prominent
+    /// icon-only button loses its glyph on the toolbar's glass.
+    @ViewBuilder
+    private func mainAction(showsTitle: Bool) -> some View {
+        if showsTitle, cleanup.mode == .recentlyDeleted {
+            mainButton.labelStyle(.titleAndIcon).buttonStyle(.borderedProminent)
+        } else if showsTitle {
+            mainButton.labelStyle(.titleAndIcon).buttonStyle(.bordered)
+        } else {
+            mainButton.labelStyle(.iconOnly).buttonStyle(.bordered)
+        }
+    }
+
+    @ViewBuilder
+    private var mainButton: some View {
+        if cleanup.mode == .library {
+            // Not prominent: the red, typed confirmation is where the deletion is committed. The trash glyph and the
+            // ellipsis say what the button does.
+            Button {
+                cleanup.requestConfirmation()
+            } label: {
+                Label(deleteTitle, systemImage: "trash")
+            }
+            .disabled(!cleanup.canRequestConfirmation)
+            .help(deleteHelp)
+        } else {
+            // Recovering isn't destructive, so it has no red.
+            Button {
+                cleanup.requestConfirmation()
+            } label: {
+                Label(recoverTitle, systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!cleanup.canRequestConfirmation)
+            .help(recoverHelp)
+        }
+    }
+
+    /// The bottom bar while something is selected: the selection's size, Deselect, and the main action.
+    private var selectionBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: Tokens.Space.m) {
+                Text(selectionSummary)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: Tokens.Space.s)
+                Button("Deselect") {
+                    cleanup.selection = .only([])
+                }
+                .buttonStyle(.plain)
+                mainAction(showsTitle: true)
+            }
+            .padding(.horizontal, Tokens.Space.l)
+            .padding(.vertical, Tokens.Space.s)
+        }
+        .background(.regularMaterial)
+    }
+
+    /// "12 photos selected · 3.2 GB", or "All 5,084 photos selected" for the whole library.
+    private var selectionSummary: String {
+        let selected = cleanup.selectedCount
+        let count = cleanup.selection.isEverything
+            ? "All \(Plural.photos(total ?? 0)) selected"
+            : "\(Plural.photos(selected)) selected"
+        guard let size = sizeText(selected: selected) else { return count }
+        return "\(count) · \(size)"
     }
 
     /// The Edit menu's title for the same action as the toolbar button in this mode.

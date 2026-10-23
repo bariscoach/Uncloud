@@ -12,14 +12,8 @@ struct MainWindow: View {
         @Bindable var account = account
 
         NavigationSplitView {
-            List(selection: paneSelection) {
-                SidebarPaneRows()
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            // The brand header stays put above the rows: it sits below the titlebar, so it never meets the traffic lights.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                SidebarBrandHeader()
-            }
+            PaneSidebar(selection: paneSelection)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             // The one account control: the Uncloud account and the photo source, in one popover (plan §6.2).
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
@@ -134,13 +128,32 @@ struct MainWindow: View {
     }
 }
 
-/// The five pane rows, in `ExportModel.Pane` order. The sidebar's `List` holds it, and the snapshot tests render it.
+/// The sidebar's list: the brand header, then the pane rows. The header is list content rather than an inset, so the
+/// list starts below the titlebar and the header never ends up under the traffic lights.
+struct PaneSidebar: View {
+    @Binding var selection: ExportModel.Pane?
+
+    var body: some View {
+        List(selection: $selection) {
+            SidebarBrandHeader()
+                .selectionDisabled()
+            SidebarPaneRows()
+        }
+    }
+}
+
+/// The five pane rows, in `ExportModel.Pane` order, with a break before Tools. The sidebar's `List` holds it, and the
+/// snapshot tests render it.
 struct SidebarPaneRows: View {
     @Environment(ExportModel.self) private var model
     @Environment(AccountModel.self) private var account
 
     var body: some View {
         ForEach(ExportModel.Pane.allCases, id: \.self) { pane in
+            // The break sets the free-up-iCloud steps apart from the utilities and settings that follow.
+            if pane == .tools {
+                Divider()
+            }
             row(for: pane).tag(pane)
         }
     }
