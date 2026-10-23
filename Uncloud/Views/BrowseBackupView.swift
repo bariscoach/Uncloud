@@ -420,7 +420,7 @@ struct BrowseBackupView: View {
 }
 
 /// The index build's progress, along the top of the view. It stays up until the index is complete. It's a
-/// `StatusBanner`, the same banner Clean Up iCloud uses.
+/// `StatusBanner`, the same banner Delete from iCloud uses.
 struct IndexingBanner: View {
     let progress: BrowseBackup.Progress?
     let isPaused: Bool

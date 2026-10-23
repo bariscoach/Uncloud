@@ -22,7 +22,7 @@ struct ComponentsTests {
 
     @Test func componentsRenderInLightAndDark() {
         for scheme in [ColorScheme.light, .dark] {
-            let sheet = SheetScaffold("Clean Up iCloud", content: {
+            let sheet = SheetScaffold("Delete from iCloud", content: {
                 HelpText("Nothing is deleted until you confirm.")
             }, buttons: {
                 Button("Cancel") {}
