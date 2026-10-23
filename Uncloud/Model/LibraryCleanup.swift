@@ -69,6 +69,8 @@ final class LibraryCleanup {
     var keepHidden = true { didSet { discardPlan() } }
 
     private(set) var state = State.ready
+    /// The last removal that reached a terminal state. `reset()` keeps it, so the Tools pane can show it (this session only).
+    private(set) var lastResult: ToolResult?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var run = 0
     private let model: ExportModel
@@ -151,6 +153,7 @@ final class LibraryCleanup {
             } catch {
                 guard run == self.run else { return }
                 state = .failed("Photos couldn’t be checked. \(error.localizedDescription)")
+                lastResult = ToolResult(date: .now, text: "Couldn’t be checked", isProblem: true)
             }
         }
     }
@@ -246,11 +249,19 @@ final class LibraryCleanup {
 
             // Back on the main actor: the conditions must still hold right before deleting.
             guard isAllowed, model.destination?.url == plan.destination else {
-                finish(message: "Nothing was removed, because an export started or the backup folder changed.", removedAny: false)
+                finish(
+                    message: "Nothing was removed, because an export started or the backup folder changed.",
+                    removedAny: false,
+                    result: ToolResult(date: .now, text: "Nothing removed", isProblem: true)
+                )
                 return
             }
             guard !stillEligible.isEmpty else {
-                finish(message: "Nothing was removed. The photos changed since they were checked. Click Find Photos again.", removedAny: false)
+                finish(
+                    message: "Nothing was removed. The photos changed since they were checked. Click Find Photos again.",
+                    removedAny: false,
+                    result: ToolResult(date: .now, text: "Nothing removed", isProblem: true)
+                )
                 return
             }
 
@@ -286,12 +297,19 @@ final class LibraryCleanup {
             if changed > 0 {
                 message += " \(countText(changed, "photo")) changed since they were checked, so they were kept."
             }
-            finish(message: message, removedAny: removed > 0)
+            let wasCancelled = failure.map(Self.isUserCancellation) ?? false
+            let result = ToolResult(
+                date: .now,
+                text: removed > 0 ? "\(countText(removed, "photo")) removed" : "Nothing removed",
+                isProblem: remaining > 0 || changed > 0 || (removed == 0 && failure != nil && !wasCancelled)
+            )
+            finish(message: message, removedAny: removed > 0, result: result)
         }
     }
 
-    private func finish(message: String, removedAny: Bool) {
+    private func finish(message: String, removedAny: Bool, result: ToolResult) {
         state = .finished(message: message, removedAny: removedAny)
+        lastResult = result
         model.refreshProgress()
     }
 
