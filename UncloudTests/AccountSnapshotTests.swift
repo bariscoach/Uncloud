@@ -96,24 +96,25 @@ struct AccountSnapshotTests {
             let image = try #require(await Self.renderTitledWindow(main, size: NSSize(width: 1_000, height: 700), scheme: scheme))
             images.append(("locked-browse-\(Self.name(scheme))", image))
 
-            let backup = BackupPane()
+            let tools = ToolsPane()
                 .environment(window)
                 .environment(BackupTools(model: window))
                 .environment(free)
-            let backupImage = try #require(await Self.renderTitledWindow(backup, size: NSSize(width: 1_000, height: 700), scheme: scheme))
-            images.append(("locked-tools-\(Self.name(scheme))", backupImage))
+            let toolsImage = try #require(await Self.renderTitledWindow(tools, size: NSSize(width: 1_000, height: 700), scheme: scheme))
+            images.append(("locked-tools-\(Self.name(scheme))", toolsImage))
 
             let rows = List {
-                LockableSidebarRow(title: "Browse Backup", symbol: "map", isLocked: true)
-                LockableSidebarRow(title: "Browse Backup", symbol: "map", isLocked: false)
-                LockableSidebarRow(title: "Clean Up iCloud", symbol: "icloud", isLocked: true)
+                LockableSidebarRow(title: ExportModel.Pane.browse.title, symbol: ExportModel.Pane.browse.symbol, isLocked: true)
+                LockableSidebarRow(title: ExportModel.Pane.browse.title, symbol: ExportModel.Pane.browse.symbol, isLocked: false)
+                LockableSidebarRow(title: ExportModel.Pane.tools.title, symbol: ExportModel.Pane.tools.symbol, isLocked: true)
+                LockableSidebarRow(title: ExportModel.Pane.cleanup.title, symbol: ExportModel.Pane.cleanup.symbol, isLocked: true)
             }
             .environment(free)
             .frame(width: 240)
-            let rowImage = try #require(await Self.renderTitledWindow(rows, size: NSSize(width: 240, height: 160), scheme: scheme))
+            let rowImage = try #require(await Self.renderTitledWindow(rows, size: NSSize(width: 240, height: 200), scheme: scheme))
             images.append(("locked-sidebar-\(Self.name(scheme))", rowImage))
 
-            // Clean Up iCloud for a free account: the whole pane is the locked view, with the 30-day note (plan §2.2).
+            // Delete from iCloud for a free account: the whole pane is the locked view, with the 30-day note (plan §2.2).
             let cleanup = LockedFeatureView(feature: .cleanUpICloud)
                 .environment(free)
             let cleanupImage = try #require(await Self.renderTitledWindow(cleanup, size: NSSize(width: 1_000, height: 700), scheme: scheme))
@@ -141,37 +142,37 @@ struct AccountSnapshotTests {
         let now = Date()
         let host = try await Self.signedIn(email: "name@example.com")
 
-        // The popover, 280 pt wide, in each state the header and actions change in.
-        let popoverStates: [(String, AccountSummary)] = [
-            ("free", host.summary),
-            ("free-ended", Self.summary(.plus, status: .expired, periodEnd: now.addingTimeInterval(-86_400), now: now)),
-            ("plus-renewing", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), now: now)),
-            ("plus-ending", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), cancel: true, now: now)),
-            ("past-due", Self.summary(.plus, status: .pastDue, periodEnd: now.addingTimeInterval(-86_400), now: now)),
-            ("offline-grace", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(-86_400), now: now)),
-            ("last-checked", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), checked: now.addingTimeInterval(-3 * 86_400), error: .offline, now: now)),
+        // The account popover (300 pt wide, opening upwards from the sidebar row), in each state the header and actions
+        // change in, and in the two photo-source states that have no iCloud lines.
+        let plus = Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), now: now)
+        let popoverStates: [(String, AnyView)] = [
+            ("free", Self.footerPopover(host.summary, host: host)),
+            ("free-ended", Self.footerPopover(Self.summary(.plus, status: .expired, periodEnd: now.addingTimeInterval(-86_400), now: now), host: host)),
+            ("plus-renewing", Self.footerPopover(plus, host: host)),
+            ("plus-ending", Self.footerPopover(Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), cancel: true, now: now), host: host)),
+            ("past-due", Self.footerPopover(Self.summary(.plus, status: .pastDue, periodEnd: now.addingTimeInterval(-86_400), now: now), host: host)),
+            ("offline-grace", Self.footerPopover(Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(-86_400), now: now), host: host)),
+            ("last-checked", Self.footerPopover(Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), checked: now.addingTimeInterval(-3 * 86_400), error: .offline, now: now), host: host)),
+            ("icloud-signed-out", Self.footerPopover(plus, host: host, appleID: nil)),
+            ("mac-needs-access", Self.footerPopover(plus, host: host, source: .photosLibrary, isSourceReady: false)),
         ]
-        for (label, summary) in popoverStates {
-            let view = AccountPopover(summary: summary, isExporting: false, close: {})
-                .environment(host)
-            try await Self.render("menu-popover-\(label)", view, size: NSSize(width: 300, height: 360), into: &images)
+        for (label, view) in popoverStates {
+            try await Self.render("menu-popover-\(label)", view, size: NSSize(width: 300, height: 480), into: &images)
         }
         let longEmail = try await Self.signedIn(email: "a.very.long.address.for.testing@example-domain.com")
-        let longPopover = AccountPopover(summary: longEmail.summary, isExporting: true, close: {})
-            .environment(longEmail)
-        try await Self.render("menu-popover-long-email", longPopover, size: NSSize(width: 300, height: 360), into: &images)
+        let longPopover = Self.footerPopover(longEmail.summary, host: longEmail, isExporting: true)
+        try await Self.render("menu-popover-long-email", longPopover, size: NSSize(width: 300, height: 480), into: &images)
 
-        // The account button alone, 22 pt, in a 28 pt hit area.
-        let buttonStates: [(String, AccountSummary)] = [
-            ("free", host.summary),
-            ("plus", Self.summary(.plus, status: .active, periodEnd: now.addingTimeInterval(30 * 86_400), now: now)),
-            ("attention", Self.summary(.plus, status: .pastDue, periodEnd: now.addingTimeInterval(-86_400), now: now)),
+        // The account row alone, 240 pt wide, in each state the row's line 2 and dot change in.
+        let rowStates: [(String, AnyView)] = [
+            ("free", Self.footerRow(host.summary, host: host)),
+            ("plus", Self.footerRow(plus, host: host)),
+            ("past-due", Self.footerRow(Self.summary(.plus, status: .pastDue, periodEnd: now.addingTimeInterval(-86_400), now: now), host: host)),
+            ("icloud-signed-out", Self.footerRow(plus, host: host, appleID: nil)),
+            ("mac", Self.footerRow(plus, host: host, source: .photosLibrary, isSourceReady: true)),
         ]
-        for (label, summary) in buttonStates {
-            let view = AccountAvatar(summary: summary, size: 22)
-                .frame(width: 28, height: 28)
-                .padding(Tokens.Space.s)
-            try await Self.render("menu-button-\(label)", view, size: NSSize(width: 60, height: 60), into: &images)
+        for (label, view) in rowStates {
+            try await Self.render("menu-footer-row-\(label)", view.frame(width: 240).padding(Tokens.Space.s), size: NSSize(width: 256, height: 80), into: &images)
         }
 
         // Settings › Account (460 pt) in each state.
@@ -209,21 +210,105 @@ struct AccountSnapshotTests {
         }
         UserDefaults.standard.removeObject(forKey: SettingsTab.storageKey)
 
-        // The sidebar with the account button, Free and Plus, at the default and minimum window sizes.
+        // The whole main window's sidebar, with the brand header at the top and the account row pinned at the bottom:
+        // iCloud Plus, Free and payment due, at the default and minimum window sizes. The source is iCloud and signed in.
         let plusModel = try await Self.signedIn(email: "plus@example.com")
-        for (label, account) in [("free", host), ("plus", plusModel)] {
+        let pastDueModel = try await Self.signedIn(email: "pastdue@example.com")
+        let defaults = UserDefaults.standard
+        let savedAppleID = ICloudAccount.appleID
+        let savedSource = defaults.object(forKey: "librarySource")
+        ICloudAccount.appleID = "preview@example.invalid"
+        defaults.set(LibrarySource.iCloud.rawValue, forKey: "librarySource")
+        defer {
+            ICloudAccount.appleID = savedAppleID
+            if let savedSource {
+                defaults.set(savedSource, forKey: "librarySource")
+            } else {
+                defaults.removeObject(forKey: "librarySource")
+            }
+        }
+        let sidebarModel = ExportModel()
+        for (label, account) in [("plus", plusModel), ("free", host), ("past-due", pastDueModel)] {
             for size in [NSSize(width: 1_000, height: 700), NSSize(width: 760, height: 500)] {
                 let window = MainWindow()
-                    .environment(exportModel)
-                    .environment(BackupTools(model: exportModel))
+                    .environment(sidebarModel)
+                    .environment(BackupTools(model: sidebarModel))
                     .environment(account)
                 try await Self.render("menu-sidebar-\(label)-\(Int(size.width))", window, size: size, into: &images)
             }
         }
 
+        // The sidebar column alone, at 220 pt: the five pane rows in order, the brand header above and the account row
+        // below. The window's own sidebar draws no rows into a cached bitmap, so this shows the rows and their order.
+        for (label, account) in [("plus", plusModel), ("free", host), ("past-due", pastDueModel)] {
+            let column = List {
+                SidebarPaneRows()
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                SidebarBrandHeader()
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                    AccountFooterRow()
+                }
+            }
+            .environment(sidebarModel)
+            .environment(BackupTools(model: sidebarModel))
+            .environment(account)
+            .frame(width: 220, height: 420)
+            try await Self.render("sidebar-column-\(label)", column, size: NSSize(width: 220, height: 420), into: &images)
+        }
+
         for (name, image) in images {
             Attachment.record(try Self.png(image), named: "\(name).png")
         }
+    }
+
+    /// The account popover as the sidebar row opens it, built the way the row builds it (`AccountFooterContent`).
+    private static func footerPopover(
+        _ summary: AccountSummary,
+        host: AccountModel,
+        source: LibrarySource = .iCloud,
+        appleID: String? = "name@icloud.com",
+        isSourceReady: Bool = true,
+        isExporting: Bool = false
+    ) -> AnyView {
+        AnyView(AccountFooterPopover(
+            summary: summary,
+            content: AccountFooterContent.make(summary: summary, accountMode: .preview, source: source, appleID: appleID, isSourceReady: isSourceReady),
+            source: source,
+            appleID: appleID,
+            isSourceReady: isSourceReady,
+            isExporting: isExporting,
+            chooseSource: { _ in },
+            signInToICloud: {},
+            signOutOfICloud: {},
+            openPrivacySettings: {},
+            close: {}
+        ).environment(host))
+    }
+
+    /// The account row from values, as the sidebar draws it.
+    private static func footerRow(
+        _ summary: AccountSummary,
+        host: AccountModel,
+        source: LibrarySource = .iCloud,
+        appleID: String? = "name@icloud.com",
+        isSourceReady: Bool = true
+    ) -> AnyView {
+        AnyView(AccountFooterRowView(
+            summary: summary,
+            accountMode: .preview,
+            source: source,
+            appleID: appleID,
+            isSourceReady: isSourceReady,
+            isExporting: false,
+            chooseSource: { _ in },
+            signInToICloud: {},
+            signOutOfICloud: {},
+            openPrivacySettings: {}
+        ).environment(host))
     }
 
     /// Renders `view` in light and dark, adding each image under `label-light` and `label-dark`.

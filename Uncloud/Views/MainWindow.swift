@@ -13,9 +13,7 @@ struct MainWindow: View {
 
         NavigationSplitView {
             List(selection: paneSelection) {
-                ForEach(ExportModel.Pane.allCases, id: \.self) { pane in
-                    row(for: pane).tag(pane)
-                }
+                SidebarPaneRows()
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             // The brand header stays put above the rows: it sits below the titlebar, so it never meets the traffic lights.
@@ -118,6 +116,35 @@ struct MainWindow: View {
         !(allows(.verifyBackup) || allows(.findDuplicates) || allows(.freeUpSpace))
     }
 
+    /// The sidebar selection. The list never clears it, so the optional is only a SwiftUI requirement.
+    private var paneSelection: Binding<ExportModel.Pane?> {
+        Binding(
+            get: { model.pane },
+            set: { pane in
+                if let pane {
+                    model.pane = pane
+                }
+            }
+        )
+    }
+
+    /// True when the run that just started was an automatic backup or an automatic resume, which shouldn't announce itself.
+    private var startedAutomatically: Bool {
+        model.isAutomaticRunInProgress || model.isAutoResumedRunInProgress
+    }
+}
+
+/// The five pane rows, in `ExportModel.Pane` order. The sidebar's `List` holds it, and the snapshot tests render it.
+struct SidebarPaneRows: View {
+    @Environment(ExportModel.self) private var model
+    @Environment(AccountModel.self) private var account
+
+    var body: some View {
+        ForEach(ExportModel.Pane.allCases, id: \.self) { pane in
+            row(for: pane).tag(pane)
+        }
+    }
+
     /// One sidebar row. Export Settings keeps its progress badge; the paid panes show a lock while locked (plan §1.1).
     @ViewBuilder
     private func row(for pane: ExportModel.Pane) -> some View {
@@ -134,27 +161,10 @@ struct MainWindow: View {
         case .browse:
             LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: !account.allows(.browseBackup))
         case .tools:
-            LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: Self.toolsLocked(allows: { account.allows($0) }))
+            LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: MainWindow.toolsLocked(allows: { account.allows($0) }))
         case .cleanup:
             LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: !account.allows(.cleanUpICloud))
         }
-    }
-
-    /// The sidebar selection. The list never clears it, so the optional is only a SwiftUI requirement.
-    private var paneSelection: Binding<ExportModel.Pane?> {
-        Binding(
-            get: { model.pane },
-            set: { pane in
-                if let pane {
-                    model.pane = pane
-                }
-            }
-        )
-    }
-
-    /// True when the run that just started was an automatic backup or an automatic resume, which shouldn't announce itself.
-    private var startedAutomatically: Bool {
-        model.isAutomaticRunInProgress || model.isAutoResumedRunInProgress
     }
 
     /// The export percentage on the Backup row while an export runs.

@@ -87,21 +87,29 @@ struct UIRefreshSnapshotTests {
             }
         }
 
-        // The whole window, with the sidebar and toolbar, on each pane.
+        // The whole window, with the sidebar and toolbar, on each pane in sidebar order. Export Settings renders twice,
+        // once per segment (General, then Folder Organization).
         model.newPhotos.setStatusForPreview(NewPhotosStatus(count: 1_243, isAtLeast: false, since: since), context: context)
         for variant in Self.variants {
-            for pane in [ExportModel.Pane.export, .backup, .cleanup] {
+            for pane in ExportModel.Pane.allCases {
                 model.pane = pane
-                for scheme in [ColorScheme.light, .dark] {
-                    let window = MainWindow()
-                        .environment(model)
-                        .environment(BackupTools(model: model))
-                    let image = try #require(await Self.renderTitledWindow(window, size: NSSize(width: 1_000, height: 700), scheme: scheme, variant: variant))
-                    images.append(("window-\(pane)-\(Self.name(scheme))-\(variant)", image))
+                let sections: [(name: String, section: ExportModel.ExportSettingsSection)] = pane == .backup
+                    ? [("", .general), ("folders-", .folders)]
+                    : [("", .general)]
+                for section in sections {
+                    model.exportSettingsSection = section.section
+                    for scheme in [ColorScheme.light, .dark] {
+                        let window = MainWindow()
+                            .environment(model)
+                            .environment(BackupTools(model: model))
+                        let image = try #require(await Self.renderTitledWindow(window, size: NSSize(width: 1_000, height: 700), scheme: scheme, variant: variant))
+                        images.append(("window-\(pane)-\(section.name)\(Self.name(scheme))-\(variant)", image))
+                    }
                 }
             }
         }
         model.pane = .export
+        model.exportSettingsSection = .general
 
         // Settings, and the Clean Up sheets.
         let settings = AutoBackupSettings()

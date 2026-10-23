@@ -36,9 +36,10 @@ struct DesignSnapshotTests {
         }
     }
 
-    /// The whole Backup pane, with a drive that holds fabricated sessions and about 9,200 exported items.
-    /// The PNGs are attached to the test result, since the sandboxed test host can't see the scratch folder.
-    @Test func rendersBackupPaneInLightAndDark() async throws {
+    /// The whole Export Settings pane (General, then Folder Organization), with a drive that holds fabricated sessions
+    /// and about 9,200 exported items. The PNGs are attached to the test result, since the sandboxed test host can't see
+    /// the scratch folder.
+    @Test func rendersExportSettingsPaneInLightAndDark() async throws {
         let defaults = UserDefaults.standard
         let drive = FileManager.default.temporaryDirectory
             .appending(path: "uncloud-preview-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -71,15 +72,19 @@ struct DesignSnapshotTests {
         // Sessions and the on-drive count load in the background.
         try await Task.sleep(for: .milliseconds(800))
 
-        for scheme in [ColorScheme.light, .dark] {
-            let pane = BackupPane()
-                .environment(model)
-                .environment(BackupTools(model: model))
-            let image = try #require(await render(pane, size: NSSize(width: 560, height: 1_480), scheme: scheme))
-            let name = "backup-pane-\(Self.name(scheme)).png"
-            Attachment.record(try Self.pngData(image), named: name)
-            try save(image, named: name)
+        for section in ExportModel.ExportSettingsSection.allCases {
+            model.exportSettingsSection = section
+            for scheme in [ColorScheme.light, .dark] {
+                let pane = ExportSettingsPane()
+                    .environment(model)
+                    .environment(BackupTools(model: model))
+                let image = try #require(await render(pane, size: NSSize(width: 560, height: 1_480), scheme: scheme))
+                let name = "export-settings-\(section == .folders ? "folders-" : "")\(Self.name(scheme)).png"
+                Attachment.record(try Self.pngData(image), named: name)
+                try save(image, named: name)
+            }
         }
+        model.exportSettingsSection = .general
     }
 
     @Test func rendersCheckDriveInLightAndDark() async throws {

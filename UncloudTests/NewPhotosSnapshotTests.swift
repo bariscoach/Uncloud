@@ -58,15 +58,15 @@ struct NewPhotosSnapshotTests {
             }
         }
 
-        // The primary button and the sidebar badge, with new photos: the Library toolbar's button and the Backup row.
+        // The primary button and the sidebar badge, with new photos: the Cloud Library toolbar's button and the Export Settings row.
         model.newPhotos.setStatusForPreview(states[0].status, context: context)
         for scheme in [ColorScheme.light, .dark] {
             let strip = VStack(alignment: .leading, spacing: 16) {
                 List {
                     Label {
-                        Text("Backup")
+                        Text("Export Settings")
                     } icon: {
-                        Image(systemName: "externaldrive")
+                        Image(systemName: "gearshape")
                     }
                     .badge(model.newPhotosBadgeText)
                 }
