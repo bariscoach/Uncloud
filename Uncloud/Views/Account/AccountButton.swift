@@ -1,38 +1,5 @@
 import SwiftUI
 
-/// The account button at the top of the sidebar: the email's initial, which opens the account popover (plan §1.1).
-/// The main window shows it only when accounts are on and the user is signed in.
-struct AccountButton: View {
-    @Environment(AccountModel.self) private var account
-    @Environment(ExportModel.self) private var model
-    @State private var isShowingPopover = false
-
-    var body: some View {
-        let summary = account.summary
-
-        Button {
-            isShowingPopover = true
-        } label: {
-            AccountAvatar(summary: summary, size: 22)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .disabled(summary.state == .loading)
-        .help("Your Uncloud account and plan")
-        .accessibilityLabel("Uncloud Account")
-        .accessibilityValue(summary.accessibilityValue)
-        .popover(isPresented: $isShowingPopover, arrowEdge: .bottom) {
-            AccountPopover(
-                summary: summary,
-                isExporting: model.isExporting || model.isEngineRunning,
-                close: { isShowingPopover = false }
-            )
-            .environment(account)
-        }
-    }
-}
-
 /// The Uncloud account part of the account popover (plan §6.2): who is signed in, the plan, one status line and the
 /// actions. Each action closes the popover first, as the menus do.
 struct UncloudAccountSection: View {
@@ -153,7 +120,7 @@ struct UncloudAccountSection: View {
     }
 }
 
-/// The old account popover, kept as a thin wrapper until A2 removes the titlebar button (plan §6.5).
+/// The Uncloud account section alone, at a fixed 280 pt width. Kept for the account snapshots until T1 moves them to `AccountFooterPopover`.
 struct AccountPopover: View {
     let summary: AccountSummary
     let isExporting: Bool

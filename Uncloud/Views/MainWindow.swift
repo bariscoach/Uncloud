@@ -22,15 +22,11 @@ struct MainWindow: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 SidebarBrandHeader()
             }
-            .safeAreaInset(edge: .bottom) {
-                accountFooter
-            }
-            // The account button sits at the sidebar's trailing titlebar edge, clear of each pane's own toolbar (plan §1.1).
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    if account.mode != .off, account.phase == .signedIn {
-                        AccountButton()
-                    }
+            // The one account control: the Uncloud account and the photo source, in one popover (plan §6.2).
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                    AccountFooterRow()
                 }
             }
         } detail: {
@@ -85,7 +81,7 @@ struct MainWindow: View {
                 GettingStartedView()
             }
         }
-        // The one sign-out confirmation; the sidebar footer and the File menu both open it.
+        // The one sign-out confirmation; the account popover and the File menu both open it.
         .confirmationDialog("Sign Out of iCloud?", isPresented: $model.isConfirmingICloudSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) {
                 model.signIn.signOut()
@@ -174,82 +170,6 @@ struct MainWindow: View {
         }
         guard let status = model.newPhotosStatus, status.count > 0 || status.isAtLeast else { return "" }
         return NewPhotosText.countPhrase(status)
-    }
-
-    /// The source and account: switch source, and sign in or out of iCloud. This is also in the File menu.
-    private var accountFooter: some View {
-        Menu {
-            Picker("Photos From", selection: sourceSelection) {
-                ForEach(LibrarySource.allCases) { source in
-                    Text(source.title).tag(source)
-                }
-            }
-            .pickerStyle(.inline)
-            .disabled(model.isExporting)
-
-            if model.source == .iCloud {
-                Divider()
-                if model.iCloudAppleID != nil {
-                    Button("Sign Out of iCloud…") {
-                        model.isConfirmingICloudSignOut = true
-                    }
-                    .disabled(!model.canSignOutICloud)
-                } else {
-                    Button("Sign In to iCloud…") {
-                        model.isShowingICloudSignIn = true
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: Tokens.Space.s) {
-                Image(systemName: model.source == .iCloud ? "icloud" : "photo.on.rectangle")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(accountTitle)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(accountSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.visible)
-        .padding(Tokens.Space.m)
-        .accessibilityLabel("Photos from \(accountTitle), \(accountSubtitle)")
-        .help("Choose where photos come from, or change the Apple Account used for iCloud Photos")
-    }
-
-    /// Source changes are disabled while an export runs, so the picker can't revert under the user.
-    private var sourceSelection: Binding<LibrarySource> {
-        Binding(
-            get: { model.source },
-            set: { model.source = $0 }
-        )
-    }
-
-    private var accountTitle: String {
-        switch model.source {
-        case .iCloud:
-            model.iCloudAppleID ?? LibrarySource.iCloud.title
-        case .photosLibrary:
-            LibrarySource.photosLibrary.title
-        }
-    }
-
-    private var accountSubtitle: String {
-        switch model.source {
-        case .iCloud:
-            model.iCloudAppleID == nil ? "Not signed in" : LibrarySource.iCloud.title
-        case .photosLibrary:
-            model.isSourceReady ? "Ready" : "Needs access"
-        }
     }
 }
 
