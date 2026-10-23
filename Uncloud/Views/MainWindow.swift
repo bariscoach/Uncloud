@@ -72,6 +72,10 @@ struct MainWindow: View {
                     LockedFeatureView(feature: .browseBackup)
                         .navigationTitle("Browse Backup")
                 }
+            case .tools:
+                // Stub until S4 builds ToolsPane; the sidebar row comes in S2.
+                EmptyView()
+                    .navigationTitle("Tools")
             }
         }
         .frame(minWidth: 760, minHeight: 500)

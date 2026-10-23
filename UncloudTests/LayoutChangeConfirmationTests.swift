@@ -149,6 +149,9 @@ extension ExportCancellationTests {
         #expect(question.to == .month)
         #expect(question.itemsSaved == 3)
         #expect(question.message.contains("is organized all in one folder, but the Folders setting is By Month"))
+        // The question shows in Export Settings under Folder Organization, where the layout picker is.
+        #expect(model.pane == .backup)
+        #expect(model.exportSettingsSection == .folders)
         // Nothing started, and the folder's record is untouched.
         #expect(!model.isExporting && !model.isEngineRunning)
         #expect(!model.activity.contains { $0.message.hasPrefix("Starting export") })

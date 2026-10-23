@@ -18,12 +18,63 @@ final class ExportModel {
         case failed(String)
     }
 
-    /// The sidebar pane of the main window. `export` is the Library grid (shown as "Library"); `backup` is the home pane.
-    enum Pane: Hashable {
+    /// The sidebar panes of the main window, declared in sidebar order. The sidebar and the View menu both read
+    /// `allCases`, so the order is defined once.
+    /// - `export` is Cloud Library, the photo grid and the home pane.
+    /// - `backup` is Export Settings: export, progress, backup folder and its settings.
+    /// - `browse` is Browse Backup.
+    /// - `tools` is Tools: Verify Backup, Find Duplicates and Free Up Space.
+    /// - `cleanup` is Delete from iCloud.
+    enum Pane: Hashable, CaseIterable {
         case export
         case backup
-        case cleanup
         case browse
+        case tools
+        case cleanup
+
+        var title: String {
+            switch self {
+            case .export: "Cloud Library"
+            case .backup: "Export Settings"
+            case .browse: "Browse Backup"
+            case .tools: "Tools"
+            case .cleanup: "Delete from iCloud"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .export: "photo.on.rectangle"
+            case .backup: "gearshape"
+            case .browse: "photo.stack"
+            case .tools: "wrench.and.screwdriver"
+            case .cleanup: "xmark.icloud"
+            }
+        }
+
+        /// The digit of the pane's ⌘ shortcut in the View menu, in sidebar order.
+        var shortcut: Character {
+            switch self {
+            case .export: "1"
+            case .backup: "2"
+            case .browse: "3"
+            case .tools: "4"
+            case .cleanup: "5"
+            }
+        }
+    }
+
+    /// The two segments of Export Settings. Not persisted, so the pane always opens on General.
+    enum ExportSettingsSection: Hashable, CaseIterable {
+        case general
+        case folders
+
+        var title: String {
+            switch self {
+            case .general: "General"
+            case .folders: "Folder Organization"
+            }
+        }
     }
 
     /// The sheets of the welcome flow. The landing page replaces the first-run welcome; Help > Getting Started remains.
@@ -33,8 +84,10 @@ final class ExportModel {
         var id: Self { self }
     }
 
-    /// Backup is the home pane. Nothing persists the selected pane, so every launch starts here.
-    var pane: Pane = .backup
+    /// Cloud Library is the home pane. Nothing persists the selected pane, so every launch starts here.
+    var pane: Pane = .export
+    /// The segment shown in Export Settings. Not persisted; the layout-change question switches it to Folders.
+    var exportSettingsSection: ExportSettingsSection = .general
     private(set) var phase: Phase = .idle
     private(set) var authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     private(set) var destination: Destination?
@@ -832,8 +885,10 @@ final class ExportModel {
         if let mismatch = folderLayoutMismatch() {
             if pendingLayoutChange == nil {
                 pendingLayoutChange = mismatch
-                // The question is asked on the Backup pane, so show it there even when the export came from a menu.
+                // The question is asked in Export Settings, under Folder Organization, so show it there even when the
+                // export came from a menu.
                 pane = .backup
+                exportSettingsSection = .folders
                 layoutBlockedStart = { [weak self] in
                     self?.startRun(selection: override, resumesInterrupted: resumesInterrupted, forcesFullCheck: forcesFullCheck,
                                    skipsDriveCheck: skipsDriveCheck, rankHints: rankHintOverride)

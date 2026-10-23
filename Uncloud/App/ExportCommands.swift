@@ -10,7 +10,7 @@ struct ExportCommands: Commands {
     let account: AccountModel
     /// Set only while the library grid has keyboard focus, so text fields keep their own shortcuts.
     @FocusedValue(\.gridSelection) private var grid
-    /// Published by Clean Up iCloud while its grid has focus. Nil elsewhere, which disables Delete and Recover.
+    /// Published by Delete from iCloud while its grid has focus. Nil elsewhere, which disables Delete and Recover.
     @FocusedValue(\.cleanupCommand) private var cleanup
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
@@ -76,25 +76,13 @@ struct ExportCommands: Commands {
 
         CommandGroup(before: .sidebar) {
             if account.showsAppMenus {
-                Button("Backup") {
-                    model.pane = .backup
+                // Same order as the sidebar, with ⌘1–⌘5.
+                ForEach(ExportModel.Pane.allCases, id: \.self) { pane in
+                    Button(pane.title) {
+                        model.pane = pane
+                    }
+                    .keyboardShortcut(KeyEquivalent(pane.shortcut))
                 }
-                .keyboardShortcut("1")
-
-                Button("Library") {
-                    model.pane = .export
-                }
-                .keyboardShortcut("2")
-
-                Button("Browse Backup") {
-                    model.pane = .browse
-                }
-                .keyboardShortcut("3")
-
-                Button("Clean Up iCloud") {
-                    model.pane = .cleanup
-                }
-                .keyboardShortcut("4")
 
                 Divider()
 
