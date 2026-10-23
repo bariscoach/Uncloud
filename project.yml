@@ -8,8 +8,8 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     ASSET_CATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    MARKETING_VERSION: "0.1.18"
-    CURRENT_PROJECT_VERSION: "19"
+    MARKETING_VERSION: "0.1.19"
+    CURRENT_PROJECT_VERSION: "20"
 targets:
   Uncloud:
     type: application
