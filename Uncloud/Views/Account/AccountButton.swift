@@ -33,8 +33,9 @@ struct AccountButton: View {
     }
 }
 
-/// The popover's content (plan §1.2): who is signed in, the plan, one status line and the actions.
-struct AccountPopover: View {
+/// The Uncloud account part of the account popover (plan §6.2): who is signed in, the plan, one status line and the
+/// actions. Each action closes the popover first, as the menus do.
+struct UncloudAccountSection: View {
     let summary: AccountSummary
     let isExporting: Bool
     let close: () -> Void
@@ -44,39 +45,50 @@ struct AccountPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.m) {
-            header
-            if let line = summary.statusLine() {
-                PlanStatusText(line: line)
-            }
-            if let last = summary.lastCheckedText() {
-                Text(last)
-                    .font(Tokens.Font.meta)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Uncloud Account")
+                .font(Tokens.Font.meta.weight(.semibold))
+                .foregroundStyle(.secondary)
 
-            Divider()
+            if summary.state == .loading {
+                HStack(spacing: Tokens.Space.s) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading your account…")
+                        .font(Tokens.Font.help)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                header
+                if let line = summary.statusLine() {
+                    PlanStatusText(line: line)
+                }
+                if let last = summary.lastCheckedText() {
+                    Text(last)
+                        .font(Tokens.Font.meta)
+                        .foregroundStyle(.secondary)
+                }
 
-            if let title = summary.primary.title {
-                primaryButton(title)
-            }
-            Button("Account Settings…") {
-                close()
-                UserDefaults.standard.set(SettingsTab.account.rawValue, forKey: SettingsTab.storageKey)
-                openSettings()
-                NSApp.activate()
-            }
-            .buttonStyle(.link)
+                if let title = summary.primary.title {
+                    primaryButton(title)
+                }
+                Button("Account Settings…") {
+                    close()
+                    UserDefaults.standard.set(SettingsTab.account.rawValue, forKey: SettingsTab.storageKey)
+                    openSettings()
+                    NSApp.activate()
+                }
+                .buttonStyle(.link)
 
-            Button("Sign Out of Uncloud…") {
-                close()
-                account.isConfirmingSignOut = true
+                Button("Sign Out of Uncloud…") {
+                    close()
+                    account.isConfirmingSignOut = true
+                }
+                .buttonStyle(.link)
+                .disabled(isExporting)
+                .help(isExporting ? "Sign out after the export finishes." : "Sign out of Uncloud on this Mac.")
             }
-            .buttonStyle(.link)
-            .disabled(isExporting)
-            .help(isExporting ? "Sign out after the export finishes." : "Sign out of Uncloud on this Mac.")
         }
         .padding(Tokens.Space.l)
-        .frame(width: 280)
         .onAppear {
             primaryFocused = true
         }
@@ -138,6 +150,18 @@ struct AccountPopover: View {
         case .signIn, .none:
             break
         }
+    }
+}
+
+/// The old account popover, kept as a thin wrapper until A2 removes the titlebar button (plan §6.5).
+struct AccountPopover: View {
+    let summary: AccountSummary
+    let isExporting: Bool
+    let close: () -> Void
+
+    var body: some View {
+        UncloudAccountSection(summary: summary, isExporting: isExporting, close: close)
+            .frame(width: 280)
     }
 }
 
