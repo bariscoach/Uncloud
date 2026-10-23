@@ -32,6 +32,8 @@ struct SidebarTitlebarTests {
         window.setContentSize(size)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        // A window made in code frees itself on close by default; ARC frees it too, which crashes the test host later.
+        window.isReleasedWhenClosed = false
         defer { window.close() }
 
         var table: NSTableView?

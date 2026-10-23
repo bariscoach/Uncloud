@@ -139,6 +139,9 @@ struct PaneSidebar: View {
                 .selectionDisabled()
             SidebarPaneRows()
         }
+        // The header and rows fit at the window's minimum height, so the list never scrolls: scrolled rows would slide
+        // under the titlebar and its window buttons.
+        .scrollDisabled(true)
     }
 }
 

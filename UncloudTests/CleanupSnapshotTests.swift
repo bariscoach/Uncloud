@@ -400,6 +400,8 @@ struct CleanupSnapshotTests {
             window.contentView?.layoutSubtreeIfNeeded()
             try? await Task.sleep(for: .milliseconds(100))
         }
+        // A window made in code frees itself on close by default; ARC frees it too, which crashes the test host later.
+        window.isReleasedWhenClosed = false
         defer { window.close() }
         guard let frameView = window.contentView?.superview,
               let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) else { return nil }
@@ -428,6 +430,10 @@ struct CleanupSnapshotTests {
             host.layoutSubtreeIfNeeded()
             try? await Task.sleep(for: .milliseconds(100))
         }
+
+        // A window made in code frees itself on close by default; ARC frees it too, which crashes the test host later.
+
+        window.isReleasedWhenClosed = false
 
         defer { window.close() }
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
