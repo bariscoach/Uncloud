@@ -147,6 +147,13 @@ struct EntitlementGatingTests {
         #expect(MainWindow.showsCleanup(allowed: true, isRunning: true))
     }
 
+    @Test("Tools is locked only when none of its three tools is allowed")
+    func toolsRowLock() {
+        #expect(MainWindow.toolsLocked(allows: { _ in false }))
+        #expect(MainWindow.toolsLocked(allows: { $0 == .freeUpSpace }) == false)
+        #expect(MainWindow.toolsLocked(allows: { $0 == .verifyBackup }) == false)
+    }
+
     @Test("A free account keeps the new-photos offer: its title and subtitle never read the account")
     func newPhotosOfferIsFree() async {
         let harness = AccountModelTests.makeHarness()

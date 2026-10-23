@@ -4,6 +4,8 @@
   outlines (no font needed). `fill="currentColor"`: it takes the surrounding text color. Chosen 2026-10-21.
 - Lock-up: the wordmark sits **above** the app icon, centered. Wordmark width ≈ 1.15 × icon width; gap ≈ 12% of the
   icon. Use the ink color (primary text color), never a gradient; the icon carries the color.
+- Sidebar lock-up: icon left (28 pt), wordmark right (80 pt wide, about 16 pt tall), gap ≈ 0.28 × icon, vertically
+  centred. Static icon only, never the animated one. Ink color.
 - `fonts/PlusJakartaSans[wght].ttf` — the source font, SIL Open Font License 1.1 (`fonts/OFL.txt`).
 - `make-wordmark.py` — regenerates the SVG: needs `fonttools` and `uharfbuzz`;
   `python make-wordmark.py "fonts/PlusJakartaSans[wght].ttf" uncloud-wordmark.svg Uncloud 800 -0.03`.

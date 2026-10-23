@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The main window: a sidebar with the Backup, Library, Browse Backup and Clean Up panes, and the selected pane in the detail.
+/// The main window: a sidebar of the panes in `ExportModel.Pane` order, and the selected pane in the detail.
 struct MainWindow: View {
     @Environment(ExportModel.self) private var model
     @Environment(BackupTools.self) private var backupTools
@@ -13,30 +13,15 @@ struct MainWindow: View {
 
         NavigationSplitView {
             List(selection: paneSelection) {
-                // Backup is the home pane, so it comes first.
-                Label("Backup", systemImage: "externaldrive")
-                    .badge(progressBadge ?? model.newPhotosBadgeText)
-                    // Increased prominence makes the percentage a coloured capsule while an export runs.
-                    .badgeProminence(model.isExporting ? .increased : .standard)
-                    // Badges may not be spoken, so the value carries the same news for VoiceOver.
-                    .accessibilityValue(backupAccessibilityValue)
-                    .tag(ExportModel.Pane.backup)
-
-                Label("Library", systemImage: "photo.on.rectangle")
-                    .tag(ExportModel.Pane.export)
-
-                // Locked for free accounts: the row stays, with a lock, and choosing it shows the locked view (plan C.3).
-                LockableSidebarRow(title: "Browse Backup", symbol: "photo.stack", isLocked: !account.allows(.browseBackup))
-                    .tag(ExportModel.Pane.browse)
-
-                // The one destructive pane sits apart from the two backup panes.
-                // Locked for free accounts as a whole, like Browse Backup (Clean Up iCloud is Uncloud Plus).
-                Section("iCloud") {
-                    LockableSidebarRow(title: "Clean Up iCloud", symbol: "icloud", isLocked: !account.allows(.cleanUpICloud))
-                        .tag(ExportModel.Pane.cleanup)
+                ForEach(ExportModel.Pane.allCases, id: \.self) { pane in
+                    row(for: pane).tag(pane)
                 }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            // The brand header stays put above the rows: it sits below the titlebar, so it never meets the traffic lights.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                SidebarBrandHeader()
+            }
             .safeAreaInset(edge: .bottom) {
                 accountFooter
             }
@@ -54,28 +39,28 @@ struct MainWindow: View {
                 ExportView()
                     .navigationTitle(model.source.title)
             case .backup:
-                BackupPane()
-                    .navigationTitle("Backup")
+                ExportSettingsPane()
+                    .navigationTitle(ExportModel.Pane.backup.title)
+            case .tools:
+                ToolsPane()
+                    .navigationTitle(ExportModel.Pane.tools.title)
             case .cleanup:
+                // Delete from iCloud is the Uncloud Plus feature; while a run is going, its grid stays open after a lapse.
                 if Self.showsCleanup(allowed: account.allows(.cleanUpICloud), isRunning: model.iCloudCleanup?.isRunning == true) {
                     CleanupView()
-                        .navigationTitle("Clean Up iCloud")
+                        .navigationTitle(ExportModel.Pane.cleanup.title)
                 } else {
                     LockedFeatureView(feature: .cleanUpICloud)
-                        .navigationTitle("Clean Up iCloud")
+                        .navigationTitle(ExportModel.Pane.cleanup.title)
                 }
             case .browse:
                 if account.allows(.browseBackup) {
                     BrowseBackupView(browse: backupTools.browse)
-                        .navigationTitle("Browse Backup")
+                        .navigationTitle(ExportModel.Pane.browse.title)
                 } else {
                     LockedFeatureView(feature: .browseBackup)
-                        .navigationTitle("Browse Backup")
+                        .navigationTitle(ExportModel.Pane.browse.title)
                 }
-            case .tools:
-                // Stub until S4 builds ToolsPane; the sidebar row comes in S2.
-                EmptyView()
-                    .navigationTitle("Tools")
             }
         }
         .frame(minWidth: 760, minHeight: 500)
@@ -126,10 +111,37 @@ struct MainWindow: View {
         }
     }
 
-    /// Clean Up iCloud shows its grid when the plan allows it, or while a run already in progress needs it to stay open
+    /// Delete from iCloud shows its grid when the plan allows it, or while a run already in progress needs it to stay open
     /// after a lapse (plan §5.5). Otherwise the pane is the locked view.
     static func showsCleanup(allowed: Bool, isRunning: Bool) -> Bool {
         allowed || isRunning
+    }
+
+    /// Tools is locked only when none of its three tools is allowed. A free account sees the row locked, and the pane shows the cards (D5).
+    static func toolsLocked(allows: (PaidFeature) -> Bool) -> Bool {
+        !(allows(.verifyBackup) || allows(.findDuplicates) || allows(.freeUpSpace))
+    }
+
+    /// One sidebar row. Export Settings keeps its progress badge; the paid panes show a lock while locked (plan §1.1).
+    @ViewBuilder
+    private func row(for pane: ExportModel.Pane) -> some View {
+        switch pane {
+        case .export:
+            Label(pane.title, systemImage: pane.symbol)
+        case .backup:
+            Label(pane.title, systemImage: pane.symbol)
+                .badge(progressBadge ?? model.newPhotosBadgeText)
+                // Increased prominence makes the percentage a coloured capsule while an export runs.
+                .badgeProminence(model.isExporting ? .increased : .standard)
+                // Badges may not be spoken, so the value carries the same news for VoiceOver.
+                .accessibilityValue(backupAccessibilityValue)
+        case .browse:
+            LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: !account.allows(.browseBackup))
+        case .tools:
+            LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: Self.toolsLocked(allows: { account.allows($0) }))
+        case .cleanup:
+            LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: !account.allows(.cleanUpICloud))
+        }
     }
 
     /// The sidebar selection. The list never clears it, so the optional is only a SwiftUI requirement.

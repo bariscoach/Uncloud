@@ -135,6 +135,24 @@ struct Wordmark: View {
     }
 }
 
+/// The sidebar's brand header (plan §7.2): the static app icon and the wordmark side by side. It sits in the sidebar's
+/// top safe-area inset, below the titlebar, so it never meets the traffic lights and never scrolls.
+struct SidebarBrandHeader: View {
+    var body: some View {
+        HStack(spacing: Tokens.Space.s) {
+            AppLogo(size: 28)
+            Wordmark(width: 80)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Tokens.Space.m)
+        .padding(.top, Tokens.Space.s)
+        .padding(.bottom, Tokens.Space.m)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Uncloud")
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
 /// The lock-up from brand/README.md: the wordmark centred above the app icon. The wordmark is 1.15 × the icon
 /// width, with a gap of 12% of the icon. The icon is animated.
 struct AppLockup: View {
