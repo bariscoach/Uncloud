@@ -216,6 +216,12 @@ struct DuplicateKeeperTests {
         #expect(keeperID(records, order: ["icloud-id:A": 5, "icloud-id:B": 2]) == "icloud-id:B")
     }
 
+    @Test func theEarliestExportIsKeptEvenWhenItsNameHasCopyMarkers() {
+        // The original is the first copy saved, so the name's copy marker and the shorter path don't outrank it.
+        let records = ["icloud-id:A": ["2024/07/IMG_0001 (1).HEIC"], "icloud-id:B": ["2024/07/IMG_0001.HEIC"]]
+        #expect(keeperID(records, order: ["icloud-id:A": 1, "icloud-id:B": 2]) == "icloud-id:A")
+    }
+
     @Test func theKeeperComesFirstInTheGroup() {
         var checksums: [String: String] = [:]
         checksums["2024/07/IMG_0001 (1).HEIC"] = digest(1)
@@ -461,6 +467,17 @@ struct DuplicateExtraCopyGroupingTests {
             layout: .month
         )
         // The month copy is in the current layout, so the flat copy is the extra one.
+        #expect(result.extraCopies.map(\.folder) == [""])
+        #expect(result.extraCopies.first?.keeperPaths == ["2026/10/IMG_3134.HEIC"])
+    }
+
+    @Test func anInLayoutCopyIsKeptEvenWhenANonLayoutCopyWasRecordedFirst() {
+        let result = find(
+            ["icloud-id:A": ["IMG_3134.HEIC", "2026/10/IMG_3134.HEIC"]],
+            ["2026/10/IMG_3134.HEIC": digest(1), "IMG_3134.HEIC": digest(1)],
+            layout: .month
+        )
+        // The flat copy was recorded first, but the month layout keeps the month copy, so the flat copy is the extra one.
         #expect(result.extraCopies.map(\.folder) == [""])
         #expect(result.extraCopies.first?.keeperPaths == ["2026/10/IMG_3134.HEIC"])
     }

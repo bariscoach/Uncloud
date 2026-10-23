@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import os
+import UserNotifications
 
 /// Finds items saved more than once in the destination, and moves the extra copies to the Trash when the user confirms.
 @MainActor
@@ -19,24 +21,16 @@ final class DuplicateCleanup {
         let result: DuplicateFinder.RemovalResult
     }
 
-    /// The extra copies in one folder, for the folder's row and its include toggle.
-    struct ExtraFolder: Identifiable, Equatable {
-        let folder: String
-        let copies: [DuplicateFinder.ExtraCopy]
-
-        var id: String { folder }
-        var fileCount: Int { copies.reduce(0) { $0 + $1.mediaPaths.count } }
-        var byteCount: Int64 { copies.reduce(0) { $0 + $1.byteCount } }
-    }
-
     /// Counts only, never file names: the diagnostic log is shared when people report problems.
     static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Uncloud", category: "duplicates")
 
     private(set) var state = State.ready
-    /// The groups of the last scan, largest first. The user can change each group's keeper and include or exclude it.
+    /// The groups of the last scan, largest first. The user can include or exclude each photo in the library.
     private(set) var groups: [DuplicateFinder.Group] = []
     /// Extra copies of items in the layout's folders, from the last scan.
     private(set) var extraCopies: [DuplicateFinder.ExtraCopy] = []
+    /// Both kinds of duplicate, one photo each, for the library. Built once per scan.
+    private(set) var library = DuplicateLibrary(groups: [], extraCopies: [])
     /// iCloud items that share a file, from the last scan. They're deleted in Delete from iCloud, never here.
     private(set) var sharedItemGroups: [DuplicateFinder.SharedItemGroup] = []
     private(set) var notCheckedCount = 0
@@ -44,10 +38,13 @@ final class DuplicateCleanup {
     private(set) var scannedDestination: URL?
     /// The last scan or removal that reached a terminal state. `reset()` keeps it, so the Tools pane can show it (this session only).
     private(set) var lastResult: ToolResult?
-    @ObservationIgnored private var excludedGroupIDs: Set<String> = []
-    @ObservationIgnored private var excludedExtraFolders: Set<String> = []
+    /// The photos the user keeps all their copies of. Their IDs are the library's photo IDs.
+    @ObservationIgnored private var excludedPhotoIDs: Set<String> = []
     /// How files are moved to the Trash. Tests replace it, so they never touch the real Trash.
     @ObservationIgnored var trasher: @Sendable (URL) throws -> Void = DuplicateFinder.moveToTrash
+    /// Posts the finished-removal notification when the app isn't frontmost. Tests replace it, so they never ask for
+    /// notification permission.
+    @ObservationIgnored var notifier: @MainActor (String, String) -> Void = DuplicateCleanup.postNotification
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var run = 0
     private let model: ExportModel
@@ -77,50 +74,30 @@ final class DuplicateCleanup {
     private func clearResults() {
         groups = []
         extraCopies = []
+        library = DuplicateLibrary(groups: [], extraCopies: [])
         sharedItemGroups = []
         notCheckedCount = 0
         scannedDestination = nil
-        excludedGroupIDs = []
-        excludedExtraFolders = []
+        excludedPhotoIDs = []
     }
 
-    /// The groups the user kept in the removal.
+    /// The same-folder groups the user kept in the removal.
     var includedGroups: [DuplicateFinder.Group] {
-        groups.filter { !excludedGroupIDs.contains($0.id) }
+        groups.filter { !excludedPhotoIDs.contains($0.id) }
     }
 
-    /// The extra copies in the folders the user kept in the removal.
+    /// The extra copies of the photos the user kept in the removal.
     var includedExtraCopies: [DuplicateFinder.ExtraCopy] {
-        extraCopies.filter { !excludedExtraFolders.contains($0.folder) }
+        extraCopies.filter { !excludedPhotoIDs.contains($0.recordID) }
     }
 
-    /// The extra copies by folder, largest folder first.
-    var extraFolders: [ExtraFolder] {
-        Dictionary(grouping: extraCopies, by: \.folder)
-            .map { ExtraFolder(folder: $0.key, copies: $0.value.sorted { $0.recordID < $1.recordID }) }
-            .sorted { a, b in a.byteCount != b.byteCount ? a.byteCount > b.byteCount : a.folder < b.folder }
-    }
-
-    /// Copies to move to the Trash: the same-folder duplicates and the extra copies the user kept.
+    /// Copies to move to the Trash: every copy of the photos the user didn't exclude.
     var duplicateCount: Int {
-        includedGroups.reduce(0) { $0 + $1.duplicates.count } + includedExtraCopies.count
+        library.totals(excluding: excludedPhotoIDs).copies
     }
 
     var duplicateBytes: Int64 {
-        includedGroups.reduce(0) { $0 + $1.duplicateBytes } + includedExtraCopies.reduce(0) { $0 + $1.byteCount }
-    }
-
-    /// The copies in the folder are removed with the rest. Off keeps the folder's files.
-    func isIncluded(_ folder: ExtraFolder) -> Bool {
-        !excludedExtraFolders.contains(folder.folder)
-    }
-
-    func setIncluded(_ included: Bool, for folder: ExtraFolder) {
-        if included {
-            excludedExtraFolders.remove(folder.folder)
-        } else {
-            excludedExtraFolders.insert(folder.folder)
-        }
+        library.totals(excluding: excludedPhotoIDs).bytes
     }
 
     /// Items that share a file, for Delete from iCloud: the extra items of every group.
@@ -141,19 +118,21 @@ final class DuplicateCleanup {
         return true
     }
 
-    func isIncluded(_ group: DuplicateFinder.Group) -> Bool {
-        !excludedGroupIDs.contains(group.id)
+    /// The photo is in the removal. Off keeps all of its copies.
+    func isIncluded(_ photo: DuplicateLibrary.Photo) -> Bool {
+        !excludedPhotoIDs.contains(photo.id)
     }
 
-    func setIncluded(_ included: Bool, for group: DuplicateFinder.Group) {
+    func setIncluded(_ included: Bool, for photo: DuplicateLibrary.Photo) {
         if included {
-            excludedGroupIDs.remove(group.id)
+            excludedPhotoIDs.remove(photo.id)
         } else {
-            excludedGroupIDs.insert(group.id)
+            excludedPhotoIDs.insert(photo.id)
         }
     }
 
-    /// Makes `copyID` the copy to keep in its group, so the others become duplicates.
+    /// Makes `copyID` the copy to keep in its group, so the others become duplicates. The library doesn't offer this:
+    /// the original is the first copy saved. Kept for callers that choose one.
     func setKeeper(_ copyID: String, in group: DuplicateFinder.Group) {
         guard case .found = state, let index = groups.firstIndex(where: { $0.id == group.id }),
               groups[index].copies.contains(where: { $0.id == copyID }) else { return }
@@ -189,10 +168,10 @@ final class DuplicateCleanup {
                 guard run == self.run else { return }
                 groups = result.groups
                 extraCopies = result.extraCopies
+                library = DuplicateLibrary(groups: result.groups, extraCopies: result.extraCopies)
                 sharedItemGroups = result.sharedItemGroups
                 notCheckedCount = result.notCheckedCount
-                excludedGroupIDs = []
-                excludedExtraFolders = []
+                excludedPhotoIDs = []
                 scannedDestination = destination
                 let isEmpty = result.groups.isEmpty && result.extraCopies.isEmpty && result.sharedItemGroups.isEmpty
                 state = isEmpty ? .noneFound(notChecked: result.notCheckedCount) : .found
@@ -328,5 +307,60 @@ final class DuplicateCleanup {
             isProblem: result.failedCopies > 0
         )
         model.refreshProgress()
+        // The sheet shows the result; the notification is for when the user is in another app.
+        if !NSApplication.shared.isActive {
+            notifier(DuplicateWording.finishedTitle(result), DuplicateWording.finishedDetails(result).joined(separator: " "))
+        }
+    }
+
+    /// Posts the finished removal as a notification. Asks for permission first, as the other reminders do; the system
+    /// asks only once.
+    private static func postNotification(title: String, body: String) {
+        Task {
+            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            try? await UNUserNotificationCenter.current().add(request)
+        }
+    }
+}
+
+/// The words of the removal: the confirmation before it and the result after it. Plain counts, singular and plural.
+enum DuplicateWording {
+    /// "Remove 2,854 Duplicates?", or "Remove 1 Duplicate?".
+    static func confirmationTitle(copies: Int) -> String {
+        "Remove \(countText(copies, "Duplicate", "Duplicates"))?"
+    }
+
+    /// Says what happens and that each copy is checked first. `volume` is the destination's name.
+    static func confirmationMessage(copies: Int, bytes: Int64, volume: String) -> String {
+        let moved = copies == 1 ? "the other copy" : "the other \(countText(copies, "copy", "copies"))"
+        return "Uncloud keeps the original of each photo, the first copy it saved, and moves \(moved) (\(byteText(bytes))) to the Trash on “\(volume)”. Each copy is checked against its original before it’s moved. You can put copies back from the Trash until you empty it."
+    }
+
+    /// "Removed 2,854 duplicates", or "No duplicates were removed".
+    static func finishedTitle(_ result: DuplicateFinder.RemovalResult) -> String {
+        result.removedCopies > 0 ? "Removed \(countText(result.removedCopies, "duplicate", "duplicates"))" : "No duplicates were removed"
+    }
+
+    /// What the removal left: the space to free, and any copies skipped or not moved.
+    static func finishedDetails(_ result: DuplicateFinder.RemovalResult) -> [String] {
+        var details: [String] = []
+        if result.removedBytes > 0 {
+            details.append("\(byteText(result.removedBytes)) will be freed when you empty the Trash.")
+        }
+        if result.skippedCopies > 0 {
+            details.append("\(result.skippedCopies.formatted()) skipped because they didn’t match their original.")
+        }
+        if result.failedCopies > 0 {
+            details.append("\(result.failedCopies.formatted()) couldn’t be moved to the Trash.")
+        }
+        return details
+    }
+
+    static func byteText(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }

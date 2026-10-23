@@ -213,6 +213,8 @@ enum DuplicateFinder {
     /// The folders of one item that hold extra copies. The copy kept is the one in the layout's folders, else the
     /// one recorded first. Another folder is extra when it's a backup folder (flat or month) and every media file in it
     /// has a same-checksum twin in the kept copy. Album folders are never extra: an album keeps its own copy.
+    /// The kept copy must be the one the layout uses, even when another copy was recorded first: if it left the layout's
+    /// folders, the next export would download the photo again.
     private static func extraCopies(
         recordID: String,
         paths: [String],
@@ -330,17 +332,18 @@ enum DuplicateFinder {
         }
     }
 
-    /// The copies in the order they should be kept: fewest copy markers in their names first, then the shortest
-    /// path, then the earliest export. The first one is the keeper.
+    /// The copies in the order they should be kept: the earliest export first, which is the original. Copies exported
+    /// together, or never exported, then fall back to fewest copy markers in their names, the shortest path, and the ID.
+    /// The first one is the keeper.
     static func rankKeepers(_ copies: [Copy]) -> [Copy] {
         copies.sorted { a, b in
+            if a.exportOrder != b.exportOrder { return a.exportOrder < b.exportOrder }
             let markersA = a.mediaPaths.reduce(0) { $0 + copyMarkerCount(in: $1) }
             let markersB = b.mediaPaths.reduce(0) { $0 + copyMarkerCount(in: $1) }
             if markersA != markersB { return markersA < markersB }
             let lengthA = a.mediaPaths[0].count
             let lengthB = b.mediaPaths[0].count
             if lengthA != lengthB { return lengthA < lengthB }
-            if a.exportOrder != b.exportOrder { return a.exportOrder < b.exportOrder }
             return a.id < b.id
         }
     }

@@ -28,15 +28,24 @@ struct DuplicateSnapshotTests {
 
             let cleanup = DuplicateCleanup(model: model)
             cleanup.trasher = { try FileManager.default.removeItem(at: $0) }
+            cleanup.notifier = { _, _ in }
             cleanup.start()
             try await Self.wait(for: cleanup) { if case .found = $0 { true } else { false } }
 
             for scheme in [ColorScheme.light, .dark] {
                 let image = try #require(await Self.render(
                     FindDuplicatesSheet(cleanup: cleanup).environment(model),
-                    size: NSSize(width: 600, height: 900), scheme: scheme
+                    size: NSSize(width: 920, height: 660), scheme: scheme
                 ))
-                try Self.save(image, named: "found-\(Self.name(scheme)).png", in: output)
+                try Self.save(image, named: "library-\(Self.name(scheme)).png", in: output)
+            }
+
+            for scheme in [ColorScheme.light, .dark] {
+                let image = try #require(await Self.render(
+                    ConfirmationPreview(copies: cleanup.duplicateCount, bytes: cleanup.duplicateBytes, volume: "Backup"),
+                    size: NSSize(width: 460, height: 260), scheme: scheme
+                ))
+                try Self.save(image, named: "confirmation-\(Self.name(scheme)).png", in: output)
             }
 
             cleanup.removeCopies()
@@ -49,6 +58,31 @@ struct DuplicateSnapshotTests {
                 ))
                 try Self.save(image, named: "finished-\(Self.name(scheme)).png", in: output)
             }
+        }
+    }
+
+    /// The alert's title and message, laid out as the alert lays them out. An offscreen host can't show an alert, so this
+    /// stands in for it; the strings are the ones the app's alert uses.
+    private struct ConfirmationPreview: View {
+        let copies: Int
+        let bytes: Int64
+        let volume: String
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(DuplicateWording.confirmationTitle(copies: copies))
+                    .font(.headline)
+                Text(DuplicateWording.confirmationMessage(copies: copies, bytes: bytes, volume: volume))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("Cancel") {}
+                    Button("Move to Trash") {}
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(20)
+            .frame(width: 420, alignment: .leading)
         }
     }
 

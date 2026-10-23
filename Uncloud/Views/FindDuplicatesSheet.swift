@@ -10,24 +10,31 @@ struct FindDuplicatesSheet: View {
     @State private var isConfirmingRemoval = false
 
     var body: some View {
-        SheetScaffold("Find Duplicates", width: Tokens.Sheet.wide, content: {
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }, buttons: {
-            buttons
-        })
+        Group {
+            if case .found = cleanup.state {
+                DuplicatesLibrary(cleanup: cleanup, destinationName: destinationName) {
+                    isConfirmingRemoval = true
+                }
+            } else {
+                SheetScaffold("Find Duplicates", width: Tokens.Sheet.wide, content: {
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }, buttons: {
+                    buttons
+                })
+            }
+        }
         .interactiveDismissDisabled(cleanup.isBusy)
-        .confirmationDialog(
-            "Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to the Trash?",
-            isPresented: $isConfirmingRemoval,
-            titleVisibility: .visible
-        ) {
-            Button("Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to Trash", role: .destructive) {
+        .alert(DuplicateWording.confirmationTitle(copies: cleanup.duplicateCount), isPresented: $isConfirmingRemoval) {
+            // Cancel is the default and Esc triggers it. Return doesn't start a removal.
+            Button("Move to Trash", role: .destructive) {
                 cleanup.removeCopies()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(countText(cleanup.duplicateCount, "copy", "copies")) (\(byteText(cleanup.duplicateBytes))) in “\(destinationName)” go to the Trash. One copy of each photo is kept. Empty the Trash to free the space.")
+            Text(DuplicateWording.confirmationMessage(
+                copies: cleanup.duplicateCount, bytes: cleanup.duplicateBytes, volume: destinationName
+            ))
         }
     }
 
@@ -35,16 +42,12 @@ struct FindDuplicatesSheet: View {
         model.destination?.displayName ?? "your backup folder"
     }
 
-    private func byteText(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
     @ViewBuilder
     private var content: some View {
         switch cleanup.state {
         case .ready:
             VStack(alignment: .leading, spacing: 8) {
-                Text("Uncloud looks for photos saved more than once in “\(destinationName)”. You choose which copy to keep.")
+                Text("Uncloud looks for photos saved more than once in “\(destinationName)”. It keeps the first copy of each photo and moves the others to the Trash.")
                     .fixedSize(horizontal: false, vertical: true)
                 HelpText("Only your backup folder changes. Your library and iCloud aren’t touched.")
                 if model.isExporting {
@@ -78,7 +81,8 @@ struct FindDuplicatesSheet: View {
             }
 
         case .found:
-            FoundDuplicates(cleanup: cleanup, destinationName: destinationName)
+            // The library draws its own header and footer.
+            EmptyView()
 
         case let .removing(done, total):
             VStack(alignment: .leading, spacing: 8) {
@@ -120,21 +124,8 @@ struct FindDuplicatesSheet: View {
             .keyboardShortcut(.cancelAction)
 
         case .found:
-            Button("Done") {
-                dismiss()
-            }
-            .keyboardShortcut(.cancelAction)
-            // No default shortcut: Return shouldn't start a removal. It still asks first.
-            // Not the prominent button: removing copies is the one thing this sheet doesn't want the user to hit by default.
-            if !cleanup.groups.isEmpty || !cleanup.extraCopies.isEmpty {
-                Button {
-                    isConfirmingRemoval = true
-                } label: {
-                    Label("Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to Trash…", systemImage: "trash")
-                }
-                .buttonStyle(.bordered)
-                .disabled(!cleanup.canRemove)
-            }
+            // The library has its own footer, with the removal.
+            EmptyView()
 
         case .removing:
             Button("Done") {}
@@ -175,135 +166,74 @@ struct FindDuplicatesSheet: View {
     }
 }
 
-/// The summary and the three sections of a finished scan. A section with nothing in it is hidden.
-private struct FoundDuplicates: View {
+/// The duplicates library of a finished scan: a header, one row per photo with its original and copies, and a footer
+/// with the removal. The iCloud notice sits above the photos.
+private struct DuplicatesLibrary: View {
     let cleanup: DuplicateCleanup
     let destinationName: String
+    let onRemove: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if cleanup.duplicateCount > 0 {
-                    Text("\(Text(countText(cleanup.duplicateCount, "copy", "copies")).fontWeight(.semibold)) to move to the Trash, using \(Text(ByteCountFormatter.string(fromByteCount: cleanup.duplicateBytes, countStyle: .file)).fontWeight(.semibold))")
-                        .monospacedDigit()
-                }
-
-                if !cleanup.extraFolders.isEmpty {
-                    ExtraCopiesSection(cleanup: cleanup)
-                }
-                if !cleanup.groups.isEmpty {
-                    SameFolderSection(cleanup: cleanup)
-                }
-                if !cleanup.sharedItemGroups.isEmpty {
-                    SharedItemsSection(cleanup: cleanup)
-                }
-
-                if cleanup.notCheckedCount > 0 {
-                    HelpText("\(Plural.photos(cleanup.notCheckedCount)) exported by an older version of Uncloud couldn’t be checked.")
-                }
+        let totals = cleanup.library.totals()
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Duplicates")
+                    .font(.title2.weight(.semibold))
+                Text("\(countText(totals.copies + totals.photos, "copy", "copies")) of \(countText(totals.photos, "photo")) · \(DuplicateWording.byteText(totals.bytes))")
+                    .font(.callout.weight(.medium))
+                    .monospacedDigit()
+                HelpText("Uncloud keeps the original of each photo, the first copy it saved, and removes the other copies.")
             }
+            .padding(.horizontal, Tokens.Sheet.padding)
+            .padding(.top, Tokens.Sheet.padding)
+            .padding(.bottom, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxHeight: 760)
-    }
-}
 
-/// The heading, explanation and count of one section of the results.
-private struct SectionHeading: View {
-    let title: String
-    let text: String
-    let summary: String
+            Divider()
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.headline)
-            Text(summary)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            HelpText(text)
-        }
-    }
-}
-
-/// Extra copies of photos saved in a second folder: the same files, left behind by a change of folder layout. Each
-/// folder is one row with its include toggle. Removing moves the folder's extra files to the Trash.
-private struct ExtraCopiesSection: View {
-    let cleanup: DuplicateCleanup
-
-    private var fileCount: Int {
-        cleanup.extraCopies.reduce(0) { $0 + $1.mediaPaths.count }
-    }
-
-    private var byteCount: Int64 {
-        cleanup.extraCopies.reduce(0) { $0 + $1.byteCount }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeading(
-                title: "Extra copies of the same photo",
-                text: "These files are copies of photos that are already in your backup, often left behind by a change of folder layout.",
-                summary: "\(countText(fileCount, "file")) · \(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))"
-            )
-            List {
-                ForEach(cleanup.extraFolders) { folder in
-                    Toggle(isOn: Binding(
-                        get: { cleanup.isIncluded(folder) },
-                        set: { cleanup.setIncluded($0, for: folder) }
-                    )) {
-                        Text(folderLabel(folder))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 22) {
+                    if cleanup.sharedExtraItemCount > 0 {
+                        SharedItemsNotice(cleanup: cleanup)
                     }
-                    .toggleStyle(.checkbox)
+                    ForEach(cleanup.library.photos) { photo in
+                        PhotoRow(photo: photo, cleanup: cleanup, destination: cleanup.scannedDestination)
+                    }
                 }
+                .padding(Tokens.Sheet.padding)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .listStyle(.inset)
-            .frame(height: min(CGFloat(cleanup.extraFolders.count) * 30 + 16, 150))
-        }
-    }
+            .frame(maxHeight: .infinity)
 
-    private func folderLabel(_ folder: DuplicateCleanup.ExtraFolder) -> String {
-        let name = folder.folder.isEmpty ? "In your backup folder" : folder.folder
-        return "\(name) · \(countText(folder.fileCount, "file")) · \(ByteCountFormatter.string(fromByteCount: folder.byteCount, countStyle: .file))"
+            Divider()
+
+            HStack(spacing: Tokens.Space.s) {
+                Text("\(countText(cleanup.duplicateCount, "copy", "copies")) selected for removal · \(DuplicateWording.byteText(cleanup.duplicateBytes))")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Spacer()
+                Button("Close") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                // No default shortcut: Return shouldn't start a removal. It still asks first.
+                Button("Remove Duplicates…") {
+                    onRemove()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!cleanup.canRemove)
+            }
+            .controlSize(Tokens.Sheet.footerControlSize)
+            .padding(Tokens.Sheet.padding)
+        }
+        .frame(minWidth: 720, idealWidth: 920, maxWidth: .infinity, minHeight: 520, idealHeight: 660, maxHeight: .infinity)
     }
 }
 
-/// Groups of identical photos in the same folder, one checkbox and a keeper choice per copy.
-private struct SameFolderSection: View {
-    let cleanup: DuplicateCleanup
-
-    private var extraCount: Int {
-        cleanup.groups.reduce(0) { $0 + $1.duplicates.count }
-    }
-
-    private var byteCount: Int64 {
-        cleanup.groups.reduce(0) { $0 + $1.duplicateBytes }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeading(
-                title: "Copies in the same folder",
-                text: "These files are identical and sit in the same folder. You choose which copy to keep.",
-                summary: "\(countText(extraCount, "extra copy", "extra copies")) · \(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))"
-            )
-            List {
-                ForEach(cleanup.groups) { group in
-                    DuplicateGroupSection(group: group, cleanup: cleanup)
-                }
-            }
-            .listStyle(.inset)
-            .frame(height: 260)
-        }
-    }
-}
-
-/// iCloud items that share a file. Nothing is removed here: the extra items are selected in Delete from iCloud.
-private struct SharedItemsSection: View {
+/// The iCloud items saved twice. Nothing is removed here: the extra items are selected in Delete from iCloud.
+private struct SharedItemsNotice: View {
     let cleanup: DuplicateCleanup
     @Environment(ExportModel.self) private var model
     @Environment(AccountModel.self) private var account
@@ -314,128 +244,196 @@ private struct SharedItemsSection: View {
             && model.iCloudCleanup?.isRunning != true
     }
 
+    private var sentence: String {
+        let count = cleanup.sharedExtraItemCount
+        let saved = count == 1 ? "1 photo is saved" : "\(count.formatted()) photos are saved"
+        return "\(saved) twice in your iCloud library. Your drive keeps one file for each."
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Label {
+                Text(sentence)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "icloud")
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Button("Review in Delete from iCloud") {
+                if cleanup.reviewSharedItemsInCleanup() {
+                    dismiss()
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canReview)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+/// One photo: its name and copy count, then a row of tiles with the original first.
+private struct PhotoRow: View {
+    let photo: DuplicateLibrary.Photo
+    let cleanup: DuplicateCleanup
+    let destination: URL?
+
+    private var isIncluded: Bool {
+        cleanup.isIncluded(photo)
+    }
+
+    private var summary: String {
+        let copies = countText(photo.copies.count + 1, "copy", "copies")
+        return isIncluded
+            ? "\(copies) · \(DuplicateWording.byteText(photo.copyBytes)) to free"
+            : "\(copies) · keeping all"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                SectionHeading(
-                    title: "Saved twice in your iCloud library",
-                    text: "Your iCloud library has these photos more than once. Your backup keeps one file. Delete the extra copies from iCloud to save iCloud space.",
-                    summary: "\(countText(cleanup.sharedExtraItemCount, "extra item", "extra items")) in iCloud"
-                )
-                Spacer(minLength: 12)
-                Button("Review in Delete from iCloud") {
-                    if cleanup.reviewSharedItemsInCleanup() {
-                        dismiss()
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(!canReview)
-            }
-            List {
-                ForEach(cleanup.sharedItemGroups) { group in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text((group.paths.first.map { ($0 as NSString).lastPathComponent }) ?? "Photo")
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text("\(countText(group.ids.count, "item")) share this file · keeps the first one saved")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .listStyle(.inset)
-            .frame(height: min(CGFloat(cleanup.sharedItemGroups.count) * 44 + 16, 180))
-        }
-    }
-}
-
-/// One group of identical photos: a checkbox for the whole group, then each copy with its keeper choice.
-private struct DuplicateGroupSection: View {
-    let group: DuplicateFinder.Group
-    let cleanup: DuplicateCleanup
-
-    var body: some View {
-        Section {
-            Toggle(isOn: Binding(
-                get: { cleanup.isIncluded(group) },
-                set: { cleanup.setIncluded($0, for: group) }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(group.keeper.fileName)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text("\(countText(group.duplicates.count, "extra copy", "extra copies")) · \(ByteCountFormatter.string(fromByteCount: group.duplicateBytes, countStyle: .file))")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-            .toggleStyle(.checkbox)
-
-            ForEach(group.copies) { copy in
-                CopyRow(
-                    copy: copy,
-                    isKept: copy.id == group.keeperID,
-                    destination: cleanup.scannedDestination,
-                    onKeep: { cleanup.setKeeper(copy.id, in: group) }
-                )
-            }
-        }
-    }
-}
-
-/// A copy's thumbnail, name, folder and size, with its keep status and a choice to keep it instead.
-private struct CopyRow: View {
-    let copy: DuplicateFinder.Copy
-    let isKept: Bool
-    let destination: URL?
-    let onKeep: () -> Void
-
-    private var fileURL: URL? {
-        destination?.appending(path: copy.mediaPaths[0])
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if let fileURL {
-                FileThumbnail(url: fileURL)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(copy.fileName)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(photo.original.fileName)
+                    .font(.headline)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(copy.folderName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(ByteCountFormatter.string(fromByteCount: copy.byteCount, countStyle: .file))
-                    .font(.caption)
+                Spacer(minLength: 8)
+                Text(summary)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
 
-            Spacer(minLength: 8)
-
-            if isKept {
-                Label("Keep", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            } else {
-                Label("Move to Trash", systemImage: "trash")
-                    .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
-                Button("Keep This", action: onKeep)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    PhotoTile(tile: photo.original, role: .original, destination: destination)
+                    ForEach(photo.copies) { copy in
+                        PhotoTile(tile: copy, role: isIncluded ? .removed : .kept, destination: destination)
+                    }
+                }
+                .padding(.bottom, 4)
             }
+            .scrollIndicators(.automatic)
         }
         .contextMenu {
-            if let fileURL {
+            Button(isIncluded ? "Keep All Copies of This Photo" : "Remove Copies of This Photo") {
+                cleanup.setIncluded(!isIncluded, for: photo)
+            }
+            if let destination {
                 Button("Show in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+                    NSWorkspace.shared.activateFileViewerSelecting([destination.appending(path: photo.original.path)])
                 }
+            }
+        }
+    }
+}
+
+/// How a tile is labelled: the original is kept; a copy is removed, or kept when the user keeps the whole photo.
+private enum TileRole {
+    case original
+    case removed
+    case kept
+}
+
+/// One saved file: its thumbnail, what happens to it, and the folder it's in.
+private struct PhotoTile: View {
+    let tile: DuplicateLibrary.Tile
+    let role: TileRole
+    /// The destination the scan ran in, so the thumbnails are the files that were scanned.
+    let destination: URL?
+
+    private static let size: CGFloat = 140
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .bottomLeading) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.quaternary)
+                if let url = fileURL {
+                    FileThumbnail(url: url, size: Self.size)
+                        .frame(width: Self.size, height: Self.size)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .opacity(role == .removed ? 0.6 : 1)
+                }
+                if tile.isVideo {
+                    Image(systemName: "video.fill")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .padding(6)
+                }
+            }
+            .frame(width: Self.size, height: Self.size)
+
+            badge
+            Text(tile.folder.isEmpty ? "All in One Folder" : tile.folder)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: Self.size, alignment: .leading)
+        }
+        .frame(width: Self.size, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(tile.fileName), \(badgeText), \(tile.folder.isEmpty ? "All in One Folder" : tile.folder)")
+    }
+
+    private var fileURL: URL? {
+        destination?.appending(path: tile.path)
+    }
+
+    private var badge: some View {
+        Label(badgeText, systemImage: badgeIcon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(badgeColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(badgeColor.opacity(0.14), in: Capsule())
+    }
+
+    private var badgeText: String {
+        switch role {
+        case .original: "Original · Kept"
+        case .removed: "Copy · Removed"
+        case .kept: "Copy · Kept"
+        }
+    }
+
+    private var badgeIcon: String {
+        switch role {
+        case .original: "checkmark.seal.fill"
+        case .removed: "trash"
+        case .kept: "checkmark.circle.fill"
+        }
+    }
+
+    private var badgeColor: Color {
+        switch role {
+        case .original, .kept: .green
+        case .removed: .red
+        }
+    }
+}
+
+/// What a finished removal did, in plain language.
+private struct RemovalResults: View {
+    let result: DuplicateFinder.RemovalResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(
+                DuplicateWording.finishedTitle(result),
+                systemImage: result.removedCopies > 0 ? "checkmark.circle.fill" : "minus.circle"
+            )
+            .foregroundStyle(result.removedCopies > 0 ? .green : .secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(DuplicateWording.finishedDetails(result), id: \.self) { detail in
+                Text(detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -444,6 +442,7 @@ private struct CopyRow: View {
 /// A small Quick Look thumbnail, made when the row appears.
 private struct FileThumbnail: View {
     let url: URL
+    var size: CGFloat = 44
     @State private var image: NSImage?
 
     var body: some View {
@@ -457,19 +456,19 @@ private struct FileThumbnail: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 44, height: 44)
+        .frame(width: size, height: size)
         // Decorative next to the file name, which is what VoiceOver reads.
         .accessibilityHidden(true)
         .task(id: url) {
-            image = await Self.thumbnail(for: url)
+            image = await Self.thumbnail(for: url, size: size)
         }
     }
 
     @MainActor
-    private static func thumbnail(for url: URL) async -> NSImage? {
+    private static func thumbnail(for url: URL, size: CGFloat) async -> NSImage? {
         let request = QLThumbnailGenerator.Request(
             fileAt: url,
-            size: CGSize(width: 44, height: 44),
+            size: CGSize(width: size, height: size),
             scale: 2,
             representationTypes: .thumbnail
         )
@@ -477,47 +476,5 @@ private struct FileThumbnail: View {
             return nil
         }
         return NSImage(cgImage: representation.cgImage, size: .zero)
-    }
-}
-
-/// What a finished removal did, in plain language.
-private struct RemovalResults: View {
-    let result: DuplicateFinder.RemovalResult
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if result.removedCopies > 0 {
-                Label(
-                    "Moved \(countText(result.removedCopies, "copy", "copies")) (\(ByteCountFormatter.string(fromByteCount: result.removedBytes, countStyle: .file))) to the Trash.",
-                    systemImage: "checkmark.circle.fill"
-                )
-                .foregroundStyle(.green)
-                .fixedSize(horizontal: false, vertical: true)
-            } else {
-                HelpText("No copies were moved to the Trash.")
-            }
-
-            let kept = result.skippedCopies + result.failedCopies
-            if kept > 0 {
-                Label(
-                    "\(countText(kept, "copy", "copies")) \(kept == 1 ? "was" : "were") left in place because \(kept == 1 ? "it changed" : "they changed") or couldn’t be moved.",
-                    systemImage: "exclamationmark.triangle"
-                )
-                .foregroundStyle(.orange)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-private extension DuplicateFinder.Copy {
-    var fileName: String {
-        (mediaPaths[0] as NSString).lastPathComponent
-    }
-
-    /// The folder the file is in, relative to the destination; empty for files at the top.
-    var folderName: String {
-        let folder = (mediaPaths[0] as NSString).deletingLastPathComponent
-        return folder.isEmpty ? "In your backup folder" : folder
     }
 }
