@@ -34,7 +34,7 @@ struct DuplicateSnapshotTests {
             for scheme in [ColorScheme.light, .dark] {
                 let image = try #require(await Self.render(
                     FindDuplicatesSheet(cleanup: cleanup).environment(model),
-                    size: NSSize(width: 600, height: 620), scheme: scheme
+                    size: NSSize(width: 600, height: 900), scheme: scheme
                 ))
                 try Self.save(image, named: "found-\(Self.name(scheme)).png", in: output)
             }
@@ -55,7 +55,7 @@ struct DuplicateSnapshotTests {
     // MARK: - Fabricated drive
 
     /// Three groups: three copies of one photo with different names, a Live Photo exported twice, and two copies
-    /// of an album photo.
+    /// of an album photo. Also extra copies in the month folder of three flat photos, and two iCloud items that share a file.
     private static func writeSampleDrive(in drive: URL) throws {
         let manifest = try ExportManifest(destination: drive)
         let photo = String(repeating: "p", count: 3_000_000)
@@ -71,6 +71,18 @@ struct DuplicateSnapshotTests {
 
         try save(manifest, id: "C1", files: ["Trips/IMG_0200.HEIC": albumPhoto], in: drive)
         try save(manifest, id: "C2", files: ["Trips/IMG_0200 copy.HEIC": albumPhoto], in: drive)
+
+        // Extra copies: photos saved in the month folder by a run before the layout changed to flat, and again flat.
+        try manifest.recordLayout(.flat)
+        for number in 300...302 {
+            let name = "IMG_0\(number).HEIC"
+            let distinct = photo + "\(number)"
+            try save(manifest, id: "D\(number)", files: ["2026/10/\(name)": distinct, name: distinct], in: drive)
+        }
+
+        // Shared iCloud items: two items that saved the same file in the flat folder.
+        try save(manifest, id: "E1", files: ["IMG_0400.HEIC": albumPhoto], in: drive)
+        try save(manifest, id: "E2", files: ["IMG_0400.HEIC": albumPhoto], in: drive)
     }
 
     private static func save(_ manifest: ExportManifest, id: String, files: [String: String], in drive: URL) throws {

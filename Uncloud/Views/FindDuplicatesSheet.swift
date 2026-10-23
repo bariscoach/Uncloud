@@ -69,8 +69,9 @@ struct FindDuplicatesSheet: View {
 
         case let .noneFound(notChecked):
             VStack(alignment: .leading, spacing: 8) {
-                Label("No duplicates found", systemImage: "checkmark.circle.fill")
+                Label("No duplicates found. Every photo in your backup is saved once.", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
                 if notChecked > 0 {
                     HelpText("\(Plural.photos(notChecked)) exported by an older version of Uncloud couldn’t be checked.")
                 }
@@ -125,13 +126,15 @@ struct FindDuplicatesSheet: View {
             .keyboardShortcut(.cancelAction)
             // No default shortcut: Return shouldn't start a removal. It still asks first.
             // Not the prominent button: removing copies is the one thing this sheet doesn't want the user to hit by default.
-            Button {
-                isConfirmingRemoval = true
-            } label: {
-                Label("Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to Trash…", systemImage: "trash")
+            if !cleanup.groups.isEmpty || !cleanup.extraCopies.isEmpty {
+                Button {
+                    isConfirmingRemoval = true
+                } label: {
+                    Label("Move \(countText(cleanup.duplicateCount, "Copy", "Copies")) to Trash…", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!cleanup.canRemove)
             }
-            .buttonStyle(.bordered)
-            .disabled(!cleanup.canRemove)
 
         case .removing:
             Button("Done") {}
@@ -172,27 +175,176 @@ struct FindDuplicatesSheet: View {
     }
 }
 
-/// The summary and the list of groups in a finished scan. Each group is one `Section` of a single list.
+/// The summary and the three sections of a finished scan. A section with nothing in it is hidden.
 private struct FoundDuplicates: View {
     let cleanup: DuplicateCleanup
     let destinationName: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("\(Text(countText(cleanup.duplicateCount, "duplicate copy", "duplicate copies")).fontWeight(.semibold)) using \(Text(ByteCountFormatter.string(fromByteCount: cleanup.duplicateBytes, countStyle: .file)).fontWeight(.semibold))")
-                .monospacedDigit()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if cleanup.duplicateCount > 0 {
+                    Text("\(Text(countText(cleanup.duplicateCount, "copy", "copies")).fontWeight(.semibold)) to move to the Trash, using \(Text(ByteCountFormatter.string(fromByteCount: cleanup.duplicateBytes, countStyle: .file)).fontWeight(.semibold))")
+                        .monospacedDigit()
+                }
 
-            if cleanup.notCheckedCount > 0 {
-                HelpText("\(Plural.photos(cleanup.notCheckedCount)) exported by an older version of Uncloud couldn’t be checked.")
+                if !cleanup.extraFolders.isEmpty {
+                    ExtraCopiesSection(cleanup: cleanup)
+                }
+                if !cleanup.groups.isEmpty {
+                    SameFolderSection(cleanup: cleanup)
+                }
+                if !cleanup.sharedItemGroups.isEmpty {
+                    SharedItemsSection(cleanup: cleanup)
+                }
+
+                if cleanup.notCheckedCount > 0 {
+                    HelpText("\(Plural.photos(cleanup.notCheckedCount)) exported by an older version of Uncloud couldn’t be checked.")
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 760)
+    }
+}
 
+/// The heading, explanation and count of one section of the results.
+private struct SectionHeading: View {
+    let title: String
+    let text: String
+    let summary: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.headline)
+            Text(summary)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            HelpText(text)
+        }
+    }
+}
+
+/// Extra copies of photos saved in a second folder: the same files, left behind by a change of folder layout. Each
+/// folder is one row with its include toggle. Removing moves the folder's extra files to the Trash.
+private struct ExtraCopiesSection: View {
+    let cleanup: DuplicateCleanup
+
+    private var fileCount: Int {
+        cleanup.extraCopies.reduce(0) { $0 + $1.mediaPaths.count }
+    }
+
+    private var byteCount: Int64 {
+        cleanup.extraCopies.reduce(0) { $0 + $1.byteCount }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeading(
+                title: "Extra copies of the same photo",
+                text: "These files are copies of photos that are already in your backup, often left behind by a change of folder layout.",
+                summary: "\(countText(fileCount, "file")) · \(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))"
+            )
+            List {
+                ForEach(cleanup.extraFolders) { folder in
+                    Toggle(isOn: Binding(
+                        get: { cleanup.isIncluded(folder) },
+                        set: { cleanup.setIncluded($0, for: folder) }
+                    )) {
+                        Text(folderLabel(folder))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .toggleStyle(.checkbox)
+                }
+            }
+            .listStyle(.inset)
+            .frame(height: min(CGFloat(cleanup.extraFolders.count) * 30 + 16, 150))
+        }
+    }
+
+    private func folderLabel(_ folder: DuplicateCleanup.ExtraFolder) -> String {
+        let name = folder.folder.isEmpty ? "In your backup folder" : folder.folder
+        return "\(name) · \(countText(folder.fileCount, "file")) · \(ByteCountFormatter.string(fromByteCount: folder.byteCount, countStyle: .file))"
+    }
+}
+
+/// Groups of identical photos in the same folder, one checkbox and a keeper choice per copy.
+private struct SameFolderSection: View {
+    let cleanup: DuplicateCleanup
+
+    private var extraCount: Int {
+        cleanup.groups.reduce(0) { $0 + $1.duplicates.count }
+    }
+
+    private var byteCount: Int64 {
+        cleanup.groups.reduce(0) { $0 + $1.duplicateBytes }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeading(
+                title: "Copies in the same folder",
+                text: "These files are identical and sit in the same folder. You choose which copy to keep.",
+                summary: "\(countText(extraCount, "extra copy", "extra copies")) · \(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))"
+            )
             List {
                 ForEach(cleanup.groups) { group in
                     DuplicateGroupSection(group: group, cleanup: cleanup)
                 }
             }
             .listStyle(.inset)
-            .frame(maxHeight: 340)
+            .frame(height: 260)
+        }
+    }
+}
+
+/// iCloud items that share a file. Nothing is removed here: the extra items are selected in Delete from iCloud.
+private struct SharedItemsSection: View {
+    let cleanup: DuplicateCleanup
+    @Environment(ExportModel.self) private var model
+    @Environment(AccountModel.self) private var account
+    @Environment(\.dismiss) private var dismiss
+
+    private var canReview: Bool {
+        account.allows(.cleanUpICloud) && model.iCloudCleanup != nil && model.source == .iCloud
+            && model.iCloudCleanup?.isRunning != true
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                SectionHeading(
+                    title: "Saved twice in your iCloud library",
+                    text: "Your iCloud library has these photos more than once. Your backup keeps one file. Delete the extra copies from iCloud to save iCloud space.",
+                    summary: "\(countText(cleanup.sharedExtraItemCount, "extra item", "extra items")) in iCloud"
+                )
+                Spacer(minLength: 12)
+                Button("Review in Delete from iCloud") {
+                    if cleanup.reviewSharedItemsInCleanup() {
+                        dismiss()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canReview)
+            }
+            List {
+                ForEach(cleanup.sharedItemGroups) { group in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text((group.paths.first.map { ($0 as NSString).lastPathComponent }) ?? "Photo")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text("\(countText(group.ids.count, "item")) share this file · keeps the first one saved")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .listStyle(.inset)
+            .frame(height: min(CGFloat(cleanup.sharedItemGroups.count) * 44 + 16, 180))
         }
     }
 }

@@ -41,11 +41,52 @@ enum DuplicateFinder {
         }
     }
 
+    /// One folder of an item's files that holds a same-content copy of the item's kept files, so the folder's files
+    /// are extra copies. A Live Photo's files in the folder move together, sidecars included.
+    struct ExtraCopy: Identifiable, Equatable, Sendable {
+        /// The record's key, which the copy's paths are removed from.
+        let recordID: String
+        /// The folder, relative to the destination; empty for files at the top.
+        let folder: String
+        /// Every recorded path in the folder, sidecars included.
+        let paths: [String]
+        /// The photo and movie paths in the folder, without `.xmp` sidecars.
+        let mediaPaths: [String]
+        /// The recorded SHA-256 of each media path in the folder.
+        let checksums: [String: String]
+        /// The media paths of the copy that's kept, and their recorded SHA-256.
+        let keeperPaths: [String]
+        let keeperChecksums: [String: String]
+        /// The size of the folder's files, in bytes; a file that can't be read counts as zero.
+        let byteCount: Int64
+
+        var id: String { "\(recordID)\t\(folder)" }
+    }
+
+    /// Items in iCloud that share a file, so the library has the same photo more than once. The first exported item is
+    /// kept; the others can be deleted from iCloud.
+    struct SharedItemGroup: Identifiable, Equatable, Sendable {
+        /// Every item that shares the file, the first exported first.
+        let ids: [String]
+        /// The files the items share, relative to the destination.
+        let paths: [String]
+        /// The size of the shared files, once for each extra item.
+        let byteCount: Int64
+
+        var id: String { keeperID }
+        var keeperID: String { ids[0] }
+        var extraIDs: [String] { Array(ids.dropFirst()) }
+    }
+
     struct Result: Equatable, Sendable {
         /// Largest reclaimable size first.
         var groups: [Group]
         /// Items that couldn't be compared: a media file has no recorded checksum, or the record is path-only or partial.
         var notCheckedCount: Int
+        /// Extra copies of items whose files are also saved in the folder the layout keeps.
+        var extraCopies: [ExtraCopy] = []
+        /// iCloud items that share a file.
+        var sharedItemGroups: [SharedItemGroup] = []
     }
 
     struct RemovalResult: Equatable, Sendable {
@@ -56,18 +97,30 @@ enum DuplicateFinder {
         var skippedCopies = 0
         /// Duplicates where a file couldn't be moved to the Trash. Files already moved stay moved.
         var failedCopies = 0
+
+        mutating func add(_ other: RemovalResult) {
+            removedCopies += other.removedCopies
+            removedBytes += other.removedBytes
+            skippedCopies += other.skippedCopies
+            failedCopies += other.failedCopies
+        }
     }
 
-    /// Groups the items that have identical media files in the same folder.
+    /// Finds the three kinds of duplicates: items with identical media files in the same folder (`groups`), extra
+    /// copies of an item in a folder the kept copy doesn't use (`extraCopies`), and iCloud items that share a file
+    /// (`sharedItemGroups`).
     /// - records: key to relative paths, from `ExportManifest.records(in:)`.
     /// - checksums: relative path to SHA-256, from `ExportManifest.checksums(in:)`.
     /// - sizes: relative path to size in bytes. Missing paths count as zero.
     /// - exportOrder: key to the line of its first export. Missing keys rank last.
+    /// - layout: the folder layout the destination records. Its folder keeps an item's copy when an item has
+    ///   copies in several folders; nil keeps the copy recorded first.
     static func findGroups(
         records: [String: [String]],
         checksums: [String: String],
         sizes: [String: Int64],
-        exportOrder: [String: Int] = [:]
+        exportOrder: [String: Int] = [:],
+        layout: FolderLayout? = nil
     ) -> Result {
         var notChecked = 0
         let idPaths = Set(records.filter { $0.key.hasPrefix(ExportManifest.iCloudIDPrefix) }.values.joined())
@@ -87,7 +140,7 @@ enum DuplicateFinder {
             }
         }
 
-        // A file listed by two items is one file, not two copies, so those items are left out.
+        // A file listed by two items is one file, not two copies, so those items are left out of the other two kinds.
         var owners: [String: Int] = [:]
         for item in items {
             for path in Set(item.paths) {
@@ -96,6 +149,7 @@ enum DuplicateFinder {
         }
 
         var copiesByFingerprint: [String: [Copy]] = [:]
+        var extras: [ExtraCopy] = []
         for item in items {
             guard let firstMedia = item.paths.first(where: { !isSidecar($0) }) else {
                 notChecked += 1
@@ -111,6 +165,14 @@ enum DuplicateFinder {
             }
             guard recorded.count == Set(media).count else {
                 notChecked += 1
+                continue
+            }
+
+            // An item with extra copies is handled as those: its kept copy isn't also a same-folder duplicate, so no
+            // file is in two lists. Once the extra copies are gone, the item can match others as usual.
+            let itemExtras = extraCopies(recordID: item.key, paths: item.paths, checksums: recorded, sizes: sizes, layout: layout)
+            guard itemExtras.isEmpty else {
+                extras += itemExtras
                 continue
             }
 
@@ -140,7 +202,132 @@ enum DuplicateFinder {
             .sorted { a, b in
                 a.duplicateBytes != b.duplicateBytes ? a.duplicateBytes > b.duplicateBytes : a.id < b.id
             }
-        return Result(groups: groups, notCheckedCount: notChecked)
+        return Result(
+            groups: groups,
+            notCheckedCount: notChecked,
+            extraCopies: extras.sorted { ($0.folder, $0.recordID) < ($1.folder, $1.recordID) },
+            sharedItemGroups: sharedItemGroups(records: records, sizes: sizes, exportOrder: exportOrder)
+        )
+    }
+
+    /// The folders of one item that hold extra copies. The copy kept is the one in the layout's folders, else the
+    /// one recorded first. Another folder is extra when it's a backup folder (flat or month) and every media file in it
+    /// has a same-checksum twin in the kept copy. Album folders are never extra: an album keeps its own copy.
+    private static func extraCopies(
+        recordID: String,
+        paths: [String],
+        checksums: [String: String],
+        sizes: [String: Int64],
+        layout: FolderLayout?
+    ) -> [ExtraCopy] {
+        var pathsByFolder: [String: [String]] = [:]
+        var firstIndex: [String: Int] = [:]
+        for (index, path) in paths.enumerated() {
+            let folder = (path as NSString).deletingLastPathComponent
+            pathsByFolder[folder, default: []].append(path)
+            firstIndex[folder] = firstIndex[folder] ?? index
+        }
+        guard pathsByFolder.count > 1 else { return [] }
+
+        let inLayout = layout.map { layout in
+            pathsByFolder.keys.filter { ICloudDownloadPaths.isItem(paths: pathsByFolder[$0] ?? [], in: layout) }
+        } ?? []
+        let candidates = inLayout.isEmpty ? Array(pathsByFolder.keys) : inLayout
+        guard let keeperFolder = candidates.min(by: { firstIndex[$0, default: 0] < firstIndex[$1, default: 0] }) else { return [] }
+
+        let keeperPaths = (pathsByFolder[keeperFolder] ?? []).filter { !isSidecar($0) }
+        guard !keeperPaths.isEmpty else { return [] }
+        let keeperChecksums = checksums.filter { keeperPaths.contains($0.key) }
+        let keeperDigests = Set(keeperChecksums.values)
+
+        var copies: [ExtraCopy] = []
+        for folder in pathsByFolder.keys.sorted() where folder != keeperFolder && isBackupFolder(folder) {
+            let folderPaths = pathsByFolder[folder] ?? []
+            let media = folderPaths.filter { !isSidecar($0) }
+            guard !media.isEmpty, media.allSatisfy({ path in checksums[path].map { keeperDigests.contains($0) } ?? false }) else { continue }
+            copies.append(ExtraCopy(
+                recordID: recordID,
+                folder: folder,
+                paths: folderPaths,
+                mediaPaths: media,
+                checksums: checksums.filter { media.contains($0.key) },
+                keeperPaths: keeperPaths,
+                keeperChecksums: keeperChecksums,
+                byteCount: folderPaths.reduce(0) { $0 + (sizes[$1] ?? 0) }
+            ))
+        }
+        return copies
+    }
+
+    /// The top folder of a flat backup, or a `YYYY/MM` month folder: where icloudpd puts an item's files. Album folders aren't.
+    private static func isBackupFolder(_ folder: String) -> Bool {
+        folder.isEmpty || ICloudDownloadPaths.isMonthPath(folder + "/x")
+    }
+
+    /// iCloud items that share a file, joined into groups. Only `icloud-id:` items count: an item's file is listed by
+    /// each item that saved it. The first exported item in a group is kept.
+    private static func sharedItemGroups(
+        records: [String: [String]],
+        sizes: [String: Int64],
+        exportOrder: [String: Int]
+    ) -> [SharedItemGroup] {
+        var keysByPath: [String: [String]] = [:]
+        for (key, paths) in records where key.hasPrefix(ExportManifest.iCloudIDPrefix) {
+            for path in Set(paths) {
+                keysByPath[path, default: []].append(key)
+            }
+        }
+        let shared = keysByPath.filter { $0.value.count > 1 }
+        guard !shared.isEmpty else { return [] }
+
+        // Union-find over the items that share a file.
+        var parent: [String: String] = [:]
+        func root(_ key: String) -> String {
+            var current = key
+            while let next = parent[current], next != current {
+                current = next
+            }
+            return current
+        }
+        for keys in shared.values {
+            for key in keys where parent[key] == nil {
+                parent[key] = key
+            }
+            let first = root(keys[0])
+            for key in keys.dropFirst() {
+                let other = root(key)
+                if other != first { parent[other] = first }
+            }
+        }
+
+        var membersByRoot: [String: [String]] = [:]
+        for key in parent.keys {
+            membersByRoot[root(key), default: []].append(key)
+        }
+        var pathsByRoot: [String: Set<String>] = [:]
+        for (path, keys) in shared {
+            pathsByRoot[root(keys[0]), default: []].insert(path)
+        }
+
+        return membersByRoot.map { root, members -> SharedItemGroup in
+            let ids = members
+                .map { String($0.dropFirst(ExportManifest.iCloudIDPrefix.count)) }
+                .sorted { a, b in
+                    let orderA = exportOrder[ExportManifest.iCloudIDPrefix + a] ?? Int.max
+                    let orderB = exportOrder[ExportManifest.iCloudIDPrefix + b] ?? Int.max
+                    return orderA != orderB ? orderA < orderB : a < b
+                }
+            let paths = (pathsByRoot[root] ?? []).sorted()
+            let fileBytes = paths.reduce(0) { $0 + (sizes[$1] ?? 0) }
+            return SharedItemGroup(
+                ids: ids.map { ExportManifest.iCloudIDPrefix + $0 },
+                paths: paths,
+                byteCount: fileBytes * Int64(ids.count - 1)
+            )
+        }
+        .sorted { a, b in
+            a.byteCount != b.byteCount ? a.byteCount > b.byteCount : a.id < b.id
+        }
     }
 
     /// The copies in the order they should be kept: fewest copy markers in their names first, then the shortest
@@ -183,13 +370,8 @@ enum DuplicateFinder {
         progress: (Int, Int) -> Void
     ) -> RemovalResult {
         let total = groups.reduce(0) { $0 + $1.duplicates.count }
-        // Which records list each file. A file that another record still lists isn't removed.
-        var listedBy: [String: Set<String>] = [:]
-        for (key, paths) in ExportManifest.records(in: destination) where !key.hasPrefix(ExportManifest.iCloudPartialPrefix) {
-            for path in paths {
-                listedBy[path, default: []].insert(key)
-            }
-        }
+        // A file that another record still lists isn't removed.
+        let listedBy = listers(in: destination)
 
         var result = RemovalResult()
         var index = 0
@@ -208,6 +390,100 @@ enum DuplicateFinder {
             }
         }
         return result
+    }
+
+    /// Moves extra copies to the Trash and removes their paths from their items' records. Each copy is checked before
+    /// anything moves: the kept copy and the extra copy must still match their recorded checksums, the copy's paths
+    /// must be inside the destination and listed only by its own item, and the item's record must still list them.
+    /// A record keeps the paths that weren't moved, so a partly moved copy is still described correctly.
+    /// Call only after the user confirmed, and never while an export runs.
+    static func removeExtraCopies(
+        _ copies: [ExtraCopy],
+        in destination: URL,
+        hasher: (URL) throws -> String = FileHasher.sha256(of:),
+        trasher: (URL) throws -> Void = DuplicateFinder.moveToTrash,
+        progress: (Int, Int) -> Void
+    ) -> RemovalResult {
+        var result = RemovalResult()
+        var current = ExportManifest.records(in: destination)
+        let listedBy = listers(in: destination)
+        // The kept copy of an item is hashed once, however many extra copies it has.
+        var keeperIntact: [String: Bool] = [:]
+
+        for (index, copy) in copies.enumerated() {
+            defer { progress(index + 1, copies.count) }
+            guard let recorded = current[copy.recordID],
+                  Set(copy.paths).isSubset(of: recorded),
+                  Set(copy.keeperPaths).isSubset(of: recorded),
+                  copy.paths.allSatisfy({ (listedBy[$0] ?? []).subtracting([copy.recordID]).isEmpty }),
+                  (copy.paths + copy.keeperPaths).allSatisfy({ isInside($0, destination) })
+            else {
+                result.skippedCopies += 1
+                continue
+            }
+
+            let keeperOK = keeperIntact[copy.recordID] ?? copy.keeperPaths.allSatisfy { path in
+                (try? hasher(destination.appending(path: path))) == copy.keeperChecksums[path]
+            }
+            keeperIntact[copy.recordID] = keeperOK
+            guard keeperOK, copy.mediaPaths.allSatisfy({ path in
+                (try? hasher(destination.appending(path: path))) == copy.checksums[path]
+            }) else {
+                result.skippedCopies += 1
+                continue
+            }
+
+            var trashed: [String] = []
+            var trashedBytes: Int64 = 0
+            var failed = false
+            for path in copy.paths {
+                let url = destination.appending(path: path)
+                // A sidecar that's already gone has nothing to move, but its path still leaves the record.
+                guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+                    trashed.append(path)
+                    continue
+                }
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                do {
+                    try trasher(url)
+                    trashed.append(path)
+                    trashedBytes += Int64(size)
+                } catch {
+                    failed = true
+                    break
+                }
+            }
+
+            if !trashed.isEmpty {
+                let remaining = recorded.filter { !trashed.contains($0) }
+                do {
+                    try ExportManifest.appendRecords([(key: copy.recordID, paths: remaining)], in: destination)
+                    try ExportManifest.forgetFiles(Set(trashed), in: destination)
+                    current[copy.recordID] = remaining
+                } catch {
+                    failed = true
+                }
+            }
+
+            if failed {
+                result.failedCopies += 1
+            } else {
+                result.removedCopies += 1
+                result.removedBytes += trashedBytes
+            }
+        }
+        return result
+    }
+
+    /// Which records list each file, so a file that another record still lists isn't removed.
+    private static func listers(in destination: URL) -> [String: Set<String>] {
+        var listedBy: [String: Set<String>] = [:]
+        for (key, paths) in ExportManifest.records(in: destination) where !key.hasPrefix(ExportManifest.iCloudPartialPrefix) {
+            for path in paths {
+                listedBy[path, default: []].insert(key)
+            }
+        }
+        return listedBy
     }
 
     /// Moves a file to the Trash, where it can still be restored.

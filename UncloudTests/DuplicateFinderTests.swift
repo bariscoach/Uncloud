@@ -431,3 +431,228 @@ struct DuplicateRemovalTests {
         }
     }
 }
+
+@Suite("Find Duplicates extra copies and shared iCloud items")
+struct DuplicateExtraCopyGroupingTests {
+    private func find(
+        _ records: [String: [String]],
+        _ checksums: [String: String],
+        order: [String: Int] = [:],
+        layout: FolderLayout? = nil
+    ) -> DuplicateFinder.Result {
+        DuplicateFinder.findGroups(records: records, checksums: checksums, sizes: [:], exportOrder: order, layout: layout)
+    }
+
+    @Test func aFlatAndAMonthCopyOfOneItemGiveOneExtraCopyInTheMonthFolder() {
+        let result = find(
+            ["icloud-id:A": ["2026/10/IMG_3134.HEIC", "IMG_3134.HEIC"]],
+            ["2026/10/IMG_3134.HEIC": digest(1), "IMG_3134.HEIC": digest(1)],
+            layout: .flat
+        )
+        #expect(result.extraCopies.map(\.folder) == ["2026/10"])
+        #expect(result.extraCopies.first?.paths == ["2026/10/IMG_3134.HEIC"])
+        #expect(result.groups.isEmpty)
+    }
+
+    @Test func theKeeperFollowsTheCurrentLayout() {
+        let result = find(
+            ["icloud-id:A": ["2026/10/IMG_3134.HEIC", "IMG_3134.HEIC"]],
+            ["2026/10/IMG_3134.HEIC": digest(1), "IMG_3134.HEIC": digest(1)],
+            layout: .month
+        )
+        // The month copy is in the current layout, so the flat copy is the extra one.
+        #expect(result.extraCopies.map(\.folder) == [""])
+        #expect(result.extraCopies.first?.keeperPaths == ["2026/10/IMG_3134.HEIC"])
+    }
+
+    @Test func withNoLayoutTheCopyRecordedFirstIsKept() {
+        let result = find(
+            ["icloud-id:A": ["2026/10/IMG_3134.HEIC", "IMG_3134.HEIC"]],
+            ["2026/10/IMG_3134.HEIC": digest(1), "IMG_3134.HEIC": digest(1)]
+        )
+        #expect(result.extraCopies.map(\.folder) == [""])
+    }
+
+    @Test func aLivePhotoPairInAnotherFolderMovesAsASet() {
+        let result = find(
+            ["icloud-id:A": ["2026/10/IMG_3134.HEIC", "2026/10/IMG_3134.MOV", "IMG_3134.HEIC", "IMG_3134.MOV"]],
+            [
+                "2026/10/IMG_3134.HEIC": digest(1), "2026/10/IMG_3134.MOV": digest(2),
+                "IMG_3134.HEIC": digest(1), "IMG_3134.MOV": digest(2),
+            ],
+            layout: .flat
+        )
+        #expect(result.extraCopies.count == 1)
+        #expect(result.extraCopies.first?.paths == ["2026/10/IMG_3134.HEIC", "2026/10/IMG_3134.MOV"])
+        #expect(result.extraCopies.first?.mediaPaths.count == 2)
+    }
+
+    @Test func aDifferentChecksumIsNotAnExtraCopy() {
+        let result = find(
+            ["icloud-id:A": ["2026/10/IMG_3134.HEIC", "IMG_3134.HEIC"]],
+            ["2026/10/IMG_3134.HEIC": digest(1), "IMG_3134.HEIC": digest(2)],
+            layout: .flat
+        )
+        #expect(result.extraCopies.isEmpty)
+    }
+
+    @Test func anAlbumFolderIsNeverAnExtraCopy() {
+        let result = find(
+            ["icloud-id:A": ["Trips/IMG_3134.HEIC", "IMG_3134.HEIC"]],
+            ["Trips/IMG_3134.HEIC": digest(1), "IMG_3134.HEIC": digest(1)],
+            layout: .flat
+        )
+        #expect(result.extraCopies.isEmpty)
+    }
+
+    @Test func aFileListedByAnotherItemIsNotTouched() {
+        let result = find(
+            [
+                "icloud-id:A": ["2026/10/IMG_3134.HEIC", "IMG_3134.HEIC"],
+                "icloud-id:B": ["2026/10/IMG_3134.HEIC"],
+            ],
+            ["2026/10/IMG_3134.HEIC": digest(1), "IMG_3134.HEIC": digest(1)],
+            layout: .flat
+        )
+        #expect(result.extraCopies.isEmpty)
+    }
+
+    @Test func twoItemsSharingAFileFormOneGroupWhoseFirstExportIsKept() {
+        let result = find(
+            ["icloud-id:A": ["IMG_1.HEIC"], "icloud-id:B": ["IMG_1.HEIC"], "icloud-id:C": ["IMG_2.HEIC"]],
+            ["IMG_1.HEIC": digest(1), "IMG_2.HEIC": digest(2)],
+            order: ["icloud-id:A": 5, "icloud-id:B": 2]
+        )
+        #expect(result.sharedItemGroups.map(\.ids) == [["icloud-id:B", "icloud-id:A"]])
+        #expect(result.sharedItemGroups.first?.keeperID == "icloud-id:B")
+        #expect(result.sharedItemGroups.first?.extraIDs == ["icloud-id:A"])
+        #expect(result.sharedItemGroups.first?.paths == ["IMG_1.HEIC"])
+        // The files are one file, so nothing is a same-folder duplicate.
+        #expect(result.groups.isEmpty)
+    }
+
+    @Test func sharedItemsOfAnyGroupSizeAreJoined() {
+        let result = find(
+            [
+                "icloud-id:A": ["IMG_1.HEIC"], "icloud-id:B": ["IMG_1.HEIC"], "icloud-id:C": ["IMG_1.HEIC"],
+                "icloud-id:D": ["IMG_9.HEIC"],
+            ],
+            ["IMG_1.HEIC": digest(1), "IMG_9.HEIC": digest(2)]
+        )
+        #expect(result.sharedItemGroups.count == 1)
+        #expect(result.sharedItemGroups.first?.ids.count == 3)
+    }
+}
+
+@Suite("Find Duplicates extra copy removal")
+struct DuplicateExtraCopyRemovalTests {
+    /// Deletes instead of trashing, so tests never touch the real Trash.
+    private static func deleting(_ url: URL) throws {
+        try FileManager.default.removeItem(at: url)
+    }
+
+    /// Writes an item's files and records it the way an export does.
+    private func save(_ id: String, _ files: [String: String], in destination: URL) throws {
+        let manifest = try ExportManifest(destination: destination)
+        var checksums: [String: String] = [:]
+        for (path, text) in files {
+            try writeFile(text, to: path, in: destination)
+            checksums[path] = try FileHasher.sha256(of: destination.appending(path: path))
+        }
+        try manifest.recordICloudItem(id: id, paths: files.keys.sorted())
+        try manifest.recordChecksums(checksums)
+    }
+
+    private func extras(in destination: URL, layout: FolderLayout = .flat) -> [DuplicateFinder.ExtraCopy] {
+        DuplicateFinder.findGroups(
+            records: ExportManifest.records(in: destination),
+            checksums: ExportManifest.checksums(in: destination),
+            sizes: [:],
+            exportOrder: ExportManifest.firstRecordPositions(in: destination),
+            layout: layout
+        ).extraCopies
+    }
+
+    @Test func theExtraFileGoesToTheTrashAndLeavesItsRecordAndChecksums() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try save("A", ["2026/10/IMG_3134.HEIC": "same bytes", "IMG_3134.HEIC": "same bytes"], in: destination)
+            var trashed: [URL] = []
+            let result = DuplicateFinder.removeExtraCopies(extras(in: destination), in: destination, trasher: { url in
+                trashed.append(url)
+                try Self.deleting(url)
+            }, progress: { _, _ in })
+
+            #expect(result.removedCopies == 1)
+            #expect(result.skippedCopies == 0 && result.failedCopies == 0)
+            #expect(trashed.map(\.lastPathComponent) == ["IMG_3134.HEIC"])
+            #expect(!FileManager.default.fileExists(atPath: destination.appending(path: "2026/10/IMG_3134.HEIC").path(percentEncoded: false)))
+            #expect(FileManager.default.fileExists(atPath: destination.appending(path: "IMG_3134.HEIC").path(percentEncoded: false)))
+            #expect(ExportManifest.records(in: destination)["icloud-id:A"] == ["IMG_3134.HEIC"])
+            #expect(ExportManifest.checksums(in: destination)["2026/10/IMG_3134.HEIC"] == nil)
+            #expect(ExportManifest.checksums(in: destination)["IMG_3134.HEIC"] != nil)
+            #expect(extras(in: destination).isEmpty)
+        }
+    }
+
+    @Test func aLivePhotoPairLeavesTheRecordAsASet() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try save("A", [
+                "2026/10/IMG_3134.HEIC": "photo", "2026/10/IMG_3134.MOV": "movie",
+                "IMG_3134.HEIC": "photo", "IMG_3134.MOV": "movie",
+            ], in: destination)
+            let result = DuplicateFinder.removeExtraCopies(extras(in: destination), in: destination, trasher: Self.deleting, progress: { _, _ in })
+
+            #expect(result.removedCopies == 1)
+            #expect(ExportManifest.records(in: destination)["icloud-id:A"] == ["IMG_3134.HEIC", "IMG_3134.MOV"])
+            #expect(!FileManager.default.fileExists(atPath: destination.appending(path: "2026/10/IMG_3134.MOV").path(percentEncoded: false)))
+        }
+    }
+
+    @Test func aChangedExtraFileIsRefusedAndNothingMoves() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try save("A", ["2026/10/IMG_3134.HEIC": "same bytes", "IMG_3134.HEIC": "same bytes"], in: destination)
+            let found = extras(in: destination)
+            try writeFile("changed since the check", to: "2026/10/IMG_3134.HEIC", in: destination)
+
+            var trashed: [URL] = []
+            let result = DuplicateFinder.removeExtraCopies(found, in: destination, trasher: { trashed.append($0) }, progress: { _, _ in })
+
+            #expect(result.skippedCopies == 1)
+            #expect(result.removedCopies == 0)
+            #expect(trashed.isEmpty)
+            #expect(ExportManifest.records(in: destination)["icloud-id:A"] == ["2026/10/IMG_3134.HEIC", "IMG_3134.HEIC"])
+        }
+    }
+
+    @Test func aChangedKeeperIsRefusedAndNothingMoves() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try save("A", ["2026/10/IMG_3134.HEIC": "same bytes", "IMG_3134.HEIC": "same bytes"], in: destination)
+            let found = extras(in: destination)
+            try writeFile("changed keeper", to: "IMG_3134.HEIC", in: destination)
+
+            var trashed: [URL] = []
+            let result = DuplicateFinder.removeExtraCopies(found, in: destination, trasher: { trashed.append($0) }, progress: { _, _ in })
+
+            #expect(result.skippedCopies == 1)
+            #expect(trashed.isEmpty)
+        }
+    }
+
+    @Test func aTrashFailureKeepsTheRecordHonest() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try save("A", [
+                "2026/10/IMG_3134.HEIC": "photo", "2026/10/IMG_3134.MOV": "movie",
+                "IMG_3134.HEIC": "photo", "IMG_3134.MOV": "movie",
+            ], in: destination)
+            let result = DuplicateFinder.removeExtraCopies(extras(in: destination), in: destination, trasher: { url in
+                if url.pathExtension == "MOV" { throw CocoaError(.fileWriteNoPermission) }
+                try Self.deleting(url)
+            }, progress: { _, _ in })
+
+            #expect(result.failedCopies == 1)
+            // The photo that moved is gone from the record; the movie, still on the drive, stays listed.
+            #expect(ExportManifest.records(in: destination)["icloud-id:A"] == ["2026/10/IMG_3134.MOV", "IMG_3134.HEIC", "IMG_3134.MOV"])
+            #expect(ExportManifest.checksums(in: destination)["2026/10/IMG_3134.HEIC"] == nil)
+        }
+    }
+}

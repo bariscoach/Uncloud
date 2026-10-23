@@ -19,18 +19,33 @@ final class DuplicateCleanup {
         let result: DuplicateFinder.RemovalResult
     }
 
+    /// The extra copies in one folder, for the folder's row and its include toggle.
+    struct ExtraFolder: Identifiable, Equatable {
+        let folder: String
+        let copies: [DuplicateFinder.ExtraCopy]
+
+        var id: String { folder }
+        var fileCount: Int { copies.reduce(0) { $0 + $1.mediaPaths.count } }
+        var byteCount: Int64 { copies.reduce(0) { $0 + $1.byteCount } }
+    }
+
     /// Counts only, never file names: the diagnostic log is shared when people report problems.
     static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Uncloud", category: "duplicates")
 
     private(set) var state = State.ready
     /// The groups of the last scan, largest first. The user can change each group's keeper and include or exclude it.
     private(set) var groups: [DuplicateFinder.Group] = []
+    /// Extra copies of items in the layout's folders, from the last scan.
+    private(set) var extraCopies: [DuplicateFinder.ExtraCopy] = []
+    /// iCloud items that share a file, from the last scan. They're deleted in Delete from iCloud, never here.
+    private(set) var sharedItemGroups: [DuplicateFinder.SharedItemGroup] = []
     private(set) var notCheckedCount = 0
     /// The destination the groups were found in, so a changed destination never removes anything.
     private(set) var scannedDestination: URL?
     /// The last scan or removal that reached a terminal state. `reset()` keeps it, so the Tools pane can show it (this session only).
     private(set) var lastResult: ToolResult?
     @ObservationIgnored private var excludedGroupIDs: Set<String> = []
+    @ObservationIgnored private var excludedExtraFolders: Set<String> = []
     /// How files are moved to the Trash. Tests replace it, so they never touch the real Trash.
     @ObservationIgnored var trasher: @Sendable (URL) throws -> Void = DuplicateFinder.moveToTrash
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -56,10 +71,17 @@ final class DuplicateCleanup {
     func reset() {
         guard !isBusy else { return }
         state = .ready
+        clearResults()
+    }
+
+    private func clearResults() {
         groups = []
+        extraCopies = []
+        sharedItemGroups = []
         notCheckedCount = 0
         scannedDestination = nil
         excludedGroupIDs = []
+        excludedExtraFolders = []
     }
 
     /// The groups the user kept in the removal.
@@ -67,12 +89,56 @@ final class DuplicateCleanup {
         groups.filter { !excludedGroupIDs.contains($0.id) }
     }
 
+    /// The extra copies in the folders the user kept in the removal.
+    var includedExtraCopies: [DuplicateFinder.ExtraCopy] {
+        extraCopies.filter { !excludedExtraFolders.contains($0.folder) }
+    }
+
+    /// The extra copies by folder, largest folder first.
+    var extraFolders: [ExtraFolder] {
+        Dictionary(grouping: extraCopies, by: \.folder)
+            .map { ExtraFolder(folder: $0.key, copies: $0.value.sorted { $0.recordID < $1.recordID }) }
+            .sorted { a, b in a.byteCount != b.byteCount ? a.byteCount > b.byteCount : a.folder < b.folder }
+    }
+
+    /// Copies to move to the Trash: the same-folder duplicates and the extra copies the user kept.
     var duplicateCount: Int {
-        includedGroups.reduce(0) { $0 + $1.duplicates.count }
+        includedGroups.reduce(0) { $0 + $1.duplicates.count } + includedExtraCopies.count
     }
 
     var duplicateBytes: Int64 {
-        includedGroups.reduce(0) { $0 + $1.duplicateBytes }
+        includedGroups.reduce(0) { $0 + $1.duplicateBytes } + includedExtraCopies.reduce(0) { $0 + $1.byteCount }
+    }
+
+    /// The copies in the folder are removed with the rest. Off keeps the folder's files.
+    func isIncluded(_ folder: ExtraFolder) -> Bool {
+        !excludedExtraFolders.contains(folder.folder)
+    }
+
+    func setIncluded(_ included: Bool, for folder: ExtraFolder) {
+        if included {
+            excludedExtraFolders.remove(folder.folder)
+        } else {
+            excludedExtraFolders.insert(folder.folder)
+        }
+    }
+
+    /// Items that share a file, for Delete from iCloud: the extra items of every group.
+    var sharedExtraItemCount: Int {
+        sharedItemGroups.reduce(0) { $0 + $1.extraIDs.count }
+    }
+
+    /// Opens Delete from iCloud with the extra items of the shared groups selected. Nothing is deleted there until the
+    /// user confirms. False when the library isn't open or nothing is selected.
+    @discardableResult
+    func reviewSharedItemsInCleanup() -> Bool {
+        guard let cleanup = model.iCloudCleanup, model.source == .iCloud, !cleanup.isRunning else { return false }
+        let ids = Set(sharedItemGroups.flatMap(\.extraIDs).map { String($0.dropFirst(ExportManifest.iCloudIDPrefix.count)) })
+        guard !ids.isEmpty else { return false }
+        cleanup.setMode(.library)
+        cleanup.selection = .only(ids)
+        model.pane = .cleanup
+        return true
     }
 
     func isIncluded(_ group: DuplicateFinder.Group) -> Bool {
@@ -122,14 +188,18 @@ final class DuplicateCleanup {
                 }.value
                 guard run == self.run else { return }
                 groups = result.groups
+                extraCopies = result.extraCopies
+                sharedItemGroups = result.sharedItemGroups
                 notCheckedCount = result.notCheckedCount
                 excludedGroupIDs = []
+                excludedExtraFolders = []
                 scannedDestination = destination
-                state = result.groups.isEmpty ? .noneFound(notChecked: result.notCheckedCount) : .found
-                if result.groups.isEmpty {
+                let isEmpty = result.groups.isEmpty && result.extraCopies.isEmpty && result.sharedItemGroups.isEmpty
+                state = isEmpty ? .noneFound(notChecked: result.notCheckedCount) : .found
+                if isEmpty {
                     lastResult = ToolResult(date: .now, text: "No duplicates", isProblem: false)
                 }
-                Self.logger.info("Duplicate scan: \(result.groups.count, privacy: .public) groups, \(self.duplicateCount, privacy: .public) extra copies, \(result.notCheckedCount, privacy: .public) not checked.")
+                Self.logger.info("Duplicate scan: \(result.groups.count, privacy: .public) groups, \(result.extraCopies.count, privacy: .public) extra copies, \(result.sharedItemGroups.count, privacy: .public) shared iCloud items, \(result.notCheckedCount, privacy: .public) not checked.")
             } catch is CancellationError {
                 guard run == self.run else { return }
                 state = .ready
@@ -166,7 +236,10 @@ final class DuplicateCleanup {
 
         let paths = Array(Set(records.values.joined())).sorted()
         let sizes = try recordedSizes(for: paths, in: destination, progress: progress)
-        return DuplicateFinder.findGroups(records: records, checksums: checksums, sizes: sizes, exportOrder: order)
+        return DuplicateFinder.findGroups(
+            records: records, checksums: checksums, sizes: sizes, exportOrder: order,
+            layout: ExportManifest.layout(in: destination)
+        )
     }
 
     /// The size of each recorded regular file, from one bulk listing per folder rather than one lookup per file. A path
@@ -214,17 +287,25 @@ final class DuplicateCleanup {
     func removeCopies() {
         guard canRemove, let destination = scannedDestination else { return }
         let included = includedGroups
+        let extras = includedExtraCopies
         let total = duplicateCount
+        let groupTotal = included.reduce(0) { $0 + $1.duplicates.count }
         let trash = trasher
         state = .removing(done: 0, total: total)
 
         task = Task {
             let result = await Task.detached(priority: .userInitiated) {
-                DuplicateFinder.remove(groups: included, in: destination, trasher: trash) { done, count in
+                var combined = DuplicateFinder.remove(groups: included, in: destination, trasher: trash) { done, count in
                     Task { @MainActor in
                         self.showRemovalProgress(done: done, total: count)
                     }
                 }
+                combined.add(DuplicateFinder.removeExtraCopies(extras, in: destination, trasher: trash) { done, _ in
+                    Task { @MainActor in
+                        self.showRemovalProgress(done: groupTotal + done, total: total)
+                    }
+                })
+                return combined
             }.value
 
             Self.logger.info("Duplicate removal: \(result.removedCopies, privacy: .public) copies moved to the Trash, \(result.skippedCopies, privacy: .public) skipped, \(result.failedCopies, privacy: .public) failed.")
@@ -239,9 +320,7 @@ final class DuplicateCleanup {
 
     private func finish(with result: DuplicateFinder.RemovalResult) {
         // The groups described copies that are gone now, so they're dropped with the result.
-        groups = []
-        excludedGroupIDs = []
-        scannedDestination = nil
+        clearResults()
         state = .finished(RemovalSummary(result: result))
         lastResult = ToolResult(
             date: .now,
