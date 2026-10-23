@@ -90,7 +90,7 @@ private struct ExportToolbar: ToolbarContent {
                     }
                 }
                 .help("Resumes on its own. Click to see why.")
-                .accessibilityLabel("Export waiting to resume. Show Backup.")
+                .accessibilityLabel("Export waiting to resume. Show Export Settings.")
             }
         }
 
