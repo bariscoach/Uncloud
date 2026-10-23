@@ -19,18 +19,19 @@ final class ExportModel {
     }
 
     /// The sidebar panes of the main window, declared in sidebar order. The sidebar and the View menu both read
-    /// `allCases`, so the order is defined once.
+    /// `allCases`, so the order is defined once. The order follows the steps: get photos out, check them, then free
+    /// up iCloud. Tools and Export Settings come after a break.
     /// - `export` is Cloud Library, the photo grid and the home pane.
-    /// - `backup` is Export Settings: export, progress, backup folder and its settings.
     /// - `browse` is Browse Backup.
-    /// - `tools` is Tools: Verify Backup, Find Duplicates and Free Up Space.
     /// - `cleanup` is Delete from iCloud.
+    /// - `tools` is Tools: Verify Backup, Find Duplicates and Free Up Space.
+    /// - `backup` is Export Settings: export, progress, backup folder and its settings.
     enum Pane: Hashable, CaseIterable {
         case export
-        case backup
         case browse
-        case tools
         case cleanup
+        case tools
+        case backup
 
         var title: String {
             switch self {
@@ -56,10 +57,10 @@ final class ExportModel {
         var shortcut: Character {
             switch self {
             case .export: "1"
-            case .backup: "2"
-            case .browse: "3"
+            case .browse: "2"
+            case .cleanup: "3"
             case .tools: "4"
-            case .cleanup: "5"
+            case .backup: "5"
             }
         }
     }

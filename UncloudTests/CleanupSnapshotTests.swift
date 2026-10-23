@@ -282,6 +282,64 @@ struct CleanupSnapshotTests {
         }
     }
 
+    /// The toolbar and the selection bar in the window, at the minimum width (760 pt) and at 1000 pt, with the sidebar
+    /// showing. Both modes, with and without a selection, light and dark. The window is titled with the unified toolbar,
+    /// as the app's main window is, so the toolbar draws. The Recently Deleted count is in the subtitle, not the segment.
+    @Test(.timeLimit(.minutes(3))) func rendersToolbarAndSelectionBarAtMinimumAndWideWidths() async throws {
+        let output = try #require(cleanupSnapshotDirectory)
+        try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+
+        try await withTemporaryDirectoryAsync { drive in
+            let browser = LibraryBrowser(source: .iCloud, backend: FakeBrowserBackend(count: 5_084))
+            browser.load()
+            try await Self.wait { browser.count != nil }
+            let recentlyDeleted = LibraryBrowser(source: .iCloud, backend: FakeBrowserBackend(count: 5_084))
+            recentlyDeleted.load()
+            try await Self.wait { recentlyDeleted.count != nil }
+
+            let (bridge, _) = try Self.fakeBridge(root: drive, options: ["--total", "60"])
+            defer { bridge.terminate() }
+            let cleanup = ICloudCleanup(
+                appleID: "fake@example.invalid",
+                bridge: bridge,
+                environment: ICloudCleanup.Environment(
+                    isExportRunning: { false },
+                    libraryCount: { browser.count },
+                    rankHints: { _ in [:] },
+                    libraryDidChange: { _ in },
+                    recentlyDeletedCount: { recentlyDeleted.count }
+                ),
+                batchSize: 2
+            )
+
+            for mode in [ICloudCleanup.Mode.library, .recentlyDeleted] {
+                cleanup.setMode(mode)
+                for hasSelection in [false, true] {
+                    cleanup.selection = hasSelection ? .only(["asset-0", "asset-3", "asset-4", "asset-7", "asset-8"]) : .only([])
+                    for width in [760.0, 1_000.0] {
+                        for scheme in [ColorScheme.light, .dark] {
+                            let view = NavigationSplitView {
+                                PaneSidebar(selection: .constant(.cleanup))
+                                    .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+                            } detail: {
+                                CleanupGridView(
+                                    cleanup: cleanup, library: browser, recentlyDeleted: recentlyDeleted, destination: drive, isExportRunning: false
+                                )
+                            }
+                            .environment(ExportModel())
+                            .environment(AccountModel.forTesting())
+                            let modeName = mode == .library ? "library" : "recently-deleted"
+                            let selectionName = hasSelection ? "selected" : "none"
+                            let name = "toolbar-\(modeName)-\(selectionName)-\(Int(width))-\(Self.name(scheme)).png"
+                            let image = try #require(await Self.renderTitledWindow(view, size: NSSize(width: width, height: 560), scheme: scheme))
+                            try Self.save(image, named: name, in: output)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     /// A fake bridge over `root`, with the options given; the same fake the Swift bridge tests use.
@@ -320,6 +378,35 @@ struct CleanupSnapshotTests {
         let png = try #require(bitmap.representation(using: .png, properties: [:]))
         Attachment.record(png, named: name)
         try? png.write(to: folder.appending(path: name))
+    }
+
+    /// Hosts the view in a titled window with the unified toolbar and a full-size content view, as the app's main window
+    /// is, and captures the whole window frame, title bar and traffic lights included.
+    private static func renderTitledWindow<V: View>(_ view: V, size: NSSize, scheme: ColorScheme) async -> NSImage? {
+        let controller = NSHostingController(rootView: view.environment(\.colorScheme, scheme))
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.toolbarStyle = .unified
+        window.contentViewController = controller
+        window.setContentSize(size)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<25 {
+            window.contentView?.layoutSubtreeIfNeeded()
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        defer { window.close() }
+        guard let frameView = window.contentView?.superview,
+              let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) else { return nil }
+        frameView.cacheDisplay(in: frameView.bounds, to: rep)
+        let image = NSImage(size: frameView.bounds.size)
+        image.addRepresentation(rep)
+        return image
     }
 
     /// Hosts the view in an offscreen window and captures it, as the other snapshot tests do.
