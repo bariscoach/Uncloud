@@ -43,6 +43,9 @@ Fake options:
   --trash-first N     without a --state file, the first N items start in Recently Deleted instead of the library
   --hidden N          the library's count is N larger than the items it lists: iCloud counts N items that no
                       listing or walk reaches, so they can never be downloaded
+  --insert-during-walk-at N  while a walk (not an ID download) is on its Nth item (counted from 0), --insert-count
+                      new items arrive at rank 0, as photos taken during a long walk do. Once per launch.
+  --delete-during-walk-at N  the same moment, the newest item is removed from the library instead. Once per launch.
 
 Speaks the bridge's JSON-lines protocol (page, count, albums, download, stats, cancel, pause, resume,
 ping) closely enough for the app: "ready" after signing in, downloads write DEST/YYYY/MM files through
@@ -91,7 +94,7 @@ def parse(argv):
             "state": None, "insert_at": None, "insert_count": 1, "delete_at": None, "throttle_after": None,
             "live_every": 0, "movie_fails_at": None, "same_name_every": 0,
             "delete_batch_delay": 0.0, "delete_throttle_after": None, "delete_fail_every": 0, "trash_first": 0,
-            "hidden": 0}
+            "hidden": 0, "insert_during_walk_at": None, "delete_during_walk_at": None}
     own = argv[:argv.index("--")] if "--" in argv else []
     index = 0
     while index < len(own):
@@ -140,6 +143,10 @@ def parse(argv):
             fake["delete_fail_every"] = int(own[index + 1]); index += 2
         elif flag == "--hidden":
             fake["hidden"] = int(own[index + 1]); index += 2
+        elif flag == "--insert-during-walk-at":
+            fake["insert_during_walk_at"] = int(own[index + 1]); index += 2
+        elif flag == "--delete-during-walk-at":
+            fake["delete_during_walk_at"] = int(own[index + 1]); index += 2
         else:
             index += 1
     return fake
@@ -288,6 +295,7 @@ class Bridge:
         self.downloaded = 0
         self.delete_batches = 0
         self.delete_attempts = 0
+        self.walk_changed = False
 
     def log(self, text):
         if self.fake["launch_log"]:
@@ -527,6 +535,11 @@ class Bridge:
         os.replace(part, path)
         return True
 
+    def insert_during_walk(self, count):
+        """Adds `count` new items at rank 0, numbered after the newest, as photos taken during a walk are."""
+        next_number = max([number for _, number in self.order + self.trash], default=-1) + 1
+        self.order[0:0] = [(f"asset-{next_number + k}", next_number + k) for k in range(count)]
+
     def end(self, request_id, reply):
         """Clears the download's cancel and pause marks, logs its end, and sends its final reply."""
         with self.channel.lock:
@@ -573,6 +586,12 @@ class Bridge:
         started = time.monotonic()
         done = 0
         for position, (rank, asset, number) in enumerate(chosen):
+            if not only and not self.walk_changed and position == self.fake["insert_during_walk_at"]:
+                self.walk_changed = True
+                self.insert_during_walk(self.fake["insert_count"])
+            if not only and not self.walk_changed and position == self.fake["delete_during_walk_at"]:
+                self.walk_changed = True
+                del self.order[0]
             if not self.fake["stuck"]:
                 self.channel.answer_pings()
                 if not self.hold(request_id):

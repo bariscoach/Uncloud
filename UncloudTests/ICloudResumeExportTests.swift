@@ -530,6 +530,59 @@ extension ExportCancellationTests {
         await harness.tearDown()
     }
 
+    @Test @MainActor func aWalkThatSeesAPhotoArriveAtTheTopStillCompletesAndDownloadsIt() async throws {
+        let fixture = try Fixture(bridge: ["--total", "1000", "--rate", "0", "--hidden", "298", "--insert-during-walk-at", "500"])
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        try await Self.keepingLibraryCount {
+            let session = try #require(await Self.export(harness))
+            #expect(session.result.status == .completed)
+            // The walk, then the top-up of the one photo that arrived at rank 0 while it ran.
+            #expect(Self.downloadStarts(fixture) == [
+                .init(startRank: 0, mode: "allExcept", layout: "month"),
+                .init(startRank: 0, mode: "only", layout: "month"),
+            ])
+            #expect(fixture.files(withExtension: "JPG").count == 1001)
+            #expect(ExportManifest.iCloudItems(in: fixture.destination).count == 1001)
+            #expect(ICloudLibrary.cachedLibraryCount == 1_299)
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
+            #expect(point.lastFullWalkAt != nil)
+            #expect(point.unlistedCount == 298)
+        }
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func aWalkThatSeesTooManyPhotosArriveAtTheTopKeepsTheOldBehaviour() async throws {
+        let fixture = try Fixture(bridge: ["--total", "1000", "--rate", "0", "--hidden", "298",
+                                           "--insert-during-walk-at", "500", "--insert-count", "3"])
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        // Growth of three photos is more than this limit, so the top-up gives up and nothing is claimed complete.
+        harness.model.iCloudResumeSettings = ICloudResumeSettings(quickMaxItems: 2)
+        try await Self.keepingLibraryCount {
+            let session = try #require(await Self.export(harness))
+            #expect(session.result.status == .completed)
+            #expect(Self.downloadStarts(fixture) == [.init(startRank: 0, mode: "allExcept", layout: "month")])
+            #expect(fixture.files(withExtension: "JPG").count == 1000)
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
+            #expect(point.lastFullWalkAt == nil)
+            #expect(point.unlistedCount == nil)
+        }
+        await harness.tearDown()
+    }
+
+    @Test @MainActor func aWalkThatSeesThePhotoCountFallDoesNotCompleteTheRecord() async throws {
+        let fixture = try Fixture(bridge: ["--total", "1000", "--rate", "0", "--hidden", "298", "--delete-during-walk-at", "500"])
+        let harness = ModelHarness(fixture: fixture, timing: Self.holdResumes)
+        try await Self.keepingLibraryCount {
+            let session = try #require(await Self.export(harness))
+            #expect(session.result.status == .completed)
+            #expect(Self.downloadStarts(fixture) == [.init(startRank: 0, mode: "allExcept", layout: "month")])
+            let point = try #require(ICloudResumePoint.load(in: fixture.destination, layout: .month))
+            #expect(point.lastFullWalkAt == nil)
+            #expect(point.unlistedCount == nil)
+        }
+        await harness.tearDown()
+    }
+
     @Test func everythingLeavesOutTheCountICloudNeverLists() throws {
         try withTemporaryDirectory { folder in
             let point = ICloudResumePoint(

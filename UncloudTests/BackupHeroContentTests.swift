@@ -229,3 +229,34 @@ struct BackupHeroContentTests {
         #expect(content.kind == .newPhotos)
     }
 }
+
+/// The progress card's counts and bar while iCloud's total is provisional: no total, and no fraction of it.
+@Suite("ProgressCounts")
+struct ProgressCountsTests {
+    private static func found(_ count: Int, atLeast: Bool = false) -> NewPhotosStatus {
+        NewPhotosStatus(count: count, isAtLeast: atLeast, since: Date(timeIntervalSince1970: 1_790_000_000))
+    }
+
+    @Test func aProvisionalTotalShowsOnlyWhatIsBackedUp() {
+        #expect(ProgressCounts.line(processed: 92_954, total: 93_253, provisional: true) == "92,954 photos backed up")
+        #expect(ProgressCounts.line(processed: 1, total: 1, provisional: true) == "1 photo backed up")
+    }
+
+    @Test func aMeasuredTotalKeepsTheOfLine() {
+        #expect(ProgressCounts.line(processed: 4_120, total: 9_800, provisional: false) == "4,120 of 9,800 photos")
+        #expect(ProgressCounts.line(processed: 0, total: 1, provisional: false) == "0 of 1 photo")
+    }
+
+    @Test func aProvisionalBarIsFullAndAMeasuredOneIsTheFraction() {
+        #expect(ProgressCounts.fraction(processed: 92_954, total: 93_253, provisional: true) == 1)
+        #expect(ProgressCounts.fraction(processed: 50, total: 200, provisional: false) == 0.25)
+        #expect(ProgressCounts.fraction(processed: 0, total: 0, provisional: false) == 0)
+    }
+
+    @Test func theBarIsGreenOnlyWhenNewPhotosFoundNothing() {
+        #expect(ProgressCounts.isNothingNew(Self.found(0)))
+        #expect(!ProgressCounts.isNothingNew(Self.found(1)))
+        #expect(!ProgressCounts.isNothingNew(Self.found(0, atLeast: true)))
+        #expect(!ProgressCounts.isNothingNew(nil))
+    }
+}

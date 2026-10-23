@@ -1451,6 +1451,13 @@ final class ExportModel {
         return source == .iCloud && hasMeasuredUnlisted ? toGo : nil
     }
 
+    /// iCloud's total is provisional until a complete walk has measured the items iCloud counts but never lists: until
+    /// then it can be more than the photos there are to back up. Outside a run, where the counts show no total. A run's
+    /// own totals are right, so they are never provisional.
+    var totalIsProvisional: Bool {
+        source == .iCloud && !hasMeasuredUnlisted && !isExporting && !isEngineRunning
+    }
+
     /// Whether the destination's resume point, for the current layout, has `unlistedCount`. Read with the progress
     /// (`refreshProgress`), never in a view body: the point lives on the backup drive.
     private(set) var hasMeasuredUnlisted = false

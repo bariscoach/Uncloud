@@ -21,7 +21,7 @@ struct ProgressCard: View {
                         .tint(tint)
                         .accessibilityLabel("Preparing export")
                 } else {
-                    ProgressView(value: model.fractionComplete)
+                    ProgressView(value: ProgressCounts.fraction(model: model))
                         .tint(tint)
                         .accessibilityLabel("Export progress")
                 }
@@ -103,9 +103,13 @@ struct ProgressCard: View {
         .padding(.vertical, Tokens.Space.xs)
     }
 
-    /// Accent while running, grey when paused, green when complete and orange when something failed.
+    /// Accent while running, grey when paused, green when complete and orange when something failed. While the total is
+    /// provisional, green only when New Photos found nothing, and neutral otherwise.
     private var tint: Color {
-        switch model.phase {
+        if model.totalIsProvisional {
+            return ProgressCounts.isNothingNew(model.newPhotosStatus) ? Color.green : Color.secondary
+        }
+        return switch model.phase {
         case .paused:
             .secondary
         case .completed where model.failedCount == 0:
@@ -117,9 +121,9 @@ struct ProgressCard: View {
         }
     }
 
-    /// "4,120 of 9,800 photos · About 2 hours left", on one line.
+    /// "4,120 of 9,800 photos · About 2 hours left", on one line; "4,120 photos backed up" while the total is provisional.
     private var countsLine: some View {
-        Text("\(model.processedCount.formatted()) of ^[\(model.totalCount) photo](inflect: true)")
+        Text(ProgressCounts.line(processed: model.processedCount, total: model.totalCount, provisional: model.totalIsProvisional))
             + Text(timeRemaining.map { " · \($0)" } ?? "")
     }
 
@@ -177,6 +181,33 @@ struct ProgressCard: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+/// The progress card's counts and bar as plain values, so they can be tested. While the total is provisional (iCloud
+/// before a complete walk has measured the items it counts but never lists, see `ExportModel.totalIsProvisional`), the
+/// total is left out and the bar is full, because a fraction of that total would be wrong.
+enum ProgressCounts {
+    static func line(processed: Int, total: Int, provisional: Bool) -> String {
+        provisional
+            ? "\(processed.formatted()) \(processed == 1 ? "photo" : "photos") backed up"
+            : "\(processed.formatted()) of \(Plural.photos(total))"
+    }
+
+    static func fraction(processed: Int, total: Int, provisional: Bool) -> Double {
+        if provisional { return 1 }
+        return total > 0 ? Double(processed) / Double(total) : 0
+    }
+
+    /// Whether New Photos found nothing (not even "at least" some), so a provisional bar may be green.
+    static func isNothingNew(_ status: NewPhotosStatus?) -> Bool {
+        guard let status else { return false }
+        return status.count == 0 && !status.isAtLeast
+    }
+
+    @MainActor
+    static func fraction(model: ExportModel) -> Double {
+        fraction(processed: model.processedCount, total: model.totalCount, provisional: model.totalIsProvisional)
     }
 }
 

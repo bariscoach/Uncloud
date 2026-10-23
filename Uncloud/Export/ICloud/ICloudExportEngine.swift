@@ -605,6 +605,8 @@ extension ICloudExportEngine {
             try await catalog.beginFullWalk(at: now)
         }
         var visitedEverything: Date?
+        /// The library's count the walk went through to the end of, once it has (see `completeWalk`).
+        var completedCount: Int?
         // The last complete walk's gap (see `ICloudResumePoint.unlistedCount`); kept until this run completes one.
         var unlistedCount = previous?.unlistedCount
         func savePoint() {
@@ -656,6 +658,45 @@ extension ICloudExportEngine {
             )
         }
 
+        /// Downloads the items that arrived at the top of a library that grew to `size` items during a walk: the
+        /// quick update's scan from the top, by ID. Inserted items move everything below them down, never past a
+        /// walk, so the walk has still gone through every item it was asked for. True when the top-up went through
+        /// with nothing failed; false when there are too many new items to call the walk complete (a full check
+        /// is needed then, as before).
+        func topUpNewItems(to size: Int) async throws -> Bool {
+            let plan = try await ICloudQuickUpdate.plan(
+                libraryCount: size, known: known.union(doneThisRun), settings: resumeSettings,
+                fetch: { offset, limit in try await bridge.page(offset: offset, limit: limit).map(\.id) }
+            )
+            guard case .only(let items) = plan else { return false }
+            let failuresBefore = failures
+            if !items.isEmpty {
+                try await download({ options(.only, items.keys.sorted(), items, 0, nil) }, bridge: bridge) { message, event in
+                    switch event {
+                    case .downloaded(let item), .skipped(let item):
+                        try finished(item, downloaded: { if case .downloaded = event { true } else { false } }())
+                    case .failed(let asset, _, let filename, let reason):
+                        try failed(message, asset: asset, filename: filename, reason: reason)
+                    default:
+                        break
+                    }
+                }
+            }
+            return failures == failuresBefore
+        }
+        /// Records a walk that went through the end of a library of `size` items as complete: when it grew since the
+        /// run began, the new items at the top are downloaded first. False when that can't be called complete. The
+        /// anchor moves to the item at the last rank when there is one (a library's unlisted items have no rank to list).
+        func completeWalk(at size: Int) async throws -> Bool {
+            if size > libraryCount {
+                guard try await topUpNewItems(to: size), (try? await bridge.count()) == size else { return false }
+            }
+            if let last = try? await bridge.page(offset: size - 1, limit: 1).first {
+                coverage.reachedEnd(anchor: .init(id: last.id, rank: size - 1), libraryCount: size)
+            }
+            return true
+        }
+
         do {
             // New items at the top, by ID with their current ranks.
             if !only.isEmpty {
@@ -700,12 +741,14 @@ extension ICloudExportEngine {
                 }
             }
             // The walk reached the end of the library: the last item is the anchor, even when it was already there.
-            // Not when the library's size changed during the walk: a removal above a page boundary can hide an
-            // item from it, so the end isn't recorded and the anchor stays where the walk last finished an item.
+            // Not when the library shrank during the walk: a removal above a page boundary can hide an item from
+            // it, so the end isn't recorded and the anchor stays where the walk last finished an item. Growth at the
+            // top is fine: the new items are downloaded first (see `completeWalk`).
             let endCount = (try? await bridge.count()) ?? -1
-            if !walkFailed, !coverage.isFrozen, endCount == libraryCount, endCount > 0,
-               let last = try? await bridge.page(offset: endCount - 1, limit: 1).first {
-                coverage.reachedEnd(anchor: .init(id: last.id, rank: endCount - 1), libraryCount: endCount)
+            if !walkFailed, !coverage.isFrozen, endCount >= libraryCount, endCount > 0 {
+                if try await completeWalk(at: endCount) {
+                    completedCount = endCount
+                }
             }
             savePoint()
 
@@ -728,16 +771,23 @@ extension ICloudExportEngine {
                     }
                 }
             }
-            // Every rank was visited in this run. Not when the library's size changed meanwhile: a walk can't be
-            // sure it saw every item of a library that changed under it (the next run goes through it again).
+            // Every rank was visited in this run. Not when the library's size changed since the walk completed: a walk
+            // can't be sure it saw every item of a library that changed under it (the next run goes through it again).
+            // Growth at the top during the closing walk is topped up the same way (see `completeWalk`).
             let finalCount = closingStop == nil ? endCount : ((try? await bridge.count()) ?? -1)
-            if finalCount == libraryCount && endCount == libraryCount {
+            if let walked = completedCount, finalCount != walked {
+                completedCount = nil
+                if finalCount > walked, try await completeWalk(at: finalCount) {
+                    completedCount = finalCount
+                }
+            }
+            if let walked = completedCount, walked == finalCount {
                 visitedEverything = now
                 // Every rank was visited since `now`: rows the walk didn't see are gone from the library (R12g).
                 let walkStart = now
                 let unlisted = unlistedCount
                 catalogWrites.enqueue { catalog in
-                    _ = try await catalog.completeFullWalk(startedAt: walkStart, libraryCount: libraryCount,
+                    _ = try await catalog.completeFullWalk(startedAt: walkStart, libraryCount: walked,
                                                            unlistedCount: unlisted)
                 }
             }
@@ -749,8 +799,8 @@ extension ICloudExportEngine {
         }
         await catalogWrites.drain()
         // A complete walk with nothing failed: the count beyond what the library lists is what can never be exported.
-        if visitedEverything != nil, failures == 0 {
-            unlistedCount = max(0, libraryCount - Self.knownItems(in: destination, layout: layout).count)
+        if visitedEverything != nil, let walked = completedCount, failures == 0 {
+            unlistedCount = max(0, walked - Self.knownItems(in: destination, layout: layout).count)
         }
         savePoint()
         try scanner.hash(pendingHashes)
