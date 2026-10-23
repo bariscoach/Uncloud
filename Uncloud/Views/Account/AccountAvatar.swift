@@ -5,6 +5,8 @@ import SwiftUI
 struct AccountAvatar: View {
     let summary: AccountSummary
     var size: CGFloat = 22
+    /// Overrides `summary.needsAttention` when set. The account row uses it to add the iCloud or Photos dot (plan §6.2).
+    var showsAttention: Bool? = nil
     @Environment(\.uncloudAccent) private var accent
 
     private var isPlus: Bool {
@@ -22,7 +24,7 @@ struct AccountAvatar: View {
                 .frame(width: size, height: size)
                 .overlay { content }
 
-            if summary.needsAttention {
+            if showsAttention ?? summary.needsAttention {
                 ZStack {
                     Circle()
                         .fill(Color(nsColor: .windowBackgroundColor))
