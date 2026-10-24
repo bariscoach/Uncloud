@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The first page a signed-out user sees: what Uncloud does, what Uncloud Plus adds, and the one way in (plan F.1).
+/// The first page a signed-out user sees: what Uncloud does, and the one way in (plan F.1).
 struct WelcomeView: View {
     @Environment(AccountModel.self) private var account
     @Environment(\.uncloudAccent) private var accent
@@ -18,7 +18,7 @@ struct WelcomeView: View {
                 }
                 features
                     .padding(.bottom, Tokens.Space.xxl)
-                Text(PlanCopy.welcomePlanLine)
+                Text("Create your free Uncloud account to start.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -61,26 +61,23 @@ struct WelcomeView: View {
         }
     }
 
-    /// Three rows: the free feature first, then the two Plus groups.
+    /// Three rows: what Uncloud does.
     private var features: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.l) {
             FeatureRow(
                 title: "Export",
                 symbol: "photo.on.rectangle.angled",
-                summary: "Full-quality originals from iCloud Photos or Photos on this Mac, to any drive.",
-                badge: "Free"
+                summary: "Full-quality originals from iCloud Photos or Photos on this Mac, to any drive."
             )
             FeatureRow(
                 title: "Stay Up to Date",
                 symbol: "clock.arrow.circlepath",
-                summary: "Automatic backups, and reminders when new photos are waiting.",
-                badge: "Plus"
+                summary: "Automatic backups, and reminders when new photos are waiting."
             )
             FeatureRow(
                 title: "Keep It Tidy",
                 symbol: "sparkles",
-                summary: "Browse your backup by date, place or map, and delete backed-up photos from iCloud.",
-                badge: "Plus"
+                summary: "Browse your backup by date, place or map, and delete backed-up photos from iCloud."
             )
         }
         .frame(maxWidth: 440)

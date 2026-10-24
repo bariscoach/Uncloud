@@ -1,5 +1,18 @@
 import Foundation
 
+/// Dates on the wire: ISO 8601 UTC. The server writes whole seconds; Supabase may add fractions.
+enum WireDate {
+    static func parse(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
+    }
+}
+
 extension URLSession {
     /// The session the account service uses: no cookies, no cache, 15 s timeouts, and no waiting for a connection.
     static let uncloud: URLSession = {
@@ -14,8 +27,8 @@ extension URLSession {
     }()
 }
 
-/// The real account backend. Sign-in goes straight to Supabase Auth over REST; the plan comes from the Vercel API,
-/// signed by the server and checked here before it is trusted (plan §6.2 and §6.4). Tokens are never logged.
+/// The real account backend. Sign-in goes straight to Supabase Auth over REST; the account is confirmed with the
+/// Vercel API (`/v1/me`), which the app reads for identity only. Tokens are never logged.
 actor LiveAccountService: AccountService {
     static let otpLifetime: TimeInterval = 10 * 60
     static let resendInterval: TimeInterval = 60
@@ -24,7 +37,6 @@ actor LiveAccountService: AccountService {
     private let apiBaseURL: URL
     private let supabaseURL: URL
     private let publishableKey: String
-    private let verifier: EntitlementVerifier
     private let session: URLSession
     private let now: @Sendable () -> Date
     private let userAgent: String
@@ -34,7 +46,6 @@ actor LiveAccountService: AccountService {
     /// Nil unless `configuration` is `live` with all its values, so the app can never reach the network by accident.
     init?(
         configuration: AccountConfiguration,
-        verifier: EntitlementVerifier,
         session: URLSession = .uncloud,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -45,7 +56,6 @@ actor LiveAccountService: AccountService {
         apiBaseURL = api
         supabaseURL = supabase
         publishableKey = key
-        self.verifier = verifier
         self.session = session
         self.now = now
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
@@ -84,21 +94,22 @@ actor LiveAccountService: AccountService {
         let body = try decodeSupabase(SupabaseSession.self, reply.data)
         guard let user = body.user else { throw AccountError.server(message: nil) }
         let tokens = accountTokens(from: body)
-        let (account, plan) = await signedInPlan(tokens: tokens)
-        let createdAt = user.createdAt.flatMap(WireDate.parse)
-        var signedIn = account ?? UncloudAccount(id: user.id, email: user.email ?? challenge.email)
-        signedIn.createdAt = createdAt
+        // A failed confirmation must not block the sign-in: the Supabase user is enough to sign in.
+        let confirmed = try? await currentAccount(tokens: tokens)
+        var signedIn = confirmed ?? UncloudAccount(id: user.id, email: user.email ?? challenge.email)
+        signedIn.createdAt = user.createdAt.flatMap(WireDate.parse)
         return AuthSession(
             account: signedIn,
             tokens: tokens,
-            entitlement: plan,
             isNewAccount: Self.isNewAccount(user)
         )
     }
 
-    func currentEntitlement(tokens: AccountTokens) async throws -> Entitlement {
-        let (_, plan) = try await fetchPlan(tokens: tokens)
-        return plan
+    func currentAccount(tokens: AccountTokens) async throws -> UncloudAccount {
+        let reply = try await send("GET", try endpoint(apiBaseURL, "/v1/me"), bearer: tokens.accessToken, supabase: false)
+        guard reply.isSuccess else { throw apiError(reply) }
+        let body = try decode(MeBody.self, reply.data)
+        return UncloudAccount(id: body.account.id, email: body.account.email)
     }
 
     func refresh(tokens: AccountTokens) async throws -> AccountTokens {
@@ -115,69 +126,9 @@ actor LiveAccountService: AccountService {
         _ = try? await send("POST", url, bearer: tokens.accessToken, supabase: true)
     }
 
-    func checkoutURL(tokens: AccountTokens, renewal: Renewal) async throws -> URL {
-        let body = try decode(URLBody.self, try await apiPost("/v1/checkout", ["renewal": renewal.rawValue], tokens: tokens).data)
-        return try stripeURL(body.url, host: "checkout.stripe.com")
-    }
-
-    func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL {
-        let body = try decode(URLBody.self, try await apiPost("/v1/portal", [:], tokens: tokens).data)
-        return try stripeURL(body.url, host: "billing.stripe.com")
-    }
-
     func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws {
-        // 204 on success. The server stops the plan first, then deletes the user (plan §4.2).
+        // 204 on success. The server deletes the Supabase user and its rows (plan §4.2).
         _ = try await apiPost("/v1/account/delete", ["confirmEmail": confirmEmail], tokens: tokens)
-    }
-
-    func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement {
-        let reply = try await apiPost("/v1/subscription/renewal", ["autoRenew": autoRenew], tokens: tokens)
-        let body = try decode(RenewalBody.self, reply.data)
-        // The signature covers the account id, which is the access token's subject.
-        guard let accountID = Self.subject(ofAccessToken: tokens.accessToken) else { throw AccountError.server(message: nil) }
-        return try verified(body.entitlement, accountID: accountID)
-    }
-
-    // MARK: - Plan
-
-    /// The account and its verified plan. Used right after sign-in, where a failed plan check must not block the sign-in.
-    private func signedInPlan(tokens: AccountTokens) async -> (UncloudAccount?, Entitlement) {
-        // Offline or a server problem: the user is signed in on Free until the next check.
-        guard let result = try? await fetchPlan(tokens: tokens) else { return (nil, .free) }
-        return (result.0, result.1)
-    }
-
-    private func fetchPlan(tokens: AccountTokens) async throws -> (UncloudAccount, Entitlement) {
-        let reply = try await send("GET", try endpoint(apiBaseURL, "/v1/me"), bearer: tokens.accessToken, supabase: false)
-        guard reply.isSuccess else { throw apiError(reply) }
-        let body = try decode(MeBody.self, reply.data)
-        let plan = try verified(body.entitlement, accountID: body.account.id)
-        return (UncloudAccount(id: body.account.id, email: body.account.email), plan)
-    }
-
-    /// Decodes a server entitlement and rejects it unless its signature verifies (plan §6.4).
-    private func verified(_ body: EntitlementBody, accountID: String) throws -> Entitlement {
-        guard let plan = Plan(rawValue: body.plan), let status = Entitlement.Status(rawValue: body.status),
-              let checkedAt = WireDate.parse(body.checkedAt) else {
-            throw AccountError.server(message: nil)
-        }
-        var periodEnd: Date?
-        if let text = body.currentPeriodEnd {
-            guard let date = WireDate.parse(text) else { throw AccountError.server(message: nil) }
-            periodEnd = date
-        }
-        let entitlement = Entitlement(
-            plan: plan,
-            status: status,
-            currentPeriodEnd: periodEnd,
-            cancelAtPeriodEnd: body.cancelAtPeriodEnd,
-            checkedAt: checkedAt,
-            signature: body.signature
-        )
-        guard verifier.isValid(entitlement, accountID: accountID) else {
-            throw AccountError.server(message: "Unverified plan")
-        }
-        return entitlement
     }
 
     // MARK: - Error mapping (plan §6.2 and §4.4)
@@ -225,12 +176,6 @@ actor LiveAccountService: AccountService {
         switch body?.code {
         case "unauthorized":
             return .signedOut
-        case "already_subscribed":
-            return .alreadySubscribed
-        case "no_subscription":
-            return .noSubscription
-        case "checkout_unavailable":
-            return .checkoutUnavailable
         case "rate_limited":
             return .rateLimited(retryAfter: retryAfter(reply))
         case "confirmation_mismatch":
@@ -239,7 +184,6 @@ actor LiveAccountService: AccountService {
             switch reply.status {
             case 401: return .signedOut
             case 429: return .rateLimited(retryAfter: retryAfter(reply))
-            case 503: return .checkoutUnavailable
             default: return .server(message: body?.message)
             }
         }
@@ -320,13 +264,6 @@ actor LiveAccountService: AccountService {
         return url
     }
 
-    private func stripeURL(_ text: String, host: String) throws -> URL {
-        guard let url = URL(string: text), url.scheme == "https", url.host == host else {
-            throw AccountError.server(message: nil)
-        }
-        return url
-    }
-
     // MARK: - Decoding
 
     private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
@@ -368,24 +305,6 @@ actor LiveAccountService: AccountService {
         return abs(confirmed.timeIntervalSince(signedIn)) < 60
     }
 
-    /// The `sub` claim of the access token. Not trusted on its own: the entitlement signature must still verify.
-    static func subject(ofAccessToken token: String) -> String? {
-        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 3 else { return nil }
-        var base64 = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        while base64.count % 4 != 0 {
-            base64 += "="
-        }
-        guard let data = Data(base64Encoded: base64), let claims = try? JSONDecoder().decode(Claims.self, from: data) else {
-            return nil
-        }
-        return claims.sub
-    }
-
-    private struct Claims: Decodable {
-        let sub: String
-    }
-
     // MARK: - Wire types
 
     private struct SupabaseSession: Decodable {
@@ -418,30 +337,13 @@ actor LiveAccountService: AccountService {
         let error: Body
     }
 
+    /// `/v1/me`. Only the identity is read; any other fields the server sends are ignored.
     private struct MeBody: Decodable {
         let account: AccountBody
-        let entitlement: EntitlementBody
     }
 
     private struct AccountBody: Decodable {
         let id: String
         let email: String
-    }
-
-    private struct EntitlementBody: Decodable {
-        let plan: String
-        let status: String
-        let currentPeriodEnd: String?
-        let cancelAtPeriodEnd: Bool
-        let checkedAt: String
-        let signature: String?
-    }
-
-    private struct RenewalBody: Decodable {
-        let entitlement: EntitlementBody
-    }
-
-    private struct URLBody: Decodable {
-        let url: String
     }
 }

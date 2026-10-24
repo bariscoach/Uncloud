@@ -19,7 +19,7 @@ struct RootView: View {
                             Task { await account.signOut() }
                         }
                     } message: {
-                        Text("Your photos and backup aren’t changed. Sign in again to use Uncloud Plus.")
+                        Text("Your photos and backup aren’t changed. Sign in again to use Uncloud.")
                     }
             case .restoring:
                 Color(nsColor: .windowBackgroundColor)
@@ -31,8 +31,8 @@ struct RootView: View {
         .frame(minWidth: 760, minHeight: 500)
         .animation(Tokens.Motion.animation(reduceMotion), value: account.phase)
         .task {
-            // Checks the plan at launch, at most once a day.
-            await account.refreshEntitlement(force: false)
+            // Confirms the account at launch, at most once a day.
+            await account.refreshAccount(force: false)
         }
         .onChange(of: account.phase) { _, phase in
             // A new account gets one line of announcement, since there is no separate welcome screen (plan B.1).

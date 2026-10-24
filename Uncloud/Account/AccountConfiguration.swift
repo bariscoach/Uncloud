@@ -3,9 +3,9 @@ import os
 
 /// Which account features a build has. Each build sets it in Info.plist as `UncloudAccountMode` (plan A.6).
 enum AccountMode: String, Equatable, Sendable {
-    /// No accounts, no locks: the app is exactly the free build.
+    /// No accounts: the app works without signing in.
     case off
-    /// Fake accounts and a fake plan. Debug builds only.
+    /// Fake accounts. Debug builds only.
     case preview
     /// The real server (`LiveAccountService`). Needs every live value below, or it resolves to `off`.
     case live
@@ -19,8 +19,6 @@ struct AccountConfiguration: Equatable, Sendable {
     let supabaseURL: URL?
     /// The Supabase publishable key (`UncloudSupabasePublishableKey`). Public by design. Set for `live` only.
     let supabasePublishableKey: String?
-    /// The public half of the entitlement signing key, base64 of 32 raw bytes (`UncloudEntitlementPublicKey`).
-    let entitlementPublicKey: String?
 
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Uncloud", category: "account")
 
@@ -51,30 +49,27 @@ struct AccountConfiguration: Equatable, Sendable {
             isDebug: isDebug,
             baseURL: baseURL,
             supabaseURL: info?["UncloudSupabaseURL"] as? String,
-            supabasePublishableKey: info?["UncloudSupabasePublishableKey"] as? String,
-            entitlementPublicKey: info?["UncloudEntitlementPublicKey"] as? String
+            supabasePublishableKey: info?["UncloudSupabasePublishableKey"] as? String
         )
     }
 
-    /// The effective configuration for a build. Anything that could ship a fake plan, or lock people out by mistake,
-    /// becomes `off`. A half-filled `live` configuration is `off` too, never a lockout.
+    /// The effective configuration for a build. Anything that could ship fake accounts becomes `off`.
+    /// A half-filled `live` configuration is `off` too.
     static func resolve(
         mode raw: String?,
         isDebug: Bool,
         baseURL: String?,
         supabaseURL: String?,
-        supabasePublishableKey: String?,
-        entitlementPublicKey: String?
+        supabasePublishableKey: String?
     ) -> AccountConfiguration {
         switch raw.flatMap(AccountMode.init(rawValue:)) ?? .off {
         case .off:
             return off
         case .preview:
-            return isDebug ? AccountConfiguration(mode: .preview, apiBaseURL: nil, supabaseURL: nil, supabasePublishableKey: nil, entitlementPublicKey: nil) : off
+            return isDebug ? AccountConfiguration(mode: .preview, apiBaseURL: nil, supabaseURL: nil, supabasePublishableKey: nil) : off
         case .live:
             guard let api = httpsURL(baseURL), let supabase = httpsURL(supabaseURL),
-                  let key = nonEmpty(supabasePublishableKey), let publicKey = nonEmpty(entitlementPublicKey),
-                  Data(base64Encoded: publicKey)?.count == 32 else {
+                  let key = nonEmpty(supabasePublishableKey) else {
                 logger.error("UncloudAccountMode is live but the account configuration is incomplete. Accounts are off.")
                 return off
             }
@@ -82,13 +77,12 @@ struct AccountConfiguration: Equatable, Sendable {
                 mode: .live,
                 apiBaseURL: api,
                 supabaseURL: supabase,
-                supabasePublishableKey: key,
-                entitlementPublicKey: publicKey
+                supabasePublishableKey: key
             )
         }
     }
 
-    private static let off = AccountConfiguration(mode: .off, apiBaseURL: nil, supabaseURL: nil, supabasePublishableKey: nil, entitlementPublicKey: nil)
+    private static let off = AccountConfiguration(mode: .off, apiBaseURL: nil, supabaseURL: nil, supabasePublishableKey: nil)
 
     private static func nonEmpty(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }

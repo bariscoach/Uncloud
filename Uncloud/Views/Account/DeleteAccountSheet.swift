@@ -5,20 +5,14 @@ import SwiftUI
 /// last error before it opens the sheet.
 struct DeleteAccountSheet: View {
     let email: String
-    /// A paid plan is running, so the sheet says it stops now and isn't refunded.
-    let isPaid: Bool
-    /// A plan has existed, so Stripe keeps receipts and the saved card is removed.
-    let hadPlan: Bool
     let isExporting: Bool
     @Environment(AccountModel.self) private var account
     @Environment(\.dismiss) private var dismiss
     @State private var typed: String
 
     /// `initialConfirmation` is for previews and snapshots only; the sheet opens empty.
-    init(email: String, isPaid: Bool, hadPlan: Bool, isExporting: Bool, initialConfirmation: String = "") {
+    init(email: String, isExporting: Bool, initialConfirmation: String = "") {
         self.email = email
-        self.isPaid = isPaid
-        self.hadPlan = hadPlan
         self.isExporting = isExporting
         _typed = State(initialValue: initialConfirmation)
     }
@@ -55,13 +49,7 @@ struct DeleteAccountSheet: View {
             }
 
             VStack(alignment: .leading, spacing: Tokens.Space.s) {
-                if isPaid {
-                    bullet("Uncloud Plus stops now and won’t renew. Time left on your plan isn’t refunded.")
-                }
                 bullet("Your photos, your backup folder and iCloud Photos aren’t changed.")
-                if hadPlan {
-                    bullet("Stripe keeps your receipts, as tax rules require. Your saved card is removed.")
-                }
             }
             .font(.callout)
 

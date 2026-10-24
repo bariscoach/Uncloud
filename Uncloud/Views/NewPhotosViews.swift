@@ -30,55 +30,21 @@ extension ExportModel {
 /// Settings › Backups: the new-photo reminder and how often it can appear.
 struct NewPhotosReminderSection: View {
     @Bindable var reminder: NewPhotosReminderSettings
-    /// False without Uncloud Plus: the reminder is shown off and locked. The count itself stays free.
-    var isAllowed = true
-    var onGetPlus: () -> Void = {}
 
     var body: some View {
         Section("New Photo Reminders") {
-            Toggle("Remind me about new photos", isOn: Binding(
-                get: { isAllowed && reminder.isEnabled },
-                set: { value in
-                    guard isAllowed else { return }
-                    reminder.isEnabled = value
-                }
-            ))
-            .disabled(!isAllowed)
-            .help("Checks every 6 hours while Uncloud is running")
-            .accessibilityHint("Checks every 6 hours while Uncloud is running")
+            Toggle("Remind me about new photos", isOn: $reminder.isEnabled)
+                .help("Checks every 6 hours while Uncloud is running")
+                .accessibilityHint("Checks every 6 hours while Uncloud is running")
             Picker("How often", selection: $reminder.frequency) {
                 ForEach(NewPhotosReminderFrequency.allCases, id: \.self) { frequency in
                     Text(frequency.title).tag(frequency)
                 }
             }
-            .disabled(!reminder.isEnabled || !isAllowed)
+            .disabled(!reminder.isEnabled)
             Text("Get a notification when there are new photos and your backup drive isn’t connected.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if !isAllowed {
-                LockedSettingRow(text: "New photo reminders are part of Uncloud Plus.", action: onGetPlus)
-            }
-        }
-    }
-}
-
-/// The line under a locked Settings control: a lock, one sentence, and the way to Uncloud Plus.
-struct LockedSettingRow: View {
-    let text: String
-    let action: () -> Void
-
-    var body: some View {
-        HStack(spacing: Tokens.Space.s) {
-            Image(systemName: "lock.fill")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: Tokens.Space.s)
-            Button("Get Uncloud Plus…", action: action)
-                .buttonStyle(.link)
-                .font(.caption)
         }
     }
 }

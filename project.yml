@@ -20,15 +20,10 @@ targets:
         # Versions come from the build settings, as they did before the Info.plist moved here.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        # The uncloud:// scheme returns from Stripe Checkout and the customer portal (AccountURL).
-        CFBundleURLTypes:
-          - CFBundleURLName: com.example.Uncloud.account
-            CFBundleURLSchemes: [uncloud]
         UncloudAccountMode: $(UNCLOUD_ACCOUNT_MODE)
         UncloudAPIBaseURL: $(UNCLOUD_API_BASE_URL)
         UncloudSupabaseURL: $(UNCLOUD_SUPABASE_URL)
         UncloudSupabasePublishableKey: $(UNCLOUD_SUPABASE_PUBLISHABLE_KEY)
-        UncloudEntitlementPublicKey: $(UNCLOUD_ENTITLEMENT_PUBLIC_KEY)
     sources: &appSources
       - path: Uncloud
         excludes:
@@ -51,10 +46,9 @@ targets:
         # The account server (Vercel) and Supabase project. Public values; only `live` reads them.
         UNCLOUD_API_BASE_URL: "https://uncloud-api.vercel.app"
         UNCLOUD_SUPABASE_URL: "https://nkcbuwuuatsbskqcqosc.supabase.co"
-        # Empty until the orchestrator fills them in (publishable key from Supabase; base64 of the 32-byte public
-        # half of ENTITLEMENT_SIGNING_KEY). While empty, `live` resolves to `off`, so nothing half-configured ships.
+        # Empty until the orchestrator fills it in (the Supabase publishable key). While empty, `live` resolves to `off`,
+        # so nothing half-configured ships.
         UNCLOUD_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_XIZXliAMljBaJUlJcb14FA_-sc_NF6B"
-        UNCLOUD_ENTITLEMENT_PUBLIC_KEY: "qwGj6tPobumIR5fSh4CXbICwpAgc/KeFeDkiZ/O5zhE="
       configs:
         Debug:
           # Debug runs `preview`. Launch with `-UncloudAccountMode live` (scheme argument) to use the test backend.
@@ -106,7 +100,6 @@ targets:
   UncloudTestHost:
     type: application
     platform: macOS
-    # No CFBundleURLTypes here: a test build must not register uncloud:// and take the scheme from the real app.
     info:
       path: Uncloud/App/TestHost-Info.plist
       properties:

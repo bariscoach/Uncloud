@@ -16,25 +16,12 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.example.Uncloud.account</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>uncloud</string>
-			</array>
-		</dict>
-	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>UncloudAPIBaseURL</key>
 	<string>$(UNCLOUD_API_BASE_URL)</string>
 	<key>UncloudAccountMode</key>
 	<string>$(UNCLOUD_ACCOUNT_MODE)</string>
-	<key>UncloudEntitlementPublicKey</key>
-	<string>$(UNCLOUD_ENTITLEMENT_PUBLIC_KEY)</string>
 	<key>UncloudSupabasePublishableKey</key>
 	<string>$(UNCLOUD_SUPABASE_PUBLISHABLE_KEY)</string>
 	<key>UncloudSupabaseURL</key>

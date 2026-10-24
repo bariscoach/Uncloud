@@ -4,7 +4,7 @@ import Testing
 
 @Suite("LiveAccountService", .serialized)
 struct LiveAccountServiceTests {
-    static let vector = EntitlementVector.load()
+    static let accountID = "11111111-2222-3333-4444-555555555555"
     static let now = WireDate.parse("2026-10-18T09:41:10Z")!
     static let clock: @Sendable () -> Date = { now }
 
@@ -16,15 +16,9 @@ struct LiveAccountServiceTests {
             isDebug: false,
             baseURL: "https://api.test.example",
             supabaseURL: "https://supabase.test.example",
-            supabasePublishableKey: "sb_publishable_test",
-            entitlementPublicKey: vector.publicKey
+            supabasePublishableKey: "sb_publishable_test"
         )
-        return LiveAccountService(
-            configuration: configuration,
-            verifier: EntitlementVerifier(base64PublicKey: vector.publicKey),
-            session: session,
-            now: clock
-        )!
+        return LiveAccountService(configuration: configuration, session: session, now: clock)!
     }
 
     /// An access token with a `sub` claim. The signature part is not checked by the app.
@@ -38,19 +32,17 @@ struct LiveAccountServiceTests {
     }
 
     static let tokens = AccountTokens(
-        accessToken: jwt(sub: vector.accountId),
+        accessToken: jwt(sub: accountID),
         refreshToken: "refresh-old",
         accessExpiresAt: now.addingTimeInterval(3600)
     )
 
-    /// `/v1/me` for the vector's account, signed.
-    static var meJSON: String {
-        """
-        {"account":{"id":"\(vector.accountId)","email":"name@example.com"},
-         "entitlement":{"plan":"plus","status":"active","currentPeriodEnd":"\(vector.currentPeriodEnd)",
-         "cancelAtPeriodEnd":false,"checkedAt":"\(vector.checkedAt)","signature":"\(vector.signature)"}}
-        """
-    }
+    /// `/v1/me` for the test account. The plan fields an older server sent are still here, and the app must ignore them.
+    static let meJSON = """
+    {"account":{"id":"\(accountID)","email":"name@example.com"},
+     "entitlement":{"plan":"plus","status":"active","currentPeriodEnd":"2027-10-18T09:41:10Z",
+     "cancelAtPeriodEnd":false,"checkedAt":"2026-10-18T09:41:10Z","signature":"c2ln"}}
+    """
 
     static func sessionJSON(newAccount: Bool, expiresAt: Double? = nil) -> String {
         let signedIn = "2026-10-18T09:41:10Z"
@@ -58,7 +50,7 @@ struct LiveAccountServiceTests {
         return """
         {"access_token":"access-new","refresh_token":"refresh-new","token_type":"bearer","expires_in":3600,
          "expires_at":\(expiresAt ?? now.timeIntervalSince1970 + 3600),
-         "user":{"id":"\(vector.accountId)","email":"name@example.com",
+         "user":{"id":"\(accountID)","email":"name@example.com",
          "email_confirmed_at":"\(confirmed)","last_sign_in_at":"\(signedIn)",
          "created_at":"\(newAccount ? confirmed : "2026-01-01T00:00:00Z")"}}
         """
@@ -111,7 +103,7 @@ struct LiveAccountServiceTests {
         }
     }
 
-    @Test("Verify signs in, reads the signed plan, and reports a new account")
+    @Test("Verify signs in, confirms the account with /v1/me, and reports a new account")
     func verifySignsIn() async throws {
         let service = Self.service { request in
             if request.path == "/auth/v1/verify" { return MockReply(json: Self.sessionJSON(newAccount: true)) }
@@ -120,10 +112,8 @@ struct LiveAccountServiceTests {
         }
         let session = try await service.verify(challenge: Self.challenge, code: "123456")
         #expect(session.isNewAccount)
-        #expect(session.account.id == Self.vector.accountId)
+        #expect(session.account.id == Self.accountID)
         #expect(session.account.email == "name@example.com")
-        #expect(session.entitlement.plan == .plus)
-        #expect(session.entitlement.signature == Self.vector.signature)
         #expect(session.tokens.accessToken == "access-new")
         #expect(session.tokens.refreshToken == "refresh-new")
         #expect(session.tokens.accessExpiresAt == Self.now.addingTimeInterval(3600))
@@ -145,15 +135,16 @@ struct LiveAccountServiceTests {
         #expect(session.isNewAccount == false)
     }
 
-    @Test("Sign-in still works offline, on the Free plan, with a check time that forces a refresh")
+    @Test("Sign-in still works offline, from the Supabase user, with no check time yet")
     func verifyOffline() async throws {
         let service = Self.service { request in
             if request.path == "/v1/me" { throw URLError(.notConnectedToInternet) }
             return MockReply(json: Self.sessionJSON(newAccount: false))
         }
         let session = try await service.verify(challenge: Self.challenge, code: "123456")
-        #expect(session.entitlement.plan == .free)
-        #expect(session.entitlement.checkedAt == .distantPast)
+        #expect(session.account.id == Self.accountID)
+        #expect(session.account.email == "name@example.com")
+        #expect(session.account.checkedAt == nil)
     }
 
     @Test("Wrong codes are wrongCode until the fifth, which ends the challenge")
@@ -187,12 +178,12 @@ struct LiveAccountServiceTests {
         }
     }
 
-    // MARK: - Plan and tokens
+    // MARK: - Account and tokens
 
-    @Test("The plan call never refreshes the tokens: it sends the given token to /v1/me and nothing else (L3)")
-    func currentEntitlementDoesNotRefresh() async throws {
+    @Test("The account call never refreshes the tokens: it sends the given token to /v1/me and nothing else (L3)")
+    func currentAccountDoesNotRefresh() async throws {
         let nearlyExpired = AccountTokens(
-            accessToken: Self.jwt(sub: Self.vector.accountId),
+            accessToken: Self.jwt(sub: Self.accountID),
             refreshToken: "refresh-old",
             accessExpiresAt: Self.now.addingTimeInterval(30)
         )
@@ -200,8 +191,9 @@ struct LiveAccountServiceTests {
             if request.path == "/v1/me" { return MockReply(json: Self.meJSON) }
             throw URLError(.badURL)
         }
-        let plan = try await service.currentEntitlement(tokens: nearlyExpired)
-        #expect(plan.plan == .plus)
+        let account = try await service.currentAccount(tokens: nearlyExpired)
+        #expect(account.id == Self.accountID)
+        #expect(account.email == "name@example.com")
         #expect(MockURLProtocol.requests.map(\.path) == ["/v1/me"])
     }
 
@@ -215,91 +207,24 @@ struct LiveAccountServiceTests {
         }
     }
 
-    @Test("An unsigned plan is rejected, not trusted")
-    func unsignedPlanRejected() async throws {
-        let unsigned = Self.meJSON.replacingOccurrences(of: #","signature":"\#(Self.vector.signature)""#, with: "")
-        let service = Self.service { _ in MockReply(json: unsigned) }
-        await #expect(throws: AccountError.server(message: "Unverified plan")) {
-            try await service.currentEntitlement(tokens: Self.tokens)
-        }
-    }
-
-    @Test("A plan changed after signing is rejected")
-    func tamperedPlanRejected() async throws {
-        let tampered = Self.meJSON.replacingOccurrences(of: #""status":"active""#, with: #""status":"pastDue""#)
-        let service = Self.service { _ in MockReply(json: tampered) }
-        await #expect(throws: AccountError.server(message: "Unverified plan")) {
-            try await service.currentEntitlement(tokens: Self.tokens)
-        }
-    }
-
     // MARK: - API
-
-    @Test("Checkout sends the renewal choice and accepts only a Stripe Checkout URL")
-    func checkoutURL() async throws {
-        let service = Self.service { _ in MockReply(json: #"{"url":"https://checkout.stripe.com/c/pay/cs_test_abc123"}"#) }
-        let url = try await service.checkoutURL(tokens: Self.tokens, renewal: .oneYear)
-        #expect(url.absoluteString == "https://checkout.stripe.com/c/pay/cs_test_abc123")
-        let request = try #require(MockURLProtocol.requests.first)
-        #expect(request.url.absoluteString == "https://api.test.example/v1/checkout")
-        #expect(request.headers["Authorization"] == "Bearer \(Self.tokens.accessToken)")
-        #expect(request.json?["renewal"] as? String == "oneYear")
-    }
-
-    @Test("A checkout URL on another host is refused")
-    func checkoutURLHost() async throws {
-        let service = Self.service { _ in MockReply(json: #"{"url":"https://evil.example/pay"}"#) }
-        await #expect(throws: AccountError.server(message: nil)) {
-            try await service.checkoutURL(tokens: Self.tokens, renewal: .automatic)
-        }
-    }
 
     @Test("API error codes map to their account errors")
     func apiErrorCodes() async throws {
         let service = Self.service { request in
             switch request.path {
-            case "/v1/checkout":
-                return MockReply(status: 409, json: #"{"error":{"code":"already_subscribed","message":"x"}}"#)
-            case "/v1/portal":
-                return MockReply(status: 409, json: #"{"error":{"code":"no_subscription","message":"x"}}"#)
-            case "/v1/subscription/renewal":
-                return MockReply(status: 503, json: #"{"error":{"code":"checkout_unavailable","message":"x"}}"#)
+            case "/v1/account/delete":
+                return MockReply(status: 503, json: #"{"error":{"code":"maintenance","message":"x"}}"#)
             default:
                 return MockReply(status: 401, json: #"{"error":{"code":"unauthorized","message":"x"}}"#)
             }
         }
-        await #expect(throws: AccountError.alreadySubscribed) {
-            try await service.checkoutURL(tokens: Self.tokens, renewal: .automatic)
+        await #expect(throws: AccountError.signedOut) {
+            try await service.currentAccount(tokens: Self.tokens)
         }
-        await #expect(throws: AccountError.noSubscription) {
-            try await service.manageSubscriptionURL(tokens: Self.tokens)
+        await #expect(throws: AccountError.server(message: "x")) {
+            try await service.deleteAccount(confirmEmail: "name@example.com", tokens: Self.tokens)
         }
-        await #expect(throws: AccountError.checkoutUnavailable) {
-            try await service.setAutoRenew(false, tokens: Self.tokens)
-        }
-    }
-
-    @Test("Manage subscription opens a Stripe billing portal URL")
-    func manageSubscription() async throws {
-        let service = Self.service { _ in MockReply(json: #"{"url":"https://billing.stripe.com/p/session/test_1"}"#) }
-        let url = try await service.manageSubscriptionURL(tokens: Self.tokens)
-        #expect(url.host == "billing.stripe.com")
-        let request = try #require(MockURLProtocol.requests.first)
-        #expect(request.path == "/v1/portal")
-        #expect(request.json?.isEmpty == true)
-    }
-
-    @Test("Setting renewal returns the signed plan for the access token's account")
-    func setAutoRenew() async throws {
-        let service = Self.service { _ in
-            MockReply(json: #"{"entitlement":{"plan":"plus","status":"active","currentPeriodEnd":"\#(Self.vector.currentPeriodEnd)","cancelAtPeriodEnd":false,"checkedAt":"\#(Self.vector.checkedAt)","signature":"\#(Self.vector.signature)"}}"#)
-        }
-        let plan = try await service.setAutoRenew(true, tokens: Self.tokens)
-        #expect(plan.cancelAtPeriodEnd == false)
-        #expect(plan.signature == Self.vector.signature)
-        let request = try #require(MockURLProtocol.requests.first)
-        #expect(request.path == "/v1/subscription/renewal")
-        #expect(request.json?["autoRenew"] as? Bool == true)
     }
 
     @Test("Sign-out revokes the local session at Supabase and never throws")
@@ -319,14 +244,14 @@ struct LiveAccountServiceTests {
         }
         let broken = Self.service { _ in MockReply(status: 500, json: "oops") }
         await #expect(throws: AccountError.server(message: nil)) {
-            try await broken.currentEntitlement(tokens: Self.tokens)
+            try await broken.currentAccount(tokens: Self.tokens)
         }
     }
 
     @Test("Without the live values there is no service, so the app can't reach the network")
     func noServiceWithoutConfiguration() {
-        let off = AccountConfiguration.resolve(mode: "live", isDebug: false, baseURL: "", supabaseURL: nil, supabasePublishableKey: "", entitlementPublicKey: "")
-        #expect(LiveAccountService(configuration: off, verifier: EntitlementVerifier(base64PublicKey: nil)) == nil)
+        let off = AccountConfiguration.resolve(mode: "live", isDebug: false, baseURL: "", supabaseURL: nil, supabasePublishableKey: "")
+        #expect(LiveAccountService(configuration: off) == nil)
     }
 
     @Test("deleteAccount posts the typed email with the bearer token and accepts 204")
@@ -388,6 +313,7 @@ struct LiveAccountServiceTests {
     func cachedAccountWithoutCreatedAt() throws {
         let account = try JSONDecoder().decode(UncloudAccount.self, from: Data(#"{"id":"u","email":"name@example.com"}"#.utf8))
         #expect(account.createdAt == nil)
+        #expect(account.checkedAt == nil)
         #expect(account.email == "name@example.com")
     }
 }

@@ -4,7 +4,6 @@ import SwiftUI
 /// The menu bar item's menu: backup status and the most-used actions.
 struct MenuBarContent: View {
     @Environment(ExportModel.self) private var model
-    @Environment(AccountModel.self) private var account
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -14,15 +13,6 @@ struct MenuBarContent: View {
         if let newPhotosText {
             Text(newPhotosText)
                 .disabled(true)
-        }
-
-        // Only a failed payment or a plan that couldn't be checked adds a line (plan §1.4).
-        if let line = AccountMenuItems.menuBarLine(summary: account.summary) {
-            Text(line.text)
-                .disabled(true)
-            Button(line.buttonTitle) {
-                performAccountAction(line.action)
-            }
         }
 
         Button(NewPhotosTitle.exportByDate) {
@@ -48,15 +38,6 @@ struct MenuBarContent: View {
             NSApp.terminate(nil)
         }
         .keyboardShortcut("q")
-    }
-
-    private func performAccountAction(_ action: AccountMenuAction) {
-        switch action {
-        case .checkAgain:
-            Task { await account.refreshEntitlement(force: true) }
-        default:
-            Task { await account.openManageSubscription() }
-        }
     }
 
     private var statusText: String {

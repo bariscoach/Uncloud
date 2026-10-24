@@ -4,10 +4,6 @@ import Foundation
 struct PreviewAccountRecord: Codable, Equatable, Sendable {
     let id: String
     let email: String
-    var plan: Plan
-    var status: Entitlement.Status
-    var currentPeriodEnd: Date?
-    var cancelAtPeriodEnd: Bool
     /// The current refresh token, or nil once signed out.
     var refreshToken: String?
     /// When the account was created. Optional so records saved before it existed still load.
@@ -36,15 +32,13 @@ struct PreviewAccountStore: @unchecked Sendable {
 /// The stub account backend for Debug builds and tests. Deterministic, no network.
 ///
 /// The code is always `123456`. Simulation emails show every error state without a server:
-/// `offline@example.com` (offline), `slow@example.com` (2 s per call), `limit@example.com` (rate limited),
-/// `plus@example.com` (a new account starts on Plus), `pastdue@example.com` (a new account starts past due).
+/// `offline@example.com` (offline), `slow@example.com` (2 s per call), `limit@example.com` (rate limited).
 actor PreviewAccountService: AccountService {
     static let code = "123456"
     static let maxAttempts = 5
     static let challengeLifetime: TimeInterval = 10 * 60
     static let resendInterval: TimeInterval = 30
     static let accessLifetime: TimeInterval = 60 * 60
-    private static let year: TimeInterval = 365 * 24 * 60 * 60
 
     private struct PendingChallenge {
         let email: String
@@ -114,16 +108,15 @@ actor PreviewAccountService: AccountService {
         return AuthSession(
             account: UncloudAccount(id: record.id, email: email, createdAt: record.createdAt),
             tokens: tokens,
-            entitlement: Self.entitlement(record, now: current),
             isNewAccount: isNewAccount
         )
     }
 
-    func currentEntitlement(tokens: AccountTokens) async throws -> Entitlement {
+    func currentAccount(tokens: AccountTokens) async throws -> UncloudAccount {
         let email = try email(matching: tokens)
         try await simulateDelay(for: email)
         guard let record = records[email] else { throw AccountError.signedOut }
-        return Self.entitlement(record, now: now())
+        return UncloudAccount(id: record.id, email: record.email, createdAt: record.createdAt)
     }
 
     func refresh(tokens: AccountTokens) async throws -> AccountTokens {
@@ -140,24 +133,6 @@ actor PreviewAccountService: AccountService {
         persist()
     }
 
-    func checkoutURL(tokens: AccountTokens, renewal: Renewal) async throws -> URL {
-        let email = try email(matching: tokens)
-        try await simulateDelay(for: email)
-        records[email]?.plan = .plus
-        records[email]?.status = .active
-        records[email]?.currentPeriodEnd = now().addingTimeInterval(Self.year)
-        // "One year" is the same subscription, set not to renew (plan §1).
-        records[email]?.cancelAtPeriodEnd = renewal == .oneYear
-        persist()
-        let sessionID = "preview_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        return URL(string: "uncloud://checkout/success?session_id=\(sessionID)")!
-    }
-
-    func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL {
-        _ = try email(matching: tokens)
-        return URL(string: "uncloud://account/refresh")!
-    }
-
     func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws {
         let email = try email(matching: tokens)
         guard let typed = EmailAddress.normalized(confirmEmail), typed == email else {
@@ -167,18 +142,6 @@ actor PreviewAccountService: AccountService {
         if email == "offline@example.com" { throw AccountError.offline }
         records[email] = nil
         persist()
-    }
-
-    func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement {
-        let email = try email(matching: tokens)
-        try await simulateDelay(for: email)
-        guard var record = records[email], record.plan == .plus, [.active, .pastDue].contains(record.status) else {
-            throw AccountError.noSubscription
-        }
-        record.cancelAtPeriodEnd = !autoRenew
-        records[email] = record
-        persist()
-        return Self.entitlement(record, now: now())
     }
 
     // MARK: - Helpers
@@ -210,39 +173,6 @@ actor PreviewAccountService: AccountService {
     }
 
     private static func newRecord(email: String, now: Date) -> PreviewAccountRecord {
-        var record = PreviewAccountRecord(
-            id: UUID().uuidString,
-            email: email,
-            plan: .free,
-            status: .none,
-            currentPeriodEnd: nil,
-            cancelAtPeriodEnd: false,
-            refreshToken: nil,
-            createdAt: now
-        )
-        switch email {
-        case "plus@example.com":
-            record.plan = .plus
-            record.status = .active
-            record.currentPeriodEnd = now.addingTimeInterval(year)
-        case "pastdue@example.com":
-            // The period ended a day ago and the renewal payment failed, so the grace period is running.
-            record.plan = .plus
-            record.status = .pastDue
-            record.currentPeriodEnd = now.addingTimeInterval(-24 * 60 * 60)
-        default:
-            break
-        }
-        return record
-    }
-
-    private static func entitlement(_ record: PreviewAccountRecord, now: Date) -> Entitlement {
-        Entitlement(
-            plan: record.plan,
-            status: record.status,
-            currentPeriodEnd: record.currentPeriodEnd,
-            cancelAtPeriodEnd: record.cancelAtPeriodEnd,
-            checkedAt: now
-        )
+        PreviewAccountRecord(id: UUID().uuidString, email: email, refreshToken: nil, createdAt: now)
     }
 }

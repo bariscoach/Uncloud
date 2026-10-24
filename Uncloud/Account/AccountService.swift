@@ -7,19 +7,13 @@ protocol AccountService: Sendable {
     func requestCode(email: String, intent: AuthIntent) async throws -> AuthChallenge
     /// Exchanges the code for a session. Creates the account if the email is new.
     func verify(challenge: AuthChallenge, code: String) async throws -> AuthSession
-    /// The plan of the signed-in account. Never refreshes the tokens itself: the model refreshes them first, through
-    /// its single-flight refresh, because refresh tokens are single use (L3).
-    func currentEntitlement(tokens: AccountTokens) async throws -> Entitlement
+    /// The signed-in account as the server reports it. Only the identity is read. Never refreshes the tokens itself:
+    /// the model refreshes them first, through its single-flight refresh, because refresh tokens are single use (L3).
+    func currentAccount(tokens: AccountTokens) async throws -> UncloudAccount
     /// Exchanges the refresh token for new tokens. The old refresh token stops working.
     func refresh(tokens: AccountTokens) async throws -> AccountTokens
     /// Revokes the refresh token on the server. Best effort: local sign-out happens whatever this does.
     func signOut(tokens: AccountTokens) async
-    /// A Stripe Checkout URL for Uncloud Plus. The app opens it in the browser.
-    func checkoutURL(tokens: AccountTokens, renewal: Renewal) async throws -> URL
-    /// A Stripe customer portal URL (manage, cancel, change card, invoices).
-    func manageSubscriptionURL(tokens: AccountTokens) async throws -> URL
-    /// Turns renewal on or off for an existing plan. Returns the plan as the server now reports it.
-    func setAutoRenew(_ autoRenew: Bool, tokens: AccountTokens) async throws -> Entitlement
     /// Deletes the Uncloud account. `confirmEmail` must match the account's email (case and spaces ignored).
     func deleteAccount(confirmEmail: String, tokens: AccountTokens) async throws
 }

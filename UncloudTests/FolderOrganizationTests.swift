@@ -20,15 +20,10 @@ struct FolderOrganizationTests {
     }
 
     @Test func automaticBackupStatusCoversEveryCombination() {
-        #expect(AutomaticBackupStatus.text(connects: true, daily: true, allowed: true) == "On: when the drive connects and daily")
-        #expect(AutomaticBackupStatus.text(connects: true, daily: false, allowed: true) == "On: when the drive connects")
-        #expect(AutomaticBackupStatus.text(connects: false, daily: true, allowed: true) == "On: once a day")
-        #expect(AutomaticBackupStatus.text(connects: false, daily: false, allowed: true) == "Off")
-    }
-
-    @Test func automaticBackupStatusIsPartOfPlusWhenLocked() {
-        #expect(AutomaticBackupStatus.text(connects: false, daily: false, allowed: false) == "Part of Uncloud Plus")
-        #expect(AutomaticBackupStatus.text(connects: true, daily: true, allowed: false) == "Part of Uncloud Plus")
+        #expect(AutomaticBackupStatus.text(connects: true, daily: true) == "On: when the drive connects and daily")
+        #expect(AutomaticBackupStatus.text(connects: true, daily: false) == "On: when the drive connects")
+        #expect(AutomaticBackupStatus.text(connects: false, daily: true) == "On: once a day")
+        #expect(AutomaticBackupStatus.text(connects: false, daily: false) == "Off")
     }
 }
 
