@@ -164,8 +164,6 @@ struct EntitlementGatingTests {
         // The export title is computed from the backup alone, so it is the same with the account locked out.
         #expect(NewPhotosTitle.offersNewOnly(isPaused: false, hasInterruptedRun: false, needsFolder: false,
                                              isEverything: true, hasNewPhotosStatus: false, backedUpCount: 9_207))
-        #expect(NewPhotosTitle.primary(isPaused: false, hasInterruptedRun: false, needsFolder: false, isEverything: true,
-                                       hasNewPhotosStatus: false, backedUpCount: 9_207,
-                                       fallback: "Export All Photos") == "Export Photos by Date…")
+        #expect(NewPhotosTitle.primary(needsFolder: false, fallback: "Export All Photos") == "Export All Photos")
     }
 }

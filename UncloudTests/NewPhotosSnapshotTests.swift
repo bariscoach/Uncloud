@@ -90,7 +90,8 @@ struct NewPhotosSnapshotTests {
     }
 
     /// The Export pane with a backup that has history but no New Photos watermark: the primary button reads
-    /// "Export Photos by Date…", the subtitle says "1,243 not backed up", and the Backup pane's hero says the same.
+    /// "Export All Photos", the By Date button sits beside it, the subtitle says "1,243 not backed up", and the Backup
+    /// pane's hero says the same.
     /// Renders the real main window in a titled window, so the toolbar and subtitle draw. Runs only with the env var.
     @Test func rendersExportPaneWithTheNewOnlyOffer() async throws {
         guard ProcessInfo.processInfo.environment["UNCLOUD_NEW_PHOTOS_SNAPSHOTS"] != nil else { return }
@@ -129,7 +130,8 @@ struct NewPhotosSnapshotTests {
         }
         model.pane = .export
         #expect(model.onDriveCount == 91_772)
-        #expect(model.primaryExportTitle(total: 93_015) == "Export Photos by Date…")
+        #expect(model.primaryExportTitle(total: 93_015) == "Export All Photos")
+        #expect(model.canOpenExportByDate)
         // No complete walk has measured iCloud's unlisted items yet, so the "not backed up" count isn't shown.
         #expect(model.trustedToGoCount == nil)
         #expect(model.notBackedUpSummary == nil)

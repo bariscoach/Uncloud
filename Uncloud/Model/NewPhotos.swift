@@ -166,14 +166,15 @@ enum NewPhotosCounter {
 }
 
 /// The primary button's title. `fallback` is the title the rest of the Library uses (for example, "Export All Photos").
+/// Export Photos by Date has its own control, so the primary button never carries it.
 enum NewPhotosTitle {
-    /// Opens the Export Photos by Date sheet. The ellipsis says it asks for a date range first.
+    /// The label of the Export Photos by Date control and menu item. The ellipsis says it asks for a date range first.
     static let exportByDate = "Export Photos by Date…"
     static let chooseFolder = "Choose Backup Folder…"
-    static let newOnlyHelp = "Choose a date range. Uncloud exports the photos taken in it that aren’t in your backup yet."
 
-    /// True when the primary action is presented as new photos only: everything is selected, a folder is chosen, no run
-    /// is paused or interrupted, and the folder already has backed-up photos (or a New Photos watermark exists).
+    /// True when the new-photos offer applies: everything is selected, a folder is chosen, no run is paused or
+    /// interrupted, and the folder already has backed-up photos (or a New Photos watermark exists). Drives the
+    /// "not backed up" subtitle, not the primary action.
     static func offersNewOnly(
         isPaused: Bool,
         hasInterruptedRun: Bool,
@@ -185,30 +186,9 @@ enum NewPhotosTitle {
         !isPaused && !hasInterruptedRun && !needsFolder && isEverything && (backedUpCount > 0 || hasNewPhotosStatus)
     }
 
-    /// No number: the sheet that opens counts the photos it will export, so the button never promises one it won't keep.
-    /// A first export keeps "Export All Photos".
-    ///
-    /// An interrupted or paused run keeps the fallback, which is the resume title, so resuming wins over new photos.
-    static func primary(
-        isPaused: Bool,
-        hasInterruptedRun: Bool,
-        needsFolder: Bool,
-        isEverything: Bool,
-        hasNewPhotosStatus: Bool,
-        backedUpCount: Int,
-        fallback: String
-    ) -> String {
-        if isPaused || hasInterruptedRun { return fallback }
-        if needsFolder { return chooseFolder }
-        guard offersNewOnly(
-            isPaused: isPaused,
-            hasInterruptedRun: hasInterruptedRun,
-            needsFolder: needsFolder,
-            isEverything: isEverything,
-            hasNewPhotosStatus: hasNewPhotosStatus,
-            backedUpCount: backedUpCount
-        ) else { return fallback }
-        return exportByDate
+    /// Without a folder the button chooses one; otherwise it keeps the fallback, which is the selection's or resume title.
+    static func primary(needsFolder: Bool, fallback: String) -> String {
+        needsFolder ? chooseFolder : fallback
     }
 }
 

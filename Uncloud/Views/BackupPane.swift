@@ -100,6 +100,7 @@ struct ExportSettingsPane: View {
             if model.authorization == .limited {
                 LimitedAccessNotice()
             }
+            exportByDateRow
         }
 
         Section {
@@ -153,6 +154,22 @@ struct ExportSettingsPane: View {
         // Activity is a disclosure row, collapsed by default, after the history.
         Section {
             ActivitySection(asRow: true)
+        }
+    }
+
+    /// Export Photos by Date is always here, whatever the hero's button is. Its dates are chosen in their own sheet.
+    private var exportByDateRow: some View {
+        LabeledContent {
+            Button("Choose Dates…") { model.openExportByDate() }
+                .fixedSize()
+                .disabled(!model.canOpenExportByDate)
+        } label: {
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                Text("Export Photos by Date")
+                Text("Pick a start and end date. Uncloud exports the photos taken in between and skips the ones already backed up.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

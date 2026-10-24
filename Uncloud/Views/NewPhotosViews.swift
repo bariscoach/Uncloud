@@ -21,11 +21,9 @@ extension ExportModel {
         return Text(status.isAtLeast ? "\(number)+" : number)
     }
 
-    /// Help and VoiceOver hint for the primary button: why it's disabled, else what it exports when that's only the
-    /// photos not yet backed up.
+    /// Help and VoiceOver hint for the primary button: why it's disabled, otherwise nothing.
     func primaryExportHelp(total: Int?) -> String? {
-        if let reason = primaryExportDisabledReason(total: total) { return reason }
-        return offersNewPhotosOnly ? NewPhotosTitle.newOnlyHelp : nil
+        primaryExportDisabledReason(total: total)
     }
 }
 
