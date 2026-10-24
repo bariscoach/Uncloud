@@ -20,8 +20,6 @@ struct PreviewAccountServiceTests {
         let session = try await Self.signIn(service, email: "New@Example.com")
         #expect(session.isNewAccount)
         #expect(session.account.email == "new@example.com")
-        #expect(session.entitlement.plan == .free)
-        #expect(session.entitlement.status == .none)
     }
 
     @Test("Five wrong codes end the challenge, and the right code no longer works")
@@ -78,19 +76,6 @@ struct PreviewAccountServiceTests {
         }
     }
 
-    @Test("Plus and past-due simulation emails start on those plans")
-    func simulatedPlans() async throws {
-        let service = Self.makeService(clock: TestClock())
-        let plus = try await Self.signIn(service, email: "plus@example.com")
-        #expect(plus.entitlement.plan == .plus)
-        #expect(plus.entitlement.status == .active)
-        #expect(plus.entitlement.currentPeriodEnd != nil)
-
-        let pastDue = try await Self.signIn(service, email: "pastdue@example.com")
-        #expect(pastDue.entitlement.plan == .plus)
-        #expect(pastDue.entitlement.status == .pastDue)
-    }
-
     @Test("Signing in again with the same email is not a new account")
     func returningAccount() async throws {
         let clock = TestClock()
@@ -98,24 +83,6 @@ struct PreviewAccountServiceTests {
         #expect(try await Self.signIn(service, email: "a@example.com").isNewAccount)
         clock.advance(by: PreviewAccountService.resendInterval)
         #expect(try await Self.signIn(service, email: "a@example.com").isNewAccount == false)
-    }
-
-    @Test("Checkout flips the plan to Plus for a year")
-    func checkoutMakesPlus() async throws {
-        let clock = TestClock()
-        let service = Self.makeService(clock: clock)
-        let session = try await Self.signIn(service, email: "a@example.com")
-
-        let url = try await service.checkoutURL(tokens: session.tokens, renewal: .automatic)
-        #expect(url.scheme == "uncloud")
-        #expect(url.host == "checkout")
-        #expect(url.path == "/success")
-        #expect(url.query?.hasPrefix("session_id=preview_") == true)
-
-        let entitlement = try await service.currentEntitlement(tokens: session.tokens)
-        #expect(entitlement.plan == .plus)
-        #expect(entitlement.status == .active)
-        #expect(entitlement.currentPeriodEnd == clock.now.addingTimeInterval(365 * 24 * 60 * 60))
     }
 
     @Test("Refresh rotates the refresh token, and the old one is then signed out")
@@ -129,13 +96,13 @@ struct PreviewAccountServiceTests {
         }
     }
 
-    @Test("currentEntitlement never renews the tokens itself: the model does that, once, for every caller (L3)")
+    @Test("currentAccount never renews the tokens itself: the model does that, once, for every caller (L3)")
     func entitlementDoesNotRenew() async throws {
         let clock = TestClock()
         let service = Self.makeService(clock: clock)
         let session = try await Self.signIn(service, email: "a@example.com")
         clock.advance(by: PreviewAccountService.accessLifetime + 1)
-        _ = try await service.currentEntitlement(tokens: session.tokens)
+        _ = try await service.currentAccount(tokens: session.tokens)
         // The old refresh token is still good, because nothing rotated it.
         let renewed = try await service.refresh(tokens: session.tokens)
         #expect(renewed.refreshToken != session.tokens.refreshToken)
@@ -147,45 +114,7 @@ struct PreviewAccountServiceTests {
         let session = try await Self.signIn(service, email: "a@example.com")
         await service.signOut(tokens: session.tokens)
         await #expect(throws: AccountError.signedOut) {
-            try await service.currentEntitlement(tokens: session.tokens)
-        }
-    }
-
-    @Test("Accounts survive a new service on the same store")
-    func persists() async throws {
-        let clock = TestClock()
-        let defaults = isolatedDefaults()
-        let first = Self.makeService(clock: clock, defaults: defaults)
-        let session = try await Self.signIn(first, email: "a@example.com")
-        _ = try await first.checkoutURL(tokens: session.tokens, renewal: .automatic)
-
-        let second = Self.makeService(clock: clock, defaults: defaults)
-        let entitlement = try await second.currentEntitlement(tokens: session.tokens)
-        #expect(entitlement.plan == .plus)
-    }
-
-    @Test("One year is the same subscription set not to renew; renewal can be turned back on")
-    func renewalChoice() async throws {
-        let clock = TestClock()
-        let service = Self.makeService(clock: clock)
-        let session = try await Self.signIn(service, email: "renew@example.com")
-        _ = try await service.checkoutURL(tokens: session.tokens, renewal: .oneYear)
-        let oneYear = try await service.currentEntitlement(tokens: session.tokens)
-        #expect(oneYear.plan == .plus)
-        #expect(oneYear.cancelAtPeriodEnd)
-
-        let renewed = try await service.setAutoRenew(true, tokens: session.tokens)
-        #expect(renewed.cancelAtPeriodEnd == false)
-        let stopped = try await service.setAutoRenew(false, tokens: session.tokens)
-        #expect(stopped.cancelAtPeriodEnd)
-    }
-
-    @Test("Setting renewal without a plan is noSubscription")
-    func renewalNeedsPlan() async throws {
-        let service = Self.makeService(clock: TestClock())
-        let session = try await Self.signIn(service, email: "free@example.com")
-        await #expect(throws: AccountError.noSubscription) {
-            try await service.setAutoRenew(true, tokens: session.tokens)
+            try await service.currentAccount(tokens: session.tokens)
         }
     }
 
@@ -203,7 +132,7 @@ struct PreviewAccountServiceTests {
         try await service.deleteAccount(confirmEmail: "  NAME@example.com ", tokens: session.tokens)
         #expect(PreviewAccountStore(defaults: defaults).load()["name@example.com"] == nil)
         await #expect(throws: AccountError.signedOut) {
-            try await service.currentEntitlement(tokens: session.tokens)
+            try await service.currentAccount(tokens: session.tokens)
         }
         clock.advance(by: 60)
         let again = try await Self.signIn(service, email: "name@example.com")
@@ -216,5 +145,17 @@ struct PreviewAccountServiceTests {
         let service = Self.makeService(clock: clock)
         let session = try await Self.signIn(service, email: "dated@example.com")
         #expect(session.account.createdAt == clock.now)
+    }
+
+    @Test("Accounts survive a new service on the same store")
+    func persists() async throws {
+        let clock = TestClock()
+        let defaults = isolatedDefaults()
+        let first = Self.makeService(clock: clock, defaults: defaults)
+        let session = try await Self.signIn(first, email: "a@example.com")
+
+        let second = Self.makeService(clock: clock, defaults: defaults)
+        let account = try await second.currentAccount(tokens: session.tokens)
+        #expect(account.email == "a@example.com")
     }
 }

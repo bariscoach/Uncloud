@@ -3,13 +3,9 @@ import SwiftUI
 import Testing
 @testable import Uncloud
 
-/// Every string and dot rule of the account row (plan §6.2 to §6.4). Pure: the summaries come from the summary tests'
-/// helpers, so the clock is fixed.
+/// Every string and dot rule of the account row (plan §6.2 to §6.4). Pure, so it is tested without a view.
 @Suite("AccountFooterContent")
 struct AccountFooterContentTests {
-    static let now = AccountSummaryTests.now
-    static let day = AccountSummaryTests.day
-
     static func content(
         _ summary: AccountSummary,
         mode: AccountMode = .preview,
@@ -20,79 +16,45 @@ struct AccountFooterContentTests {
         AccountFooterContent.make(summary: summary, accountMode: mode, source: source, appleID: appleID, isSourceReady: isSourceReady)
     }
 
-    static func free() -> AccountSummary {
-        AccountSummaryTests.signedIn(AccountSummaryTests.plan(.none, periodEnd: nil), now: now)
-    }
-
-    static func plus() -> AccountSummary {
-        AccountSummaryTests.signedIn(AccountSummaryTests.plan(.active, periodEnd: now.addingTimeInterval(30 * day)), now: now)
-    }
-
-    static func pastDue() -> AccountSummary {
-        AccountSummaryTests.signedIn(AccountSummaryTests.plan(.pastDue, periodEnd: now.addingTimeInterval(-day)), now: now)
-    }
-
-    static func offlineGrace() -> AccountSummary {
-        AccountSummaryTests.signedIn(AccountSummaryTests.plan(.active, periodEnd: now.addingTimeInterval(-day)), now: now)
+    static func signedIn() -> AccountSummary {
+        AccountSummary.make(mode: .preview, phase: .signedIn, account: UncloudAccount(id: "u", email: "name@example.com"))
     }
 
     static func loading() -> AccountSummary {
-        AccountSummary.make(
-            mode: .preview, phase: .restoring, account: nil,
-            entitlement: AccountSummaryTests.plan(.none, periodEnd: nil), access: .free, lastError: nil, now: now
-        )
+        AccountSummary.make(mode: .preview, phase: .restoring, account: nil)
     }
 
-    @Test func freeWithICloudConnected() {
-        let row = Self.content(Self.free())
+    @Test func signedInWithICloudConnected() {
+        let row = Self.content(Self.signedIn())
         #expect(row.line1 == "name@example.com")
-        #expect(row.line2 == "Free · iCloud Photos")
+        #expect(row.line2 == "iCloud Photos")
         #expect(!row.needsAttention)
         #expect(row.showsUncloudSection)
         #expect(row.sourceStateText == "Connected")
         #expect(!row.sourceStateIsWarning)
-        #expect(row.accessibilityValue == "name@example.com, Free, iCloud Photos, signed in as name@icloud.com")
-    }
-
-    @Test func plusRenewingLineTwo() {
-        let row = Self.content(Self.plus())
-        #expect(row.line2 == "Plus · iCloud Photos")
-        #expect(!row.needsAttention)
-    }
-
-    @Test func paymentDueNeedsAttention() {
-        let row = Self.content(Self.pastDue())
-        #expect(row.line2 == "Plus, payment due · iCloud Photos")
-        #expect(row.needsAttention)
-        #expect(row.accessibilityValue.hasSuffix("needs attention"))
-    }
-
-    @Test func offlineGraceNeedsAttention() {
-        let row = Self.content(Self.offlineGrace())
-        #expect(row.line2 == "Plus, not checked · iCloud Photos")
-        #expect(row.needsAttention)
+        #expect(row.accessibilityValue == "name@example.com, iCloud Photos, signed in as name@icloud.com")
     }
 
     @Test func iCloudSignedOutNeedsAttention() {
-        let row = Self.content(Self.free(), appleID: nil)
-        #expect(row.line2 == "Free · iCloud: not signed in")
+        let row = Self.content(Self.signedIn(), appleID: nil)
+        #expect(row.line2 == "iCloud: not signed in")
         #expect(row.needsAttention)
         #expect(row.sourceStateText == "Not signed in")
         #expect(row.sourceStateIsWarning)
-        #expect(row.accessibilityValue == "name@example.com, Free, iCloud Photos, not signed in, needs attention")
+        #expect(row.accessibilityValue == "name@example.com, iCloud Photos, not signed in, needs attention")
     }
 
     @Test func photosOnThisMacReadyHasNoDot() {
-        let row = Self.content(Self.free(), source: .photosLibrary, appleID: nil)
-        #expect(row.line2 == "Free · Photos on This Mac")
+        let row = Self.content(Self.signedIn(), source: .photosLibrary, appleID: nil)
+        #expect(row.line2 == "Photos on This Mac")
         #expect(!row.needsAttention)
         #expect(row.sourceStateText == "Ready")
         #expect(row.accessibilityValue.hasSuffix("Photos on This Mac, ready"))
     }
 
     @Test func photosOnThisMacNeedsAccessHasDot() {
-        let row = Self.content(Self.free(), source: .photosLibrary, appleID: nil, isSourceReady: false)
-        #expect(row.line2 == "Free · Photos: needs access")
+        let row = Self.content(Self.signedIn(), source: .photosLibrary, appleID: nil, isSourceReady: false)
+        #expect(row.line2 == "Photos: needs access")
         #expect(row.needsAttention)
         #expect(row.sourceStateText == "Needs access")
         #expect(row.sourceStateIsWarning)
@@ -107,10 +69,7 @@ struct AccountFooterContentTests {
     }
 
     @Test func accountsOffShowsAppleIDAndNoUncloudSection() {
-        let summary = AccountSummary.make(
-            mode: .off, phase: .signedIn, account: nil,
-            entitlement: AccountSummaryTests.plan(.none, periodEnd: nil), access: .free, lastError: nil, now: Self.now
-        )
+        let summary = AccountSummary.make(mode: .off, phase: .signedIn, account: nil)
         let row = Self.content(summary, mode: .off)
         #expect(row.line1 == "name@icloud.com")
         #expect(row.line2 == "iCloud Photos")
@@ -119,10 +78,7 @@ struct AccountFooterContentTests {
     }
 
     @Test func accountsOffMacShowsSourceTitle() {
-        let summary = AccountSummary.make(
-            mode: .off, phase: .signedIn, account: nil,
-            entitlement: AccountSummaryTests.plan(.none, periodEnd: nil), access: .free, lastError: nil, now: Self.now
-        )
+        let summary = AccountSummary.make(mode: .off, phase: .signedIn, account: nil)
         let row = Self.content(summary, mode: .off, source: .photosLibrary, appleID: nil)
         #expect(row.line1 == "Photos on This Mac")
         #expect(row.line2 == "Photos on This Mac")
@@ -130,10 +86,7 @@ struct AccountFooterContentTests {
     }
 
     @Test func signedOutOfUncloudHidesTheAccountSection() {
-        let summary = AccountSummary.make(
-            mode: .preview, phase: .signedOut(.welcome), account: nil,
-            entitlement: AccountSummaryTests.plan(.none, periodEnd: nil), access: .free, lastError: nil, now: Self.now
-        )
+        let summary = AccountSummary.make(mode: .preview, phase: .signedOut(.welcome), account: nil)
         let row = Self.content(summary)
         #expect(row.line1 == "name@icloud.com")
         #expect(row.line2 == "iCloud Photos")
@@ -141,7 +94,7 @@ struct AccountFooterContentTests {
     }
 }
 
-/// Renders the account row and its popover in each state of the plan's table, light and dark. Runs only when
+/// Renders the account row and its popover in each state, light and dark. Runs only when
 /// UNCLOUD_ACCOUNT_FOOTER_SNAPSHOTS is set (pass it as TEST_RUNNER_UNCLOUD_ACCOUNT_FOOTER_SNAPSHOTS=1). The PNGs are
 /// attachments of the result bundle, exported with `xcrun xcresulttool export attachments`.
 @MainActor
@@ -158,21 +111,12 @@ struct AccountFooterSnapshotTests {
     }
 
     static func states() -> [State] {
-        let now = AccountSummaryTests.now
-        let day = AccountSummaryTests.day
-        let offline = AccountSummaryTests.signedIn(
-            AccountSummaryTests.plan(.active, periodEnd: now.addingTimeInterval(30 * day), checkedAt: now.addingTimeInterval(-3 * day)),
-            error: .offline, now: now
-        )
-        return [
-            State(name: "free", summary: AccountFooterContentTests.free()),
-            State(name: "plus", summary: AccountFooterContentTests.plus()),
-            State(name: "payment-due", summary: AccountFooterContentTests.pastDue()),
-            State(name: "offline-grace", summary: offline),
-            State(name: "icloud-signed-out", summary: AccountFooterContentTests.free(), appleID: nil),
-            State(name: "photos-on-this-mac", summary: AccountFooterContentTests.free(), source: .photosLibrary, appleID: nil),
-            State(name: "mac-needs-access", summary: AccountFooterContentTests.free(), source: .photosLibrary, appleID: nil, isSourceReady: false),
-            State(name: "exporting", summary: AccountFooterContentTests.plus(), isExporting: true),
+        [
+            State(name: "signed-in", summary: AccountFooterContentTests.signedIn()),
+            State(name: "icloud-signed-out", summary: AccountFooterContentTests.signedIn(), appleID: nil),
+            State(name: "photos-on-this-mac", summary: AccountFooterContentTests.signedIn(), source: .photosLibrary, appleID: nil),
+            State(name: "mac-needs-access", summary: AccountFooterContentTests.signedIn(), source: .photosLibrary, appleID: nil, isSourceReady: false),
+            State(name: "exporting", summary: AccountFooterContentTests.signedIn(), isExporting: true),
             State(name: "loading", summary: AccountFooterContentTests.loading()),
         ]
     }
@@ -185,8 +129,7 @@ struct AccountFooterSnapshotTests {
             mode: .preview,
             service: PreviewAccountService(store: PreviewAccountStore(defaults: defaults), now: { Date() }),
             tokens: DefaultsAccountTokenStore(defaults: defaults),
-            defaults: defaults,
-            openURL: { _ in }
+            defaults: defaults
         )
         var images: [(String, NSImage)] = []
 

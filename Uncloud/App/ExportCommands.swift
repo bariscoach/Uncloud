@@ -16,7 +16,7 @@ struct ExportCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        // Uncloud ▸ Account Settings…, the plan action and Sign Out of Uncloud…, after Settings… (plan §1.3).
+        // Uncloud ▸ Account Settings… and Sign Out of Uncloud…, after Settings… (plan §1.3).
         CommandGroup(after: .appSettings) {
             ForEach(accountMenuItems) { item in
                 Button(item.title) {
@@ -95,7 +95,7 @@ struct ExportCommands: Commands {
                     }
                     .pickerStyle(.inline)
                 }
-                .disabled(model.pane != .browse || !account.allows(.browseBackup))
+                .disabled(model.pane != .browse)
 
                 Divider()
             }
@@ -225,14 +225,6 @@ struct ExportCommands: Commands {
             UserDefaults.standard.set(SettingsTab.account.rawValue, forKey: SettingsTab.storageKey)
             openSettings()
             NSApp.activate()
-        case .getPlus:
-            openWindow(id: "main")
-            NSApp.activate()
-            account.showPaywall()
-        case .manageSubscription, .updatePaymentMethod:
-            Task { await account.openManageSubscription() }
-        case .checkAgain:
-            Task { await account.refreshEntitlement(force: true) }
         case .signOut:
             openWindow(id: "main")
             NSApp.activate()

@@ -3,12 +3,6 @@ import Foundation
 import Testing
 @testable import Uncloud
 
-/// Records the URLs the model opens in the browser.
-@MainActor
-final class OpenedURLs {
-    var urls: [URL] = []
-}
-
 /// A flag the tests flip to say an export is running.
 @MainActor
 final class ExportFlag {
@@ -24,7 +18,6 @@ struct AccountModelTests {
         let tokens: DefaultsAccountTokenStore
         let defaults: UserDefaults
         let clock: TestClock
-        let opened: OpenedURLs
         let export: ExportFlag
     }
 
@@ -37,7 +30,6 @@ struct AccountModelTests {
         let defaults = defaults ?? isolatedDefaults()
         let service = PreviewAccountService(store: PreviewAccountStore(defaults: defaults), now: clock.reader)
         let tokens = DefaultsAccountTokenStore(defaults: defaults)
-        let opened = OpenedURLs()
         let export = ExportFlag()
         let model = AccountModel(
             mode: mode,
@@ -45,10 +37,9 @@ struct AccountModelTests {
             tokens: tokens,
             defaults: defaults,
             clock: clock.reader,
-            openURL: { opened.urls.append($0) },
             isExportRunning: { export.running }
         )
-        return Harness(model: model, service: service, tokens: tokens, defaults: defaults, clock: clock, opened: opened, export: export)
+        return Harness(model: model, service: service, tokens: tokens, defaults: defaults, clock: clock, export: export)
     }
 
     /// Signs the model in with a preview email and the stub code.
@@ -149,7 +140,7 @@ struct AccountModelTests {
         await harness.service.signOut(tokens: tokens)
 
         harness.export.running = true
-        await harness.model.refreshEntitlement(force: true)
+        await harness.model.refreshAccount(force: true)
         #expect(harness.model.phase == .signedIn)
         #expect(harness.model.showsAppMenus)
 
@@ -170,23 +161,12 @@ struct AccountModelTests {
         await Self.signIn(harness.model)
         let tokens = try #require(harness.tokens.load())
         await harness.service.signOut(tokens: tokens)
-        await harness.model.refreshEntitlement(force: true)
+        await harness.model.refreshAccount(force: true)
         #expect(harness.model.phase == .signedOut(.welcome))
         #expect(harness.model.error == .signedOut)
     }
 
-    @Test("Offline refresh keeps the cached plan")
-    func offlineKeepsCache() async throws {
-        let harness = Self.makeHarness()
-        await Self.signIn(harness.model)
-        let plus = Entitlement(plan: .plus, status: .active, currentPeriodEnd: harness.clock.now.addingTimeInterval(86_400), cancelAtPeriodEnd: false, checkedAt: harness.clock.now)
-        harness.defaults.set(try JSONEncoder().encode(plus), forKey: "uncloudEntitlement")
-        let restored = Self.makeHarness(defaults: harness.defaults, clock: harness.clock).model
-        #expect(restored.phase == .signedIn)
-        #expect(restored.access == .plus)
-    }
-
-    @Test("Signed in state survives a relaunch")
+    @Test("Signed in state survives a relaunch, and the account check is kept")
     func relaunch() async throws {
         let harness = Self.makeHarness()
         await Self.signIn(harness.model)
@@ -195,79 +175,43 @@ struct AccountModelTests {
         #expect(relaunched.account?.email == "name@example.com")
     }
 
-    @Test("Mode off has no account flow, allows everything, and ignores URLs")
+    @Test("A signed-in account has every feature: the menus and the summary are open to it")
+    func signedInHasEverything() async throws {
+        let harness = Self.makeHarness()
+        await Self.signIn(harness.model)
+        #expect(harness.model.showsAppMenus)
+        #expect(harness.model.summary.hasAccount)
+        #expect(harness.model.summary.state == .signedIn)
+        #expect(harness.model.summary.accessibilityValue == "name@example.com")
+    }
+
+    @Test("A plan cache from an earlier build is removed at launch")
+    func legacyPlanCacheRemoved() async throws {
+        let harness = Self.makeHarness()
+        await Self.signIn(harness.model)
+        harness.defaults.set(Data("{}".utf8), forKey: "uncloudEntitlement")
+        _ = Self.makeHarness(defaults: harness.defaults, clock: harness.clock)
+        #expect(harness.defaults.data(forKey: "uncloudEntitlement") == nil)
+    }
+
+    @Test("Mode off has no account flow")
     func modeOff() async throws {
         let harness = Self.makeHarness(mode: .off)
         #expect(harness.model.phase == .off)
-        #expect(harness.model.allows(.browseBackup))
+        #expect(harness.model.summary.state == .hidden)
         await harness.model.submitEmail("name@example.com", intent: .signUp)
         #expect(harness.model.phase == .off)
-        #expect(harness.model.handle(URL(string: "uncloud://checkout/success")!) == false)
-    }
-
-    @Test("A locked feature opens the paywall, and Continue runs the action after checkout")
-    func requireOpensPaywallThenRuns() async throws {
-        let harness = Self.makeHarness()
-        await Self.signIn(harness.model)
-        var ran = 0
-        harness.model.require(.browseBackup) { ran += 1 }
-        #expect(ran == 0)
-        #expect(harness.model.paywall?.feature == .browseBackup)
-
-        await harness.model.openCheckout(for: .browseBackup)
-        #expect(harness.opened.urls.count == 1)
-        #expect(harness.model.checkout == .waiting(processing: false))
-
-        let url = try #require(harness.opened.urls.first)
-        #expect(harness.model.handle(url))
-        await harness.model.refreshTask?.value
-        #expect(harness.model.checkout == .active)
-        #expect(harness.model.allows(.browseBackup))
-
-        harness.model.finishPaywall()
-        #expect(ran == 1)
-        #expect(harness.model.paywall == nil)
-    }
-
-    @Test("Not Now closes the paywall without running the action")
-    func notNowDoesNotRun() async throws {
-        let harness = Self.makeHarness()
-        await Self.signIn(harness.model)
-        var ran = false
-        harness.model.require(.cleanUpICloud) { ran = true }
-        harness.model.dismissPaywall()
-        #expect(harness.model.paywall == nil)
-        #expect(ran == false)
-    }
-
-    @Test("Cancel at checkout returns the paywall to idle")
-    func checkoutCancel() async throws {
-        let harness = Self.makeHarness()
-        await Self.signIn(harness.model)
-        harness.model.require(.cleanUpICloud) {}
-        await harness.model.openCheckout(for: .cleanUpICloud)
-        #expect(harness.model.handle(URL(string: "uncloud://checkout/cancel")!))
-        #expect(harness.model.checkout == .idle)
-    }
-
-    @Test("Preview mode allows nothing without a plan")
-    func previewLocksFree() async throws {
-        let harness = Self.makeHarness()
-        await Self.signIn(harness.model)
-        #expect(harness.model.allows(.browseBackup) == false)
     }
 
     @Test("Build configuration: preview only in Debug; live only with every live value, all https")
     func configurationResolves() {
-        let key = EntitlementVector.load().publicKey
         func resolve(_ mode: String?, debug: Bool, base: String?, complete: Bool = true) -> AccountMode {
             AccountConfiguration.resolve(
                 mode: mode,
                 isDebug: debug,
                 baseURL: base,
                 supabaseURL: complete ? "https://supa.example.co" : nil,
-                supabasePublishableKey: complete ? "sb_publishable_test" : nil,
-                entitlementPublicKey: complete ? key : nil
+                supabasePublishableKey: complete ? "sb_publishable_test" : nil
             ).mode
         }
         #expect(resolve("preview", debug: true, base: nil) == .preview)
@@ -341,17 +285,13 @@ struct AccountModelTests {
         #expect(harness.model.notice == nil)
     }
 
-    @Test("The sign-out confirmation flag round trips, and the summary follows the model")
-    func signOutFlagAndSummary() async {
+    @Test("The sign-out confirmation flag round trips")
+    func signOutFlag() async {
         let harness = Self.makeHarness()
         #expect(harness.model.isConfirmingSignOut == false)
         harness.model.isConfirmingSignOut = true
         #expect(harness.model.isConfirmingSignOut)
         harness.model.isConfirmingSignOut = false
         #expect(harness.model.isConfirmingSignOut == false)
-
-        await Self.signIn(harness.model)
-        #expect(harness.model.summary.state == .free(endedOn: nil))
-        #expect(harness.model.summary.primary == .getPlus)
     }
 }

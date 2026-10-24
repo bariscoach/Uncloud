@@ -4,7 +4,7 @@ import SwiftUI
 struct AccountFooterContent: Equatable {
     /// The row's first line: the Uncloud email, or the Apple ID or source title when accounts are off or signed out.
     let line1: String
-    /// The row's second line: "{plan} · {source line}", or the source line alone, or "Loading…".
+    /// The row's second line: the source line, or "Loading…".
     let line2: String
     /// The warning dot: the account needs attention, or the photo source needs action.
     let needsAttention: Bool
@@ -53,16 +53,9 @@ struct AccountFooterContent: Equatable {
             line1 = LibrarySource.photosLibrary.title
         }
 
-        let line2: String
-        if isLoading {
-            line2 = "Loading…"
-        } else if let plan = planText(summary.state), hasAccount {
-            line2 = "\(plan) · \(sourceLine)"
-        } else {
-            line2 = sourceLine
-        }
+        let line2 = isLoading ? "Loading…" : sourceLine
 
-        let needsAttention = summary.needsAttention || (!isLoading && sourceIssue)
+        let needsAttention = !isLoading && sourceIssue
 
         var parts: [String] = []
         if hasAccount, !summary.accessibilityValue.isEmpty {
@@ -88,16 +81,6 @@ struct AccountFooterContent: Equatable {
         )
     }
 
-    /// The plan part of line 2. Nil while loading or signed out.
-    private static func planText(_ state: AccountSummary.State) -> String? {
-        switch state {
-        case .free: "Free"
-        case .plusRenewing, .plusEnding: "Plus"
-        case .pastDue: "Plus, payment due"
-        case .offlineGrace: "Plus, not checked"
-        case .hidden, .loading, .signedOut: nil
-        }
-    }
 }
 
 /// The account row at the bottom of the sidebar (plan §6.2). Reads the models and passes the values to

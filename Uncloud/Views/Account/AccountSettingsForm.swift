@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Settings › Account (account-menu plan §2): profile, subscription, sign out and Delete Account. The sections that
+/// Settings › Account (account-menu plan §2): profile, sign out and Delete Account. The sections that
 /// show depend on the phase: loading, signed out (with the notice after a deletion) or signed in.
 struct AccountSettingsForm: View {
     @Environment(AccountModel.self) private var account
@@ -31,16 +31,11 @@ struct AccountSettingsForm: View {
                 Task { await account.signOut() }
             }
         } message: {
-            Text("Your photos and backup aren’t changed. Sign in again to use Uncloud Plus.")
+            Text("Your photos and backup aren’t changed. Sign in again to use Uncloud.")
         }
         .sheet(isPresented: $isDeletingAccount) {
-            DeleteAccountSheet(
-                email: account.account?.email ?? "",
-                isPaid: account.access != .free,
-                hadPlan: account.entitlement.status != .none,
-                isExporting: isExporting
-            )
-            .environment(account)
+            DeleteAccountSheet(email: account.account?.email ?? "", isExporting: isExporting)
+                .environment(account)
         }
     }
 
@@ -67,7 +62,7 @@ struct AccountSettingsForm: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            Text("Export is free with a free account. Sign in to use Uncloud Plus on this Mac.")
+            Text("Create your free Uncloud account to start.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -111,25 +106,6 @@ struct AccountSettingsForm: View {
                 }
             }
             changeEmailCaption
-        }
-
-        Section("Subscription") {
-            LabeledContent("Plan") {
-                if let badge = summary.badge {
-                    PlanBadge(text: badge)
-                }
-            }
-            // A renewing plan's status repeats the renewal caption under the switch, so only the other states show it here.
-            if !isRenewing(summary), let line = summary.statusLine() {
-                PlanStatusText(line: line)
-            }
-            LabeledContent("Price") {
-                Text(PlanCopy.yearlyPricePlusTax)
-            }
-            if summary.showsRenewalToggle {
-                renewalRows(summary.entitlement)
-            }
-            subscriptionActions(summary)
             errorRow
         }
 
@@ -150,18 +126,13 @@ struct AccountSettingsForm: View {
             .foregroundStyle(Tokens.Status.danger)
             .disabled(isExporting)
             .help(isExporting ? "Delete the account after the export finishes." : "Delete your Uncloud account.")
-            Text("Deletes your Uncloud account and stops Uncloud Plus. Your photos and backup aren’t changed.")
+            Text("Deletes your Uncloud account. Your photos and backup aren’t changed.")
                 .font(Tokens.Font.meta)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
 
         Section {
-            #if DEBUG
-            if account.mode == .preview {
-                debugRows(summary.entitlement)
-            }
-            #endif
             LabeledContent {
                 HStack(spacing: Tokens.Space.s) {
                     Link("Terms of Use", destination: AccountLinks.terms(AccountConfiguration.current))
@@ -186,78 +157,7 @@ struct AccountSettingsForm: View {
         .foregroundStyle(.secondary)
     }
 
-    @ViewBuilder
-    private func subscriptionActions(_ summary: AccountSummary) -> some View {
-        if summary.primary == .getPlus {
-            HStack {
-                Button("Get Uncloud Plus…") {
-                    account.showPaywall()
-                }
-                .buttonStyle(.bordered)
-                Spacer()
-                Button("Already Subscribed? Check Again") {
-                    Task { await account.refreshEntitlement(force: true) }
-                }
-                .buttonStyle(.link)
-            }
-        } else {
-            HStack {
-                if let title = summary.primary.title {
-                    Button(title) {
-                        Task { await account.openManageSubscription() }
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Change your card, see receipts, or cancel or renew in the billing page.")
-                }
-                Spacer()
-                Button("Refresh") {
-                    Task { await account.refreshEntitlement(force: true) }
-                }
-                .buttonStyle(.link)
-            }
-        }
-        if summary.showsReceipts {
-            Button("Receipts and Invoices") {
-                Task { await account.openManageSubscription() }
-            }
-            .buttonStyle(.link)
-        }
-        Text(checkedText)
-            .font(Tokens.Font.meta)
-            .foregroundStyle(.secondary)
-    }
-
-    private func isRenewing(_ summary: AccountSummary) -> Bool {
-        if case .plusRenewing = summary.state { return true }
-        return false
-    }
-
-    /// The renewal switch, its saving state and its caption, for a paid plan with a period end.
-    @ViewBuilder
-    private func renewalRows(_ entitlement: Entitlement) -> some View {
-        Toggle("Renew automatically", isOn: renewalBinding)
-            .toggleStyle(.switch)
-            .disabled(account.isChangingRenewal)
-        if account.isChangingRenewal {
-            Label("Saving…", systemImage: "arrow.triangle.2.circlepath")
-                .font(Tokens.Font.meta)
-                .foregroundStyle(.secondary)
-        } else if let end = entitlement.currentPeriodEnd {
-            if entitlement.cancelAtPeriodEnd {
-                Text("Uncloud Plus ends on \(PlanText.date(end)). Turn on renewal to keep it.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text("Renews on \(PlanText.date(end)) for \(PlanCopy.price) plus tax.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// A failed account action, under Subscription. The delete sheet shows its own errors, so they stay there.
+    /// A failed account action, under Profile. The delete sheet shows its own errors, so they stay there.
     @ViewBuilder
     private var errorRow: some View {
         if let error = account.error, error != .signedOut, error != .confirmationMismatch, !isDeletingAccount {
@@ -267,42 +167,4 @@ struct AccountSettingsForm: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
-
-    /// The switch shows the saved renewal; it springs back if the server refuses the change.
-    private var renewalBinding: Binding<Bool> {
-        Binding(
-            get: { !account.entitlement.cancelAtPeriodEnd },
-            set: { autoRenew in
-                Task { await account.setAutoRenew(autoRenew) }
-            }
-        )
-    }
-
-    /// "Plan checked today at 9:41." The time of the last server answer.
-    private var checkedText: String {
-        let checked = account.entitlement.checkedAt
-        guard checked != .distantPast else {
-            return "Plan not checked yet."
-        }
-        let time = checked.formatted(date: .omitted, time: .shortened)
-        if Calendar.current.isDateInToday(checked) {
-            return "Plan checked today at \(time)."
-        }
-        return "Plan checked \(checked.formatted(date: .abbreviated, time: .omitted)) at \(time)."
-    }
-
-    #if DEBUG
-    /// Preview builds only: the renewal switch and "Expire Now", so the states can be checked by hand.
-    @ViewBuilder
-    private func debugRows(_ entitlement: Entitlement) -> some View {
-        if entitlement.status == .active {
-            Button(entitlement.cancelAtPeriodEnd ? "Turn Renewal On (Preview)" : "Turn Renewal Off (Preview)") {
-                Task { await account.setAutoRenew(entitlement.cancelAtPeriodEnd) }
-            }
-        }
-        Button("Expire Now (Preview)") {
-            account.debugExpireNow()
-        }
-    }
-    #endif
 }

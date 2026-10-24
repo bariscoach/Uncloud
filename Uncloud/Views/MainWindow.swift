@@ -5,11 +5,9 @@ import SwiftUI
 struct MainWindow: View {
     @Environment(ExportModel.self) private var model
     @Environment(BackupTools.self) private var backupTools
-    @Environment(AccountModel.self) private var account
 
     var body: some View {
         @Bindable var model = model
-        @Bindable var account = account
 
         NavigationSplitView {
             PaneSidebar(selection: paneSelection)
@@ -30,31 +28,14 @@ struct MainWindow: View {
                 ExportSettingsPane()
                     .navigationTitle(ExportModel.Pane.backup.title)
             case .cleanup:
-                // Delete from iCloud is the Uncloud Plus feature; while a run is going, its grid stays open after a lapse.
-                if Self.showsCleanup(allowed: account.allows(.cleanUpICloud), isRunning: model.iCloudCleanup?.isRunning == true) {
-                    CleanupView()
-                        .navigationTitle(ExportModel.Pane.cleanup.title)
-                } else {
-                    LockedFeatureView(feature: .cleanUpICloud)
-                        .navigationTitle(ExportModel.Pane.cleanup.title)
-                }
+                CleanupView()
+                    .navigationTitle(ExportModel.Pane.cleanup.title)
             case .browse:
-                if account.allows(.browseBackup) {
-                    BrowseBackupView(browse: backupTools.browse)
-                        .navigationTitle(ExportModel.Pane.browse.title)
-                } else {
-                    LockedFeatureView(feature: .browseBackup)
-                        .navigationTitle(ExportModel.Pane.browse.title)
-                }
+                BrowseBackupView(browse: backupTools.browse)
+                    .navigationTitle(ExportModel.Pane.browse.title)
             }
         }
         .frame(minWidth: 760, minHeight: 500)
-        // The paywall for a locked feature, presented from the main window. Not Now or Esc closes it and runs nothing.
-        .sheet(item: $account.paywall) { request in
-            PaywallSheet(request: request)
-                .environment(account)
-                .accentVariant(AccentVariant.override)
-        }
         .fileImporter(isPresented: $model.isChoosingDestination, allowedContentTypes: [.folder]) { result in
             model.chooseDestination(result)
         }
@@ -96,12 +77,6 @@ struct MainWindow: View {
         }
     }
 
-    /// Delete from iCloud shows its grid when the plan allows it, or while a run already in progress needs it to stay open
-    /// after a lapse (plan §5.5). Otherwise the pane is the locked view.
-    static func showsCleanup(allowed: Bool, isRunning: Bool) -> Bool {
-        allowed || isRunning
-    }
-
     /// The sidebar selection. The list never clears it, so the optional is only a SwiftUI requirement.
     private var paneSelection: Binding<ExportModel.Pane?> {
         Binding(
@@ -141,7 +116,6 @@ struct PaneSidebar: View {
 /// and the snapshot tests render it.
 struct SidebarPaneRows: View {
     @Environment(ExportModel.self) private var model
-    @Environment(AccountModel.self) private var account
 
     var body: some View {
         ForEach(ExportModel.Pane.allCases, id: \.self) { pane in
@@ -153,11 +127,11 @@ struct SidebarPaneRows: View {
         }
     }
 
-    /// One sidebar row. Export Settings keeps its progress badge; the paid panes show a lock while locked (plan §1.1).
+    /// One sidebar row. Backup keeps its progress badge.
     @ViewBuilder
     private func row(for pane: ExportModel.Pane) -> some View {
         switch pane {
-        case .export:
+        case .export, .browse, .cleanup:
             Label(pane.title, systemImage: pane.symbol)
         case .backup:
             Label(pane.title, systemImage: pane.symbol)
@@ -166,10 +140,6 @@ struct SidebarPaneRows: View {
                 .badgeProminence(model.isExporting ? .increased : .standard)
                 // Badges may not be spoken, so the value carries the same news for VoiceOver.
                 .accessibilityValue(backupAccessibilityValue)
-        case .browse:
-            LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: !account.allows(.browseBackup))
-        case .cleanup:
-            LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: !account.allows(.cleanUpICloud))
         }
     }
 
@@ -186,25 +156,5 @@ struct SidebarPaneRows: View {
         }
         guard let status = model.newPhotosStatus, status.count > 0 || status.isAtLeast else { return "" }
         return NewPhotosText.countPhrase(status)
-    }
-}
-
-/// A sidebar row for a paid pane: the title and symbol, with a lock while it's locked (plan C.3).
-struct LockableSidebarRow: View {
-    let title: String
-    let symbol: String
-    let isLocked: Bool
-
-    var body: some View {
-        if isLocked {
-            HStack {
-                Label(title, systemImage: symbol)
-                Spacer(minLength: Tokens.Space.s)
-                LockGlyph()
-            }
-            .accessibilityValue("Requires Uncloud Plus")
-        } else {
-            Label(title, systemImage: symbol)
-        }
     }
 }

@@ -7,7 +7,6 @@ import SwiftUI
 struct ExportSettingsPane: View {
     @Environment(ExportModel.self) private var model
     // Optional so that a view hosted without these in its environment still renders.
-    @Environment(AccountModel.self) private var account: AccountModel?
     @Environment(AutoBackupSettings.self) private var autoBackup: AutoBackupSettings?
     @Environment(\.openSettings) private var openSettings
 
@@ -175,23 +174,15 @@ struct ExportSettingsPane: View {
 
     /// Automatic backups are set in Settings › Backups. This row shows the state and opens that tab.
     private var automaticBackupsRow: some View {
-        let allowed = account?.allows(.automaticBackups) ?? true
         let status = AutomaticBackupStatus.text(
             connects: autoBackup?.backUpWhenDriveConnects ?? false,
-            daily: autoBackup?.backUpDaily ?? false,
-            allowed: allowed
+            daily: autoBackup?.backUpDaily ?? false
         )
         return LabeledContent {
             Button("Change…") { openBackupSettings() }
                 .fixedSize()
         } label: {
-            HStack(spacing: Tokens.Space.xs) {
-                if !allowed {
-                    Image(systemName: "lock")
-                        .accessibilityHidden(true)
-                }
-                Text(status)
-            }
+            Text(status)
         }
         .help("Open Settings to change automatic backups")
     }
@@ -395,8 +386,7 @@ struct ExportSettingsPane: View {
 
 /// The one-line status of automatic backups. Pure, so it is tested without a window.
 enum AutomaticBackupStatus {
-    static func text(connects: Bool, daily: Bool, allowed: Bool) -> String {
-        guard allowed else { return "Part of Uncloud Plus" }
+    static func text(connects: Bool, daily: Bool) -> String {
         switch (connects, daily) {
         case (true, true): return "On: when the drive connects and daily"
         case (true, false): return "On: when the drive connects"

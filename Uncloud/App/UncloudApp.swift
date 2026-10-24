@@ -37,10 +37,9 @@ struct UncloudApp: App {
         // A revoked session waits for a running export (M4); `onRunFinished` applies it when the run ends.
         let account = AccountModel(configuration: .current, isExportRunning: { [weak model] in model?.isExporting ?? false })
         model.onRunFinished = { [weak account] in account?.exportDidFinish() }
-        let controller = AutoBackupController(model: model, settings: settings, isAllowed: { [account] feature in account.allows(feature) })
+        let controller = AutoBackupController(model: model, settings: settings)
         controller.start()
         AppDelegate.model = model
-        AppDelegate.account = account
         #if DEBUG
         HelperProbe.runIfRequested()
         #endif
@@ -58,10 +57,6 @@ struct UncloudApp: App {
                 .environment(backupTools)
                 .environment(account)
                 .accentVariant(AccentVariant.override)
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                    // Back from the browser: Checkout or the billing page may have changed the plan (plan D.1).
-                    account.appDidBecomeActive()
-                }
         }
         .defaultSize(width: 1000, height: 700)
         .windowResizability(.contentMinSize)
@@ -91,7 +86,7 @@ struct UncloudApp: App {
         let settings = settings
         let account = account
         return Binding(
-            get: { settings.showInMenuBar && settings.isEnabled && account.showsAppMenus && account.allows(.automaticBackups) },
+            get: { settings.showInMenuBar && settings.isEnabled && account.showsAppMenus },
             set: { settings.showInMenuBar = $0 }
         )
     }
@@ -102,38 +97,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static weak var model: ExportModel?
     /// How long quitting waits for the export to stop and record where it got to.
     static let exportStopTimeout: Duration = .seconds(3)
-    /// The account, for `uncloud://` links (plan D.4). Set once the app has started.
-    @MainActor static weak var account: AccountModel? {
-        didSet {
-            // A link that arrived before the account existed (a cold start) is handled now.
-            guard let account, !pendingURLs.isEmpty else { return }
-            let urls = pendingURLs
-            pendingURLs = []
-            for url in urls {
-                account.handle(url)
-            }
-        }
-    }
-    @MainActor private static var pendingURLs: [URL] = []
-
-    /// Return from Stripe Checkout and the customer portal arrives here, since the app doesn't use `.onOpenURL`.
-    func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls {
-            Task { @MainActor in
-                guard let account = Self.account else {
-                    Self.pendingURLs.append(url)
-                    return
-                }
-                if account.handle(url) {
-                    NSApp.activate()
-                }
-            }
-        }
-    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // While automatic backup is on (and paid for), the app keeps running in the menu bar.
-        let keepsRunning = AutoBackupSettings.isEnabledInDefaults && (Self.account?.allows(.automaticBackups) ?? true)
+        // While automatic backup is on, the app keeps running in the menu bar.
+        let keepsRunning = AutoBackupSettings.isEnabledInDefaults
         return !keepsRunning
     }
 

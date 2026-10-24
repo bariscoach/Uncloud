@@ -5,7 +5,6 @@ import SwiftUI
 /// on the drive is never changed.
 struct CleanupView: View {
     @Environment(ExportModel.self) private var model
-    @Environment(AccountModel.self) private var account
 
     var body: some View {
         Group {
@@ -62,7 +61,6 @@ struct CleanupGridView: View {
     @State private var backedUp: Set<String> = []
     @State private var knownBytes: [String: Int64] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(AccountModel.self) private var account
 
     /// The list the picker shows.
     private var browser: LibraryBrowser {
@@ -80,7 +78,6 @@ struct CleanupGridView: View {
 
     var body: some View {
         Group {
-            // Delete from iCloud is locked as a whole by MainWindow for free accounts, so this view never shows the lock.
             if cleanup.mode == .recentlyDeleted, browser.count == 0 {
                 ContentUnavailableView("No Recently Deleted Photos", systemImage: "trash")
             } else if browser.count != nil {
@@ -131,11 +128,6 @@ struct CleanupGridView: View {
                     notBackedUp: notBackedUpCount,
                     onCancel: { cleanup.cancelConfirmation() },
                     onDelete: { typed in
-                        // The plan can lapse while this sheet is open. A library delete then closes it instead (L6).
-                        guard Self.mayStart(mode: cleanup.mode, allowsCleanUp: account.allows(.cleanUpICloud)) else {
-                            cleanup.cancelConfirmation()
-                            return
-                        }
                         cleanup.start(typed: typed)
                     }
                 )
@@ -144,11 +136,6 @@ struct CleanupGridView: View {
                     count: cleanup.pendingCount,
                     onCancel: { cleanup.cancelConfirmation() },
                     onRecover: {
-                        // A lapse while this sheet is open closes it instead, as for a delete.
-                        guard Self.mayStart(mode: cleanup.mode, allowsCleanUp: account.allows(.cleanUpICloud)) else {
-                            cleanup.cancelConfirmation()
-                            return
-                        }
                         cleanup.recover()
                     }
                 )
@@ -215,11 +202,6 @@ struct CleanupGridView: View {
     private var notBackedUpCount: Int {
         let backedUpSelected = backedUp.filter { cleanup.selection.contains($0) }.count
         return max(0, cleanup.pendingCount - backedUpSelected)
-    }
-
-    /// Deleting from the library and recovering from Recently Deleted both need Plus at the moment they start.
-    static func mayStart(mode: ICloudCleanup.Mode, allowsCleanUp: Bool) -> Bool {
-        allowsCleanUp
     }
 
     /// Three items: the mode picker in the centre, then Select with its filter, then the main action, which stays last.
