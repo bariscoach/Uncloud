@@ -589,6 +589,90 @@ struct BrowseBackupTests {
         }
     }
 
+    // MARK: - Index: after an export
+
+    @Test @MainActor func indexStartedDuringAnExportListsFilesWrittenBeforeTheExportEnds() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let drive = root.appending(path: "Drive", directoryHint: .isDirectory)
+            let store = BrowseIndexStore(directory: root.appending(path: "Index", directoryHint: .isDirectory))
+            try FileManager.default.createDirectory(at: drive, withIntermediateDirectories: true)
+            try writeFile("a", to: "2024/07/IMG_1.jpg", in: drive)
+            try ExportManifest.appendRecords([(key: "icloud-id:1", paths: ["2024/07/IMG_1.jpg"])], in: drive)
+
+            let export = ExportStub(isRunning: true)
+            let browse = BrowseBackup(store: store, namer: FakeNamer(answers: [:]), isExportRunning: { export.check() })
+            browse.update(destination: drive, name: "Drive", isConnected: true)
+            for _ in 0..<200 where !browse.isPaused {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+
+            // The export writes its file while the index waits, then ends.
+            try writeFile("b", to: "2024/07/IMG_2.jpg", in: drive)
+            try ExportManifest.appendRecords([(key: "icloud-id:2", paths: ["2024/07/IMG_2.jpg"])], in: drive)
+            export.isRunning = false
+            for _ in 0..<200 where browse.isIndexing {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            #expect(Set(browse.entries.keys) == ["2024/07/IMG_1.jpg", "2024/07/IMG_2.jpg"])
+        }
+    }
+
+    @Test @MainActor func refreshDuringAnIndexRunsOneMorePassThatPicksUpANewFile() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let drive = root.appending(path: "Drive", directoryHint: .isDirectory)
+            let store = BrowseIndexStore(directory: root.appending(path: "Index", directoryHint: .isDirectory))
+            try FileManager.default.createDirectory(at: drive, withIntermediateDirectories: true)
+            try writeFile("a", to: "2024/07/IMG_1.jpg", in: drive)
+            try ExportManifest.appendRecords([(key: "icloud-id:1", paths: ["2024/07/IMG_1.jpg"])], in: drive)
+
+            // The index lists the drive, then pauses before its first file, as if an export had just started.
+            let export = ExportStub(isRunning: false)
+            export.pausedChecks = [2]
+            let browse = BrowseBackup(store: store, namer: FakeNamer(answers: [:]), isExportRunning: { export.check() })
+            browse.update(destination: drive, name: "Drive", isConnected: true)
+            for _ in 0..<200 where !browse.isPaused {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+
+            // The export ends after writing a file the listing didn't see. Refresh asks for another pass.
+            try writeFile("b", to: "2024/07/IMG_2.jpg", in: drive)
+            try ExportManifest.appendRecords([(key: "icloud-id:2", paths: ["2024/07/IMG_2.jpg"])], in: drive)
+            browse.refresh()
+            #expect(browse.isIndexing)
+            for _ in 0..<400 where browse.isIndexing {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            #expect(browse.isIndexing == false)
+            #expect(Set(browse.entries.keys) == ["2024/07/IMG_1.jpg", "2024/07/IMG_2.jpg"])
+        }
+    }
+
+    @Test @MainActor func refreshWithNoRunningIndexStartsOne() async throws {
+        try await withTemporaryDirectoryAsync { root in
+            let drive = root.appending(path: "Drive", directoryHint: .isDirectory)
+            let store = BrowseIndexStore(directory: root.appending(path: "Index", directoryHint: .isDirectory))
+            try FileManager.default.createDirectory(at: drive, withIntermediateDirectories: true)
+            try writeFile("a", to: "2024/07/IMG_1.jpg", in: drive)
+            try ExportManifest.appendRecords([(key: "icloud-id:1", paths: ["2024/07/IMG_1.jpg"])], in: drive)
+
+            let browse = BrowseBackup(store: store, namer: FakeNamer(answers: [:]), isExportRunning: { false })
+            browse.update(destination: drive, name: "Drive", isConnected: true)
+            for _ in 0..<200 where browse.isIndexing {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            #expect(Set(browse.entries.keys) == ["2024/07/IMG_1.jpg"])
+
+            try writeFile("b", to: "2024/07/IMG_2.jpg", in: drive)
+            try ExportManifest.appendRecords([(key: "icloud-id:2", paths: ["2024/07/IMG_2.jpg"])], in: drive)
+            browse.refresh()
+            #expect(browse.isIndexing)
+            for _ in 0..<200 where browse.isIndexing {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            #expect(Set(browse.entries.keys) == ["2024/07/IMG_1.jpg", "2024/07/IMG_2.jpg"])
+        }
+    }
+
     // MARK: - Dates and sort order
 
     private func isolatedDefaults() -> (defaults: UserDefaults, suite: String) {
@@ -853,6 +937,24 @@ final class FakeClock: @unchecked Sendable {
         let value = now
         now += step
         return value
+    }
+}
+
+/// Stands in for the export that the index waits on. `check` is what the index's pause asks, once before the drive is
+/// listed and once before each file. `pausedChecks` are check numbers that find an export running.
+@MainActor
+final class ExportStub {
+    var isRunning: Bool
+    private(set) var checks = 0
+    var pausedChecks: Set<Int> = []
+
+    init(isRunning: Bool) {
+        self.isRunning = isRunning
+    }
+
+    func check() -> Bool {
+        checks += 1
+        return isRunning || pausedChecks.contains(checks)
     }
 }
 

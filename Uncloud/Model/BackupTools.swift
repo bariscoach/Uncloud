@@ -8,12 +8,19 @@ final class BackupTools {
     let browse: BrowseBackup
 
     init(model: ExportModel) {
-        browse = BrowseBackup(
+        let browse = BrowseBackup(
             isExportRunning: { [weak model] in
                 model.map { $0.isExporting || $0.isEngineRunning } ?? false
             },
             iCloudCatalog: BackupTools.browseICloudCatalog
         )
+        self.browse = browse
+        // Browse refreshes when a run ends, whichever pane is showing. The app's own handler runs first and is kept.
+        let previous = model.onRunFinished
+        model.onRunFinished = { [weak browse] in
+            previous()
+            browse?.refresh()
+        }
     }
 
     /// The iCloud catalog Browse reads for a destination: the signed-in account's (R18). A destination exported with

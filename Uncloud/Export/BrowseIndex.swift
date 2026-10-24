@@ -181,7 +181,8 @@ enum BrowseIndexer {
     ///   - read: Reads one file. Nil reads it with `BrowseMetadata.read`, which takes its sidecar check from the listing.
     ///   - iCloudMetadata: From `iCloudMetadata(in:catalog:)`. A new or changed file with a date here is indexed from it
     ///     and not read. Files without a date are read.
-    ///   - waitWhilePaused: Called before each file. It returns when reading may go on, such as after an export ends.
+    ///   - waitWhilePaused: Called before the drive is listed and before each file. It returns when reading may go on,
+    ///     such as after an export ends.
     ///   - progress: Files handled so far, out of the total. Called every 200 files and at the end.
     ///   - persist: The entries so far. Called every 1,000 files, but no more often than every `minimumSaveInterval`
     ///     seconds by `clock`, and at the end and when the update stops early, so a large drive resumes.
@@ -200,6 +201,8 @@ enum BrowseIndexer {
         let destinationPath = destination.path(percentEncoded: false)
         guard FileManager.default.fileExists(atPath: destinationPath) else { throw BrowseIndexError.driveUnavailable }
 
+        // Wait before listing, so a run that starts during an export lists the drive once the export has written its files.
+        try await waitWhilePaused()
         let paths = mediaPaths(in: destination)
         let listing = BrowseDriveListing.build(paths: paths, in: destination)
         var entries = previous

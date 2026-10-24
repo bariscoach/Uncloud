@@ -238,6 +238,9 @@ final class BrowseBackup {
     @ObservationIgnored let iCloudCatalog: @Sendable (URL) async -> ICloudCatalog?
     @ObservationIgnored private let readMetadata: @Sendable (URL) async -> BrowseMetadata
     @ObservationIgnored private var indexTask: Task<Void, Never>?
+    /// Set when an export ends while an index is running. That index may have listed the drive before the export wrote
+    /// its files, so it's followed by one more pass.
+    @ObservationIgnored private var needsAnotherPass = false
     /// The camera reads in progress, by path, so a second request waits for the first.
     @ObservationIgnored private var cameraTasks: [String: Task<String, Never>] = [:]
     @ObservationIgnored private var nameTask: Task<Void, Never>?
@@ -416,6 +419,7 @@ final class BrowseBackup {
         if url?.standardizedFileURL != destination?.standardizedFileURL {
             indexTask?.cancel()
             indexTask = nil
+            needsAnotherPass = false
             destination = url
             destinationName = name
             progress = nil
@@ -435,12 +439,24 @@ final class BrowseBackup {
         guard let url, connected else {
             indexTask?.cancel()
             indexTask = nil
+            needsAnotherPass = false
             progress = nil
             isIndexing = false
             return
         }
         guard indexTask == nil else { return }
         startIndexing(url)
+    }
+
+    /// Brings the index up to date with the drive after an export ends, whichever pane is showing. Starts an index when
+    /// none is running; otherwise the running one is followed by one more pass.
+    func refresh() {
+        guard let destination, isConnected else { return }
+        if indexTask != nil {
+            needsAnotherPass = true
+        } else {
+            startIndexing(destination)
+        }
     }
 
     private func startIndexing(_ url: URL) {
@@ -539,6 +555,10 @@ final class BrowseBackup {
         indexTask = nil
         rebuild()
         fitGeneration += 1
+        if needsAnotherPass {
+            needsAnotherPass = false
+            startIndexing(url)
+        }
     }
 
     private func driveDisappeared(_ url: URL) {
@@ -547,6 +567,7 @@ final class BrowseBackup {
         progress = nil
         isIndexing = false
         indexTask = nil
+        needsAnotherPass = false
     }
 
     private func indexStopped(_ url: URL) {
@@ -555,6 +576,7 @@ final class BrowseBackup {
         isPaused = false
         isIndexing = false
         indexTask = nil
+        needsAnotherPass = false
     }
 
     /// Rebuilds the places and the dates from `entries`. The dates are built in the background, unless `synchronously`.
