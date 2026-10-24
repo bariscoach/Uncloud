@@ -14,6 +14,7 @@ struct ExportCommands: Commands {
     @FocusedValue(\.cleanupCommand) private var cleanup
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system
 
     var body: some Commands {
         // Uncloud ▸ Account Settings…, the plan action and Sign Out of Uncloud…, after Settings… (plan §1.3).
@@ -98,6 +99,18 @@ struct ExportCommands: Commands {
                 .disabled(model.pane != .browse || !account.allows(.browseBackup))
 
                 Divider()
+            }
+        }
+
+        // The same setting as Settings › General.
+        CommandGroup(after: .sidebar) {
+            Menu("Appearance") {
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppAppearance.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
             }
         }
 
