@@ -54,7 +54,16 @@ enum ReorganizePlanner {
     static func plan(_ input: Input) -> Plan {
         var files: [File] = []
         var claimed = Set<String>()
-        for key in input.records.keys.sorted() {
+        // Google Takeout files never move: they're claimed first, so no other item takes their names, and they
+        // aren't counted as staying either.
+        var googleNames = Set<String>()
+        for key in input.records.keys where key.hasPrefix(ExportManifest.googleKeyPrefix) {
+            for name in input.records[key] ?? [] where input.rootListing[name] != nil {
+                googleNames.insert(name)
+            }
+        }
+        claimed.formUnion(googleNames)
+        for key in input.records.keys.sorted() where !key.hasPrefix(ExportManifest.googleKeyPrefix) {
             let names = Set(input.records[key] ?? [])
                 .filter { isMovable($0, in: input.rootListing) && !claimed.contains($0) }
                 .sorted()
@@ -138,7 +147,7 @@ enum ReorganizePlanner {
             months: months,
             renamedForICloud: renamed,
             collisions: suffixed.count,
-            staying: input.rootListing.count - moves.count
+            staying: input.rootListing.count - moves.count - googleNames.count
         )
     }
 

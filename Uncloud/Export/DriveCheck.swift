@@ -425,7 +425,11 @@ enum DriveCheck {
         var isApproximate = false
         switch source {
         case .photosLibrary:
-            let ids = records.keys.filter { !$0.hasPrefix(ExportManifest.iCloudPathPrefix) && !$0.hasPrefix("icloud-") }
+            // Google Takeout records are keyed by file checksum, not by library ID: they aren't Photos items.
+            let ids = records.keys.filter {
+                !$0.hasPrefix(ExportManifest.iCloudPathPrefix) && !$0.hasPrefix("icloud-")
+                    && !$0.hasPrefix(ExportManifest.googleKeyPrefix)
+            }
             count = ids.count { selection.contains($0) && (libraryIDs?.contains($0) ?? true) }
         case .iCloud:
             let items = ICloudItemCount.count(records: records, selection: selection, layout: layout)

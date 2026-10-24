@@ -24,6 +24,9 @@ final class ExportManifest {
     static let iCloudPartialPrefix = "icloud-partial:"
     /// Journal key prefix for files recorded by path, without an asset ID (icloudpd runs, the drive check).
     static let iCloudPathPrefix = "icloud:"
+    /// Journal key prefix for files imported from Google Takeout, keyed by the file's SHA-256: `google:<sha256>`.
+    /// Takeout items have no library ID. Readers that count iCloud or Photos items must skip these records.
+    static let googleKeyPrefix = "google:"
 
     private let destination: URL
     private let journalURL: URL
@@ -34,8 +37,9 @@ final class ExportManifest {
     private let checksumJournal: FileHandle
     private var exportedIDs: Set<String>
 
-    /// Opens the manifest for a new run and marks the run as in progress.
-    init(destination: URL) throws {
+    /// Opens the manifest for a new run and marks the run as in progress. `marksRun: false` opens it without that
+    /// marker, for work that isn't an export run (the Google Takeout import keeps its own journal).
+    init(destination: URL, marksRun: Bool = true) throws {
         self.destination = destination
         let directory = Self.folder(in: destination)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -49,7 +53,9 @@ final class ExportManifest {
 
         markerURL = directory.appending(path: Self.markerName)
         layoutURL = directory.appending(path: Self.layoutName)
-        try Data().write(to: markerURL)
+        if marksRun {
+            try Data().write(to: markerURL)
+        }
     }
 
     deinit {
@@ -413,7 +419,8 @@ final class ExportManifest {
         return changed ? Data(fields.joined(separator: "\t").utf8) : line
     }
 
-    private static func folder(in destination: URL) -> URL {
+    /// The hidden `.photo-export` folder inside a destination, where the manifest files live.
+    static func folder(in destination: URL) -> URL {
         destination.appending(path: folderName, directoryHint: .isDirectory)
     }
 
@@ -452,7 +459,7 @@ final class ExportManifest {
     }
 
     /// Whether a file ends in the middle of a line, read from its last two bytes only.
-    private static func endsMidLine(at url: URL) -> Bool {
+    static func endsMidLine(at url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
         guard let size = try? handle.seekToEnd(), size > 0 else { return false }
@@ -469,7 +476,7 @@ final class ExportManifest {
 
     /// Opens a file for appending, creating it if needed. A partial last line is cut off first: readers
     /// already skip it, and finishing it with a newline would make it a complete, wrong record.
-    private static func openForAppending(_ url: URL, endsMidLine: Bool) throws -> FileHandle {
+    static func openForAppending(_ url: URL, endsMidLine: Bool) throws -> FileHandle {
         ManifestTextCache.invalidate(url)
         if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             try Data().write(to: url)

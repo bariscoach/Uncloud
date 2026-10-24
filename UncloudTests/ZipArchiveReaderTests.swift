@@ -181,7 +181,7 @@ struct ZipArchiveReaderTests {
 
     @Test func largeStoredEntryStreamsInChunksOfAtMostOneMebibyte() throws {
         let payload = Data((0..<(2 * 1024 * 1024 + 123)).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ ($0 >> 9)) })
-        let archive = Self.storedArchive(name: "big/payload.bin", payload: payload)
+        let archive = ZipTestArchive.stored(path: "big/payload.bin", payload: payload)
 
         try withTemporaryDirectory { folder in
             let reader = try open(archive, in: folder)
@@ -200,75 +200,51 @@ struct ZipArchiveReaderTests {
         }
     }
 
-    // MARK: - In-memory archive builder for multi-chunk tests
+    @Test func multiChunkDeflatedEntryRoundTripsAndChecksCRC() throws {
+        // Three MiB that compress well, so the entry inflates in several output chunks of at most one MiB.
+        let payload = Data((0..<(3 * 1024 * 1024 + 4567)).map { index in
+            UInt8(truncatingIfNeeded: (index % 4093) ^ (index / 4093))
+        })
+        let archive = ZipTestArchive.archive([
+            ZipTestArchive.member(path: "big/deflated.bin", payload: payload, deflated: true),
+        ])
 
-    private static func littleEndian<T: FixedWidthInteger>(_ value: T) -> Data {
-        withUnsafeBytes(of: value.littleEndian) { Data($0) }
-    }
+        try withTemporaryDirectory { folder in
+            let reader = try open(archive, in: folder)
+            let big = try entry(reader, named: "big/deflated.bin")
+            #expect(big.method == 8)
+            #expect(big.uncompressedSize == UInt64(payload.count))
+            #expect(big.compressedSize < big.uncompressedSize)
 
-    /// Bitwise CRC-32, deliberately a different implementation from the reader's table.
-    private static func bitwiseCRC32(_ data: Data) -> UInt32 {
-        var crc: UInt32 = 0xFFFF_FFFF
-        for byte in data {
-            crc ^= UInt32(byte)
-            for _ in 0..<8 {
-                crc = crc & 1 == 1 ? (crc >> 1) ^ 0xEDB8_8320 : crc >> 1
+            let url = folder.appending(path: "deflated.out")
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            var sizes: [Int] = []
+            do {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try reader.extract(big, to: handle) { sizes.append($0.count) }
             }
+
+            #expect(sizes.count >= 3)
+            #expect(sizes.allSatisfy { $0 <= 1 << 20 })
+            #expect(sizes.reduce(0, +) == payload.count)
+            #expect(try Data(contentsOf: url) == payload)
         }
-        return ~crc
     }
 
-    /// A zip with one stored entry, written in memory. Its payload is too big for a fixture.
-    private static func storedArchive(name: String, payload: Data) -> Data {
-        let nameBytes = Data(name.utf8)
-        let crc = bitwiseCRC32(payload)
-        let size = UInt32(payload.count)
+    @Test func deflatedEntryWithWrongCRCIsCorrupt() throws {
+        let payload = Data(repeating: 0x41, count: 5000)
+        let archive = ZipTestArchive.archive([
+            ZipTestArchive.member(path: "bad.bin", payload: payload, deflated: true, crcOverride: 0xDEAD_BEEF),
+        ])
 
-        var archive = Data()
-        archive.append(littleEndian(UInt32(0x0403_4b50)))
-        archive.append(littleEndian(UInt16(20)))
-        archive.append(littleEndian(UInt16(0)))
-        archive.append(littleEndian(UInt16(0)))
-        archive.append(littleEndian(UInt16(0)))
-        archive.append(littleEndian(UInt16(0)))
-        archive.append(littleEndian(crc))
-        archive.append(littleEndian(size))
-        archive.append(littleEndian(size))
-        archive.append(littleEndian(UInt16(nameBytes.count)))
-        archive.append(littleEndian(UInt16(0)))
-        archive.append(nameBytes)
-        archive.append(payload)
-
-        let directoryOffset = UInt32(archive.count)
-        var directory = Data()
-        directory.append(littleEndian(UInt32(0x0201_4b50)))
-        directory.append(littleEndian(UInt16(20)))
-        directory.append(littleEndian(UInt16(20)))
-        directory.append(littleEndian(UInt16(0)))
-        directory.append(littleEndian(UInt16(0)))
-        directory.append(littleEndian(UInt16(0)))
-        directory.append(littleEndian(UInt16(0)))
-        directory.append(littleEndian(crc))
-        directory.append(littleEndian(size))
-        directory.append(littleEndian(size))
-        directory.append(littleEndian(UInt16(nameBytes.count)))
-        directory.append(littleEndian(UInt16(0)))
-        directory.append(littleEndian(UInt16(0)))
-        directory.append(littleEndian(UInt16(0)))
-        directory.append(littleEndian(UInt16(0)))
-        directory.append(littleEndian(UInt32(0)))
-        directory.append(littleEndian(UInt32(0)))
-        directory.append(nameBytes)
-        archive.append(directory)
-
-        archive.append(littleEndian(UInt32(0x0605_4b50)))
-        archive.append(littleEndian(UInt16(0)))
-        archive.append(littleEndian(UInt16(0)))
-        archive.append(littleEndian(UInt16(1)))
-        archive.append(littleEndian(UInt16(1)))
-        archive.append(littleEndian(UInt32(directory.count)))
-        archive.append(littleEndian(directoryOffset))
-        archive.append(littleEndian(UInt16(0)))
-        return archive
+        try withTemporaryDirectory { folder in
+            let reader = try open(archive, in: folder)
+            let bad = try entry(reader, named: "bad.bin")
+            let error = #expect(throws: ZipError.self) {
+                _ = try reader.data(for: bad, limit: 1 << 20)
+            }
+            #expect(Self.caseName(error) == "corrupt")
+        }
     }
 }
