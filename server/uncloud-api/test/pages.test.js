@@ -61,12 +61,9 @@ test('the final copy is present verbatim', () => {
       'Uncloud is free. There are no paid plans.',
       'Uncloud doesn’t need an Uncloud account.',
       'Uncloud only deletes photos you select, and only after you confirm.',
-      'Uncloud is also not affiliated with Google LLC. Google Photos and Google Takeout are trademarks of Google LLC.',
-      'import photos and videos from a Google Takeout download',
     ],
     'public/privacy.html': [
       'Uncloud has no accounts. Your photos and your Apple account never reach us',
-      'Uncloud reads them on your Mac; nothing is sent to Google or to us.',
     ],
   };
   for (const [page, strings] of Object.entries(copy)) {
