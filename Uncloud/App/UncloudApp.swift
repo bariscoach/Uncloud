@@ -131,6 +131,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        AppAppearance.applyStored()
+        // The Settings window and the View menu both write the setting through @AppStorage, so watch the defaults.
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { AppAppearance.applyStored() }
+        }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // While automatic backup is on (and paid for), the app keeps running in the menu bar.
         let keepsRunning = AutoBackupSettings.isEnabledInDefaults && (Self.account?.allows(.automaticBackups) ?? true)

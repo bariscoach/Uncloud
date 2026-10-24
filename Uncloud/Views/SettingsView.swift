@@ -53,11 +53,21 @@ struct SettingsView: View {
 /// The General tab: login and menu bar options.
 struct GeneralSettingsForm: View {
     @Environment(AutoBackupSettings.self) private var settings
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system
 
     var body: some View {
         @Bindable var settings = settings
 
         Form {
+            Section("Appearance") {
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppAppearance.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             Section {
                 Toggle("Open at login", isOn: $settings.openAtLogin)
                 if let error = settings.loginItemError {
