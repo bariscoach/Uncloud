@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfig, requireEnv, stripeModeOf, ConfigError } from '../lib/config.js';
+import { loadConfig, requireEnv, ConfigError } from '../lib/config.js';
 import { FAKE_RESTRICTED_TEST_KEY, FAKE_RESTRICTED_LIVE_KEY } from './fixtures/keys.js';
 
 test('a missing secret throws a ConfigError that names the variable and never its value', () => {
@@ -32,13 +32,6 @@ test('the signing key getter names only its variable', () => {
   const config = loadConfig({ ENTITLEMENT_SIGNING_KEY: 'FAKE_TEST_ONLY' });
   assert.equal(config.entitlementSigningKey, 'FAKE_TEST_ONLY');
   assert.throws(() => loadConfig({}).entitlementSigningKey, /ENTITLEMENT_SIGNING_KEY/);
-});
-
-test('the health check reads its mode from the key prefix', () => {
-  assert.equal(stripeModeOf(FAKE_RESTRICTED_TEST_KEY), 'test');
-  assert.equal(stripeModeOf(FAKE_RESTRICTED_LIVE_KEY), 'live');
-  assert.equal(stripeModeOf('pk_test_FAKE'), null, 'publishable keys are not accepted');
-  assert.equal(stripeModeOf(''), null);
 });
 
 test('waitlist origins default to the app site, trimmed and split', () => {

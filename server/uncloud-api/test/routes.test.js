@@ -50,13 +50,9 @@ test('me gives every account the same plan and never reads the database', async 
 
 // ---- GET /v1/health ------------------------------------------------------
 
-test('health is unauthenticated and reports livemode from the key prefix', async () => {
-  const test = await json(health({ STRIPE_SECRET_KEY: FAKE_RESTRICTED_TEST_KEY }));
-  assert.deepEqual(test.body, { ok: true, livemode: false });
-  const none = await json(health({}));
-  assert.deepEqual(none.body, { ok: true, livemode: false });
-  const live = await json(health({ STRIPE_SECRET_KEY: FAKE_RESTRICTED_LIVE_KEY }));
-  assert.deepEqual(live.body, { ok: true, livemode: true });
+test('health is unauthenticated', async () => {
+  const response = await json(health());
+  assert.deepEqual(response.body, { ok: true });
 });
 
 // ---- unknown /v1 paths (review L5) -----------------------------------------

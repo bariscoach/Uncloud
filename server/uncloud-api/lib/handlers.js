@@ -2,7 +2,6 @@
 // Supabase, auth, the clock and the signing key.
 
 import { apiError, json, noContent, readJSON, logEvent } from './http.js';
-import { stripeModeOf } from './config.js';
 import { enforceRateLimit, clientAddress } from './ratelimit.js';
 import { permanentEntitlement, signEntitlement } from './entitlement.js';
 import { deleteAccountFor } from './account.js';
@@ -10,10 +9,9 @@ import { deleteAccountFor } from './account.js';
 // Account deletion: five attempts an hour per user (plan §4.1).
 const DELETE_LIMIT = { limit: 5, windowSeconds: 60 * 60 };
 
-// GET /v1/health: no auth, no secrets. livemode comes from the key prefix when it is set.
-export function health(env = process.env) {
-  const mode = stripeModeOf(env.STRIPE_SECRET_KEY ?? '');
-  return json({ ok: true, livemode: mode === 'live' });
+// GET /v1/health: no auth, no secrets.
+export function health() {
+  return json({ ok: true });
 }
 
 // GET /v1/me. Needs a valid Supabase access token; no database or payment lookup.

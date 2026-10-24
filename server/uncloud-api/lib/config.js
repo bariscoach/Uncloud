@@ -20,13 +20,6 @@ export function requireEnv(env, name) {
   return value.trim();
 }
 
-// 'test' or 'live' from the key prefix; anything else is null. Used by GET /v1/health only.
-export function stripeModeOf(key) {
-  if (/^[rs]k_test_/.test(key)) return 'test';
-  if (/^[rs]k_live_/.test(key)) return 'live';
-  return null;
-}
-
 export function loadConfig(env = process.env) {
   const config = {
     // Exact-match origins allowed to POST /v1/waitlist (comma-separated env).
