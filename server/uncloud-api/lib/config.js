@@ -2,7 +2,7 @@
 // read when a route asks for them (getters), so a route never fails because of a
 // variable it does not use. Errors name the variable, never its value.
 
-export const DEFAULT_WAITLIST_ORIGINS = 'https://uncloud-app.vercel.app';
+export const DEFAULT_WAITLIST_ORIGINS = 'https://getuncloud.vercel.app,https://uncloud-app.vercel.app';
 
 // TODO(owner): the support address appears in the static pages (public/terms.html, public/privacy.html).
 

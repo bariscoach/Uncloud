@@ -35,7 +35,7 @@ test('the signing key getter names only its variable', () => {
 });
 
 test('waitlist origins default to the app site, trimmed and split', () => {
-  assert.deepEqual(loadConfig({}).waitlistOrigins, ['https://uncloud-app.vercel.app']);
+  assert.deepEqual(loadConfig({}).waitlistOrigins, ['https://getuncloud.vercel.app', 'https://uncloud-app.vercel.app']);
   assert.deepEqual(
     loadConfig({ WAITLIST_ALLOWED_ORIGINS: ' https://a.test , https://b.test ,' }).waitlistOrigins,
     ['https://a.test', 'https://b.test'],

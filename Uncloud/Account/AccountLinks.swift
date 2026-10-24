@@ -10,7 +10,7 @@ enum AccountLinks {
     }
 
     /// The public website, for Help › Uncloud Website.
-    static let website = URL(string: "https://uncloud-app.vercel.app")!
+    static let website = URL(string: "https://getuncloud.vercel.app")!
 
     /// Used when no live server is configured (preview and off builds).
     static let fallback = URL(string: "https://github.com/bariscoach/Uncloud#readme")!
