@@ -86,7 +86,7 @@ test('the install section has an id, the hero link, and three steps', () => {
   assert.equal([...html.matchAll(/<li class="install-card">/g)].length, 3);
   assert.ok(plain.includes('Open Uncloud.dmg and drag Uncloud to Applications.'));
   assert.ok(plain.includes('System Settings › Privacy &amp; Security and click Open Anyway.'));
-  assert.ok(plain.includes('Create your free Uncloud account and sign in to iCloud Photos.'));
+  assert.ok(plain.includes('Sign in to iCloud Photos and choose your backup drive. No Uncloud account needed.'));
 });
 
 test('the hero, tiles, FAQ and disclaimer copy are present', () => {
@@ -96,7 +96,7 @@ test('the hero, tiles, FAQ and disclaimer copy are present', () => {
     'Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Free.',
     'How It Works',
     'Everything Your Photos Need',
-    'Free. Create an account in the app to start.',
+    'Free. No account, no sign-up.',
     'Your Photos Stay Yours',
     'Questions',
     'Ready to take your photos home?',

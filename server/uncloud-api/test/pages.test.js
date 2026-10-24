@@ -59,12 +59,13 @@ test('the final copy is present verbatim', () => {
     'public/index.html': ['Take Your Photos Home. Export full-quality originals from iCloud to your own drive.', 'This address is Uncloud’s account service. To use Uncloud, open the app on your Mac.'],
     'public/terms.html': [
       'Uncloud is free. There are no paid plans.',
+      'Uncloud doesn’t need an Uncloud account.',
       'Uncloud only deletes photos you select, and only after you confirm.',
       'Uncloud is also not affiliated with Google LLC. Google Photos and Google Takeout are trademarks of Google LLC.',
       'import photos and videos from a Google Takeout download',
     ],
     'public/privacy.html': [
-      'your photos and your Apple account never reach us.',
+      'Uncloud has no accounts. Your photos and your Apple account never reach us',
       'Uncloud reads them on your Mac; nothing is sent to Google or to us.',
     ],
   };
