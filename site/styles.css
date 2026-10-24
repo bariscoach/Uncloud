@@ -1,4 +1,5 @@
-/* Uncloud landing page. Tokens on :root; dark values under prefers-color-scheme. */
+/* Uncloud download page. Tokens on :root; dark values under prefers-color-scheme.
+   All motion sits inside (prefers-reduced-motion: no-preference). Reduced motion shows the static final states. */
 
 :root {
   --bg: #FFFFFF;
@@ -10,8 +11,7 @@
   --accent-text: #1E6FD9;
   --on-accent: #FFFFFF;
   --accent-wash: rgba(30, 111, 217, 0.08);
-  --danger-text: #C0262D;
-  --field-bg: #FFFFFF;
+  --glow: rgba(30, 111, 217, 0.3);
   --scene-stroke: #D5DCE6;
   color-scheme: light dark;
 }
@@ -27,8 +27,7 @@
     --accent-text: #6AA5F2;
     --on-accent: #FFFFFF;
     --accent-wash: rgba(42, 116, 220, 0.16);
-    --danger-text: #FF7A7F;
-    --field-bg: #1C1E22;
+    --glow: rgba(42, 116, 220, 0.4);
     --scene-stroke: #3A3E46;
   }
 }
@@ -53,6 +52,7 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
 img,
@@ -110,15 +110,6 @@ a {
   border: 0;
 }
 
-.hp {
-  position: absolute;
-  left: -10000px;
-  top: auto;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-}
-
 .skip {
   position: absolute;
   left: 16px;
@@ -134,6 +125,62 @@ a {
 
 .skip:focus {
   top: 12px;
+}
+
+/* Buttons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn:hover {
+  filter: brightness(1.06);
+}
+
+.btn-lg {
+  min-height: 56px;
+  padding: 0 28px;
+  border-radius: 14px;
+  font-size: 1.125rem;
+}
+
+.btn-sm {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 0.9375rem;
+}
+
+.btn-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--accent-text);
+  font-weight: 600;
 }
 
 /* Top bar */
@@ -166,7 +213,7 @@ a {
   border-radius: 7px;
 }
 
-/* The wordmark is an inline SVG (brand/uncloud-wordmark.svg) that takes the text colour (currentColor). */
+/* The wordmark is an inline SVG that takes the text colour (currentColor). */
 .wordmark {
   display: block;
   width: auto;
@@ -184,22 +231,6 @@ a {
 .hero-wordmark {
   width: 130px;
   margin: 0 auto 13px;
-}
-
-.topbar-cta {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 0 12px;
-  color: var(--text-2);
-  font-size: 0.9375rem;
-  font-weight: 500;
-  text-decoration: none;
-  border-radius: 10px;
-}
-
-.topbar-cta:hover {
-  color: var(--text);
 }
 
 /* Shared sections */
@@ -242,7 +273,7 @@ a {
 .hero-glow {
   position: absolute;
   inset: 0 0 auto 0;
-  height: 280px;
+  height: 320px;
   background: radial-gradient(ellipse 70% 100% at 50% 0%, var(--accent-wash), transparent 72%);
   pointer-events: none;
 }
@@ -256,7 +287,7 @@ a {
 
 /* The animated hero icon ("sun reveal"). Each layer is the same 112px square as the icon, so the
    percentages below are the same fractions of the icon as in scripts/make-icon.swift. The final
-   state is the base style, so reduced motion (and no animation support) shows the resting icon. */
+   state is the base style, so reduced motion shows the resting icon. */
 .hero-icon {
   position: relative;
   width: 112px;
@@ -282,57 +313,6 @@ a {
   mask-repeat: no-repeat;
 }
 
-/* The cloud starts with its centre on the sun's centre (22.2% right, 22.7% down) and drifts to rest. */
-.hero-cloud {
-  animation: hero-cloud-drift 1.2s ease-out 0.3s both;
-}
-
-.hero-sun {
-  animation: hero-sun-glow 1.2s ease-out 0.3s both;
-}
-
-/* The motion lines fade in once the reveal has finished. */
-.hero-motion {
-  animation: hero-motion-in 0.4s ease-out 1.5s both;
-}
-
-/* The sun's centre is at 52.73% across and 54.10% down. */
-.hero-rays {
-  transform-origin: 52.73% 54.1%;
-  animation: hero-rays-turn 60s linear infinite;
-}
-
-@keyframes hero-cloud-drift {
-  from { transform: translate(22.17%, 22.66%); }
-  to { transform: none; }
-}
-
-@keyframes hero-sun-glow {
-  from { opacity: 0.75; }
-  to { opacity: 1; }
-}
-
-@keyframes hero-motion-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes hero-rays-turn {
-  to { transform: rotate(360deg); }
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  margin-top: 24px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: var(--accent-wash);
-  color: var(--accent-text);
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
 h1 {
   margin-top: 20px;
   font-size: clamp(2.25rem, 6vw, 3.75rem);
@@ -352,150 +332,43 @@ h1 {
   text-wrap: balance;
 }
 
-.spec {
-  margin-top: 16px;
-  color: var(--text-2);
-  font-size: 0.875rem;
-}
+/* Download button group */
 
-/* Sign-up form (both blocks) */
-
-.join {
-  width: 100%;
+.hero-cta {
+  position: relative;
+  isolation: isolate;
+  width: min(100%, 360px);
   margin-top: 32px;
 }
 
-.join-title {
-  margin-bottom: 10px;
-  color: var(--text-2);
-  font-size: 0.9375rem;
-  font-weight: 600;
+.hero-cta .btn {
+  width: 100%;
 }
 
-.join-form {
-  max-width: 480px;
-  margin: 0 auto;
-}
-
-.join-row {
-  display: flex;
-  gap: 8px;
-}
-
-.field {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 48px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--field-bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 1rem;
-}
-
-.field::placeholder {
-  color: var(--text-2);
+/* A soft glow behind the button (the pulse is in the motion block). */
+.hero-cta::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -16px -12px;
+  border-radius: 999px;
+  background: radial-gradient(closest-side, var(--glow), transparent);
   opacity: 0.8;
+  pointer-events: none;
 }
 
-.field[aria-invalid="true"] {
-  border-color: var(--danger-text);
-}
-
-.btn {
-  flex: 0 0 auto;
-  min-height: 48px;
-  padding: 0 22px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn:hover {
-  filter: brightness(1.06);
-}
-
-.btn:disabled {
-  opacity: 0.7;
-  cursor: progress;
-}
-
-.micro {
-  margin-top: 12px;
+.meta {
+  margin-top: 16px;
   color: var(--text-2);
-  font-size: 0.875rem;
-  text-align: center;
-}
-
-.status {
-  min-height: 1.5em;
-  margin-top: 10px;
   font-size: 0.9375rem;
-  text-align: center;
 }
 
-.status.is-error {
-  color: var(--danger-text);
-}
-
-.done {
-  max-width: 480px;
-  margin: 0 auto;
-  padding: 16px 0;
-}
-
-.done-text {
-  font-size: 1.125rem;
+.meta a {
   font-weight: 600;
 }
 
-.done-text:focus {
-  outline: none;
-}
-
-.done-text:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: 4px;
-}
-
-.link-button {
-  min-height: 44px;
-  padding: 10px 12px;
-  border: 0;
-  background: none;
-  color: var(--accent-text);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-  border-radius: 8px;
-}
-
-.noscript-note {
-  max-width: 480px;
-  margin: 0 auto;
-}
-
-@media (max-width: 479px) {
-  .join-row {
-    flex-direction: column;
-  }
-
-  .btn {
-    width: 100%;
-  }
-}
-
-/* Without JavaScript the form cannot submit, so hide it and show the note. */
-html:not(.js) [data-waitlist-form],
-html:not(.js) .status {
-  display: none;
+.meta + .meta {
+  margin-top: 0;
 }
 
 /* Hero scene: cloud, arc, drive and photo cards */
@@ -548,136 +421,16 @@ html:not(.js) .status {
   opacity: 0.25;
   transform-box: fill-box;
   transform-origin: center;
-  animation: land-pulse 1.2s ease-out infinite;
 }
 
-.photo {
-  animation: travel 6s ease-in-out infinite;
+/* Hero icon: the animated logo layers (cloud drift, sun glow, turning rays, motion lines). */
+
+/* The sun's centre is at 52.73% across and 54.10% down. */
+.hero-rays {
+  transform-origin: 52.73% 54.1%;
 }
 
-.photo-1 { animation-delay: 0s; }
-.photo-2 { animation-delay: -1.2s; }
-.photo-3 { animation-delay: -2.4s; }
-.photo-4 { animation-delay: -3.6s; }
-.photo-5 { animation-delay: -4.8s; }
-
-@keyframes travel {
-  0% {
-    transform: translate(150px, 110px);
-    opacity: 0;
-  }
-  10% {
-    transform: translate(150px, 110px);
-    opacity: 1;
-  }
-  25% {
-    transform: translate(221.5px, 65px);
-    opacity: 1;
-  }
-  50% {
-    transform: translate(293px, 50px);
-    opacity: 1;
-  }
-  75% {
-    transform: translate(364.5px, 65px);
-    opacity: 1;
-  }
-  90% {
-    transform: translate(436px, 110px);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(436px, 110px);
-    opacity: 0;
-  }
-}
-
-@keyframes land-pulse {
-  0% {
-    opacity: 0.45;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(2.2);
-  }
-}
-
-/* Pain strip */
-
-.pain-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 48px;
-  list-style: none;
-  max-width: 720px;
-  margin: 40px auto 0;
-  color: var(--text-2);
-  font-size: 1.125rem;
-}
-
-.pain-list li {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.pain-close {
-  margin-top: 32px;
-  color: var(--accent-text);
-  font-size: 1.125rem;
-  font-weight: 600;
-  text-align: center;
-}
-
-@media (max-width: 639px) {
-  .pain-list {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* How it works */
-
-.steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 32px;
-  list-style: none;
-  max-width: 920px;
-  margin: 48px auto 0;
-  text-align: center;
-}
-
-.num {
-  display: inline-grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  margin-bottom: 16px;
-  border-radius: 50%;
-  background: var(--accent-wash);
-  color: var(--accent-text);
-  font-size: 1.125rem;
-  font-weight: 700;
-}
-
-.steps h3 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
-.steps p {
-  color: var(--text-2);
-}
-
-@media (max-width: 719px) {
-  .steps {
-    grid-template-columns: 1fr;
-    gap: 36px;
-  }
-}
-
-/* Feature tiles */
+/* Feature tiles and install steps */
 
 .tiles {
   display: grid;
@@ -688,32 +441,24 @@ html:not(.js) .status {
 }
 
 .tile {
-  position: relative;
-  padding: 24px;
+  padding: 20px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--surface);
 }
 
-.tile-icon {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  margin-bottom: 18px;
+.tile-art {
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--accent-wash);
-  color: var(--accent-text);
+  background: var(--bg);
+  overflow: hidden;
+  aspect-ratio: 2 / 1;
 }
 
-.tile-icon svg {
-  width: 24px;
-  height: 24px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.tile-art svg {
+  width: 100%;
+  height: 100%;
 }
 
 .tile h3 {
@@ -737,6 +482,88 @@ html:not(.js) .status {
 @media (max-width: 639px) {
   .tiles {
     grid-template-columns: 1fr;
+  }
+}
+
+.install-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  list-style: none;
+  max-width: 960px;
+  margin: 48px auto 0;
+}
+
+.install-card {
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.install-card .num {
+  margin-bottom: 16px;
+}
+
+.install-card h3 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.install-card p {
+  color: var(--text-2);
+  font-size: 0.9375rem;
+}
+
+@media (max-width: 719px) {
+  .install-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* How it works */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  list-style: none;
+  max-width: 920px;
+  margin: 48px auto 0;
+  text-align: center;
+}
+
+.num {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  color: var(--accent-text);
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.steps .num {
+  margin-bottom: 16px;
+}
+
+.steps h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.steps p {
+  color: var(--text-2);
+}
+
+@media (max-width: 719px) {
+  .steps {
+    grid-template-columns: 1fr;
+    gap: 36px;
   }
 }
 
@@ -835,10 +662,11 @@ html:not(.js) .status {
 .cta-band {
   padding: 96px 0;
   text-align: center;
+  overflow: hidden;
 }
 
-.cta-band .join {
-  margin-top: 32px;
+.cta-band .hero-cta {
+  margin: 32px auto 0;
 }
 
 @media (max-width: 719px) {
@@ -880,8 +708,432 @@ html:not(.js) .status {
   font-size: 0.8125rem;
 }
 
-/* Motion: no animation, no smooth scroll; photo cards stay at their static spots. */
+/* Feature illustrations (inline SVG, classes only). Static state = final frame. */
 
+.tile-art .cloud-shape {
+  fill: var(--surface);
+  stroke: var(--scene-stroke);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.tile-art .drive-body {
+  fill: var(--surface);
+  stroke: var(--scene-stroke);
+  stroke-width: 1.5;
+}
+
+.tile-art .slot {
+  stroke: var(--border);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.tile-art .light {
+  fill: var(--accent);
+}
+
+.tile-art .c1 { fill: #1E6FD9; }
+.tile-art .c2 { fill: #2BB3A3; }
+.tile-art .c3 { fill: #7C5CFA; }
+.tile-art .c4 { fill: #3CA5E8; }
+.tile-art .c5 { fill: #5BC47A; }
+.tile-art .c6 { fill: #4C6EF5; }
+.tile-art .c7 { fill: #22B8A6; }
+.tile-art .c8 { fill: #2A9D8F; }
+
+.tile-art .track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 6;
+}
+
+.tile-art .ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 6;
+  stroke-dasharray: 163.4;
+  stroke-dashoffset: 0;
+}
+
+.tile-art .check {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 30;
+  stroke-dashoffset: 0;
+}
+
+.tile-art .plug-body,
+.tile-art .plug-prong {
+  fill: var(--text-2);
+}
+
+.tile-art .cal {
+  fill: var(--surface);
+  stroke: var(--scene-stroke);
+  stroke-width: 1.5;
+}
+
+.tile-art .cal-rule {
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.tile-art .day {
+  fill: var(--text-2);
+  opacity: 0.35;
+}
+
+.tile-art .range {
+  fill: var(--accent);
+  fill-opacity: 0.25;
+}
+
+.tile-art .pick {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.tile-art .pin-shape {
+  fill: var(--accent);
+}
+
+.tile-art .pin-dot {
+  fill: var(--on-accent);
+}
+
+.tile-art .tick {
+  fill: var(--accent);
+}
+
+.tile-art .tick-mark {
+  fill: none;
+  stroke: var(--on-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tile-art .label {
+  fill: var(--text-2);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.tile-art .value {
+  fill: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.tile-art .cnt {
+  opacity: 0;
+}
+
+.tile-art .cnt-2 {
+  opacity: 1;
+}
+
+/* Motion. Everything animated lives here; reduced motion gets the static states above. */
+
+@media (prefers-reduced-motion: no-preference) {
+
+  /* Scroll reveal: only hidden when the external script has set html.js. */
+  html.js [data-reveal] {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 500ms ease-out, transform 500ms ease-out;
+  }
+
+  html.js [data-reveal].is-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  html.js .tiles > .tile:nth-child(2) { transition-delay: 70ms; }
+  html.js .tiles > .tile:nth-child(3) { transition-delay: 140ms; }
+  html.js .tiles > .tile:nth-child(4) { transition-delay: 210ms; }
+  html.js .tiles > .tile:nth-child(5) { transition-delay: 280ms; }
+
+  /* Install steps: the numbers draw in one after another. */
+  html.js .install-steps .num {
+    opacity: 0;
+    transform: scale(0.4);
+    transition: opacity 400ms ease-out, transform 500ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  html.js .install-steps.is-in .num {
+    opacity: 1;
+    transform: none;
+  }
+
+  .install-card:nth-child(2) .num { transition-delay: 180ms; }
+  .install-card:nth-child(3) .num { transition-delay: 360ms; }
+
+  /* Hero: the logo layers keep their motion, plus a gentle float and a pulsing glow. */
+  .hero-icon {
+    animation: hero-float 6s ease-in-out infinite;
+  }
+
+  .hero-cloud {
+    animation: hero-cloud-drift 1.2s ease-out 0.3s both;
+  }
+
+  .hero-sun {
+    animation: hero-sun-glow 1.2s ease-out 0.3s both;
+  }
+
+  .hero-motion {
+    animation: hero-motion-in 0.4s ease-out 1.5s both;
+  }
+
+  .hero-rays {
+    animation: hero-rays-turn 60s linear infinite;
+  }
+
+  .hero-cta::before {
+    animation: glow-pulse 4.5s ease-in-out infinite;
+  }
+
+  .hero-cta .btn {
+    transition: transform 200ms ease-out, box-shadow 200ms ease-out, filter 200ms ease-out;
+  }
+
+  .hero-cta .btn:hover,
+  .hero-cta .btn:focus-visible {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px -10px var(--glow);
+  }
+
+  .glow {
+    animation: land-pulse 1.2s ease-out infinite;
+  }
+
+  .photo {
+    animation: travel 6s ease-in-out infinite;
+  }
+
+  .photo-1 { animation-delay: 0s; }
+  .photo-2 { animation-delay: -1.2s; }
+  .photo-3 { animation-delay: -2.4s; }
+  .photo-4 { animation-delay: -3.6s; }
+  .photo-5 { animation-delay: -4.8s; }
+
+  /* Feature 1: photo cards fly from the cloud into the drive. */
+  .tile-art .ph {
+    animation: ex-fly 3.6s ease-in-out infinite;
+  }
+
+  .tile-art .ph-2 { animation-delay: -1.2s; }
+  .tile-art .ph-3 { animation-delay: -2.4s; }
+
+  .tile-art .light {
+    animation: light-pulse 2s ease-in-out infinite;
+  }
+
+  /* Feature 2: a highlighted range sweeps across the days. */
+  .tile-art .range {
+    animation: cal-sweep 3.6s ease-in-out infinite alternate;
+  }
+
+  /* Feature 3: the drive plugs in, the ring fills, the check appears. */
+  .tile-art .plug {
+    animation: plug-in 4.5s ease-out infinite;
+  }
+
+  .tile-art .ring {
+    animation: ring-fill 4.5s ease-in-out infinite;
+  }
+
+  .tile-art .check {
+    animation: check-draw 4.5s ease-in-out infinite;
+  }
+
+  /* Feature 4: a map pin drops onto one thumbnail. */
+  .tile-art .pin {
+    animation: pin-drop 3.6s ease-out infinite;
+  }
+
+  /* Feature 5: cards get checkmarks, fold into the cloud, and the space freed counter ticks up. */
+  .tile-art .del-card {
+    animation: del-card 6s ease-in-out infinite;
+  }
+
+  .tile-art .del-tick {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: del-tick 6s ease-out infinite both;
+  }
+
+  .tile-art .del-tick.b2 { animation-delay: 0.45s; }
+  .tile-art .del-tick.b3 { animation-delay: 0.9s; }
+
+  .tile-art .cnt-0 { animation: cnt-0 6s steps(1, end) infinite; }
+  .tile-art .cnt-1 { animation: cnt-1 6s steps(1, end) infinite; }
+  .tile-art .cnt-2 { animation: cnt-2 6s steps(1, end) infinite; }
+
+}
+
+@keyframes hero-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+@keyframes hero-cloud-drift {
+  from { transform: translate(22.17%, 22.66%); }
+  to { transform: none; }
+}
+
+@keyframes hero-sun-glow {
+  from { opacity: 0.75; }
+  to { opacity: 1; }
+}
+
+@keyframes hero-motion-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes hero-rays-turn {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes travel {
+  0% {
+    transform: translate(150px, 110px);
+    opacity: 0;
+  }
+  10% {
+    transform: translate(150px, 110px);
+    opacity: 1;
+  }
+  25% {
+    transform: translate(221.5px, 65px);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(293px, 50px);
+    opacity: 1;
+  }
+  75% {
+    transform: translate(364.5px, 65px);
+    opacity: 1;
+  }
+  90% {
+    transform: translate(436px, 110px);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(436px, 110px);
+    opacity: 0;
+  }
+}
+
+@keyframes land-pulse {
+  0% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+@keyframes ex-fly {
+  0% { transform: translate(-40px, 0); opacity: 0; }
+  12% { opacity: 1; }
+  85% { transform: translate(64px, 0); opacity: 1; }
+  100% { transform: translate(72px, 0); opacity: 0; }
+}
+
+@keyframes light-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes cal-sweep {
+  from { transform: translateX(0); }
+  to { transform: translateX(42px); }
+}
+
+@keyframes plug-in {
+  0% { transform: translateX(-26px); opacity: 0; }
+  15% { opacity: 1; }
+  30%, 90% { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(0); opacity: 0; }
+}
+
+@keyframes ring-fill {
+  0% { stroke-dashoffset: 163.4; opacity: 1; }
+  55%, 90% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes check-draw {
+  0%, 55% { stroke-dashoffset: 30; opacity: 0; }
+  65% { stroke-dashoffset: 0; opacity: 1; }
+  90% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes pin-drop {
+  0% { transform: translateY(-36px); opacity: 0; }
+  10% { opacity: 1; }
+  35% { transform: translateY(0); }
+  45% { transform: translateY(-5px); }
+  55%, 85% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0; }
+}
+
+@keyframes del-card {
+  0%, 55% { opacity: 1; transform: translateY(0); }
+  68% { opacity: 0; transform: translateY(24px); }
+  90% { opacity: 0; transform: translateY(0); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes del-tick {
+  0% { opacity: 0; transform: scale(0.2); }
+  8% { opacity: 1; transform: scale(1.1); }
+  12% { opacity: 1; transform: scale(1); }
+  62% { opacity: 1; transform: scale(1); }
+  68%, 100% { opacity: 0; transform: scale(0.6); }
+}
+
+@keyframes cnt-0 {
+  0% { opacity: 1; }
+  16% { opacity: 1; }
+  17%, 100% { opacity: 0; }
+}
+
+@keyframes cnt-1 {
+  0%, 16% { opacity: 0; }
+  17% { opacity: 1; }
+  49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes cnt-2 {
+  0%, 50% { opacity: 0; }
+  51% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Reduced motion: no animation, no transitions, no smooth scroll. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
