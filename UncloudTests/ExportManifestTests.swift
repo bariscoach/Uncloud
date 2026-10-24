@@ -139,8 +139,8 @@ struct HashingTests {
     }
 }
 
-@Suite("BackupVerifier")
-struct BackupVerifierTests {
+@Suite("Backup manifest")
+struct BackupManifestTests {
     /// Four items: 1 corrupted, 2 missing a live-photo file, 3 intact, 4 recorded without checksums.
     private func makeBackup(in destination: URL) throws {
         let manifest = try ExportManifest(destination: destination)
@@ -163,31 +163,6 @@ struct BackupVerifierTests {
 
         try Data("CORRUPTED".utf8).write(to: destination.appending(path: "2024/07/1.jpg"))
         try FileManager.default.removeItem(at: destination.appending(path: "2024/07/2-live.mov"))
-    }
-
-    @Test func classifiesVerifiedDamagedUnverifiableAndNotBackedUp() async throws {
-        try await withTemporaryDirectoryAsync { destination in
-            try makeBackup(in: destination)
-            let report = try await BackupVerifier.verify(
-                destination: destination, libraryIDs: ["item1", "item2", "item3", "item4", "extra"]
-            ) { _, _ in }
-            #expect(report.verifiedItemIDs == ["item3"])
-            #expect(report.damagedItemIDs == ["item1", "item2"])
-            #expect(report.unverifiableItemIDs == ["item4"])
-            #expect(report.notBackedUpCount == 1)
-            #expect(report.missingFiles == ["2024/07/2-live.mov"])
-            #expect(report.damagedFiles == ["2024/07/1.jpg"])
-        }
-    }
-
-    @Test func itemIDsLimitTheCheck() async throws {
-        try await withTemporaryDirectoryAsync { destination in
-            try makeBackup(in: destination)
-            let limited = try await BackupVerifier.verify(destination: destination, itemIDs: ["item3", "item4"]) { _, _ in }
-            #expect(limited.verifiedItemIDs == ["item3"])
-            #expect(limited.unverifiableItemIDs == ["item4"])
-            #expect(limited.damagedItemIDs.isEmpty)
-        }
     }
 
     @Test func forgettingDamagedItemsDropsTheirRecordsAndChecksums() async throws {

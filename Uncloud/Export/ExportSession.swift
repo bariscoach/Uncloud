@@ -184,6 +184,7 @@ struct ExportSession: Codable, Identifiable, Equatable, Sendable {
 
     enum Kind: String, Codable, Equatable, Sendable {
         case export
+        /// No longer started by the app. Kept so History still decodes the verify runs saved by earlier versions.
         case verify
         case driveCheck
     }

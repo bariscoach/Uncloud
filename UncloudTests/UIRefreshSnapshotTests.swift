@@ -134,17 +134,13 @@ struct UIRefreshSnapshotTests {
         }
     }
 
-    /// Verify Backup, Session Detail and Landing, in light and dark, for each accent variant. Gated like the others.
+    /// Session Detail and Landing, in light and dark, for each accent variant. Gated like the others.
     @Test func rendersSheetsAndLanding() async throws {
         guard ProcessInfo.processInfo.environment["UNCLOUD_UI_REFRESH_SNAPSHOTS"] != nil else { return }
         let model = ExportModel()
         var images: [(String, NSImage)] = []
         for variant in Self.variants {
             for scheme in [ColorScheme.light, .dark] {
-                let verify = VerifyBackupSheet(verification: BackupVerification(model: model))
-                    .environment(model)
-                images.append(("verify-\(Self.name(scheme))-\(variant)", try #require(await Self.renderWindow(verify, size: NSSize(width: 520, height: 560), scheme: scheme, variant: variant))))
-
                 let session = ExportSessionDetailView(chain: DesignSnapshotTests.sampleChains()[0])
                 images.append(("session-detail-\(Self.name(scheme))-\(variant)", try #require(await Self.renderWindow(session, size: NSSize(width: 560, height: 760), scheme: scheme, variant: variant))))
 

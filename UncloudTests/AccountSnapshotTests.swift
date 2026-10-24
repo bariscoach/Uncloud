@@ -96,17 +96,9 @@ struct AccountSnapshotTests {
             let image = try #require(await Self.renderTitledWindow(main, size: NSSize(width: 1_000, height: 700), scheme: scheme))
             images.append(("locked-browse-\(Self.name(scheme))", image))
 
-            let tools = ToolsPane()
-                .environment(window)
-                .environment(BackupTools(model: window))
-                .environment(free)
-            let toolsImage = try #require(await Self.renderTitledWindow(tools, size: NSSize(width: 1_000, height: 700), scheme: scheme))
-            images.append(("locked-tools-\(Self.name(scheme))", toolsImage))
-
             let rows = List {
                 LockableSidebarRow(title: ExportModel.Pane.browse.title, symbol: ExportModel.Pane.browse.symbol, isLocked: true)
                 LockableSidebarRow(title: ExportModel.Pane.browse.title, symbol: ExportModel.Pane.browse.symbol, isLocked: false)
-                LockableSidebarRow(title: ExportModel.Pane.tools.title, symbol: ExportModel.Pane.tools.symbol, isLocked: true)
                 LockableSidebarRow(title: ExportModel.Pane.cleanup.title, symbol: ExportModel.Pane.cleanup.symbol, isLocked: true)
             }
             .environment(free)
@@ -441,15 +433,15 @@ struct AccountSnapshotTests {
         fresh.require(.browseBackup) {}
 
         let oneYear = try await signedInModel(email: "oneyear@example.com")
-        oneYear.require(.verifyBackup) {}
+        oneYear.require(.automaticBackups) {}
 
         let waiting = try await signedInModel()
-        waiting.require(.findDuplicates) {}
-        await waiting.openCheckout(for: .findDuplicates, renewal: .automatic)
+        waiting.require(.newPhotos) {}
+        await waiting.openCheckout(for: .newPhotos, renewal: .automatic)
 
         let processing = try await signedInModel()
-        processing.require(.freeUpSpace) {}
-        await processing.openCheckout(for: .freeUpSpace, renewal: .automatic)
+        processing.require(.browseBackup) {}
+        await processing.openCheckout(for: .browseBackup, renewal: .automatic)
         _ = processing.handle(URL(string: "uncloud://checkout/success?session_id=cs_test_snapshot")!)
         await processing.refreshTask?.value
 

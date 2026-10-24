@@ -79,7 +79,7 @@ struct WelcomeView: View {
             FeatureRow(
                 title: "Keep It Tidy",
                 symbol: "sparkles",
-                summary: "Browse, verify and find duplicates in your backup. Free up space on this Mac and in iCloud.",
+                summary: "Browse your backup by date, place or map, and delete backed-up photos from iCloud.",
                 badge: "Plus"
             )
         }

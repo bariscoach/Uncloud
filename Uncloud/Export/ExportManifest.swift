@@ -285,31 +285,6 @@ final class ExportManifest {
         }
     }
 
-    /// Drops files that were moved to the Trash from `checksums.tsv` and `files.tsv`, so the next check doesn't look
-    /// for them. The journal isn't touched: the caller rewrites the records first. Don't call while an export runs.
-    static func forgetFiles(_ paths: Set<String>, in destination: URL) throws {
-        guard !paths.isEmpty else { return }
-        let directory = folder(in: destination)
-
-        let checksumsURL = directory.appending(path: checksumsName)
-        if FileManager.default.fileExists(atPath: checksumsURL.path(percentEncoded: false)) {
-            let kept = readLines(at: checksumsURL).lines.filter { line in
-                guard let path = firstField(of: line) else { return false }
-                return !paths.contains(path)
-            }
-            try replaceFile(at: checksumsURL, with: kept.map { $0 + "\n" }.joined())
-        }
-
-        let filesURL = directory.appending(path: filesSnapshotName)
-        if FileManager.default.fileExists(atPath: filesURL.path(percentEncoded: false)) {
-            let kept = readLines(at: filesURL).lines.filter { line in
-                let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-                return !(fields.count >= 2 && fields[0] == "file" && paths.contains(String(fields[1])))
-            }
-            try replaceFile(at: filesURL, with: kept.map { $0 + "\n" }.joined())
-        }
-    }
-
     /// Deletes every resume point in `.photo-export` (one per layout, and the legacy `resume.json`), so the next
     /// whole-library iCloud export walks the whole library instead of continuing from its anchor. Forgotten items
     /// are gone from every layout's point, so all of them go. A missing point reads as "no point"; removing a file
