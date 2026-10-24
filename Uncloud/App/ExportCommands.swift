@@ -126,6 +126,13 @@ struct ExportCommands: Commands {
                     .disabled(!model.canExportAll)
                 }
 
+                // Always listed, also without a folder, where it asks for one first.
+                Button(NewPhotosTitle.exportByDate) {
+                    model.openExportByDate()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .disabled(!model.canOpenExportByDate)
+
                 Divider()
 
                 Button(model.phase == .paused ? "Resume Export" : "Pause Export") {

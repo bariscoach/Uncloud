@@ -161,62 +161,13 @@ struct NewPhotosTests {
 
     // MARK: - Titles
 
-    @Test func primaryTitlePrecedence() {
-        let fallback = "Export All Photos"
-        func title(
-            paused: Bool = false,
-            interrupted: Bool = false,
-            folder: Bool = true,
-            everything: Bool = true,
-            status: Bool = true,
-            backedUp: Int = 0,
-            fallback: String = fallback
-        ) -> String {
-            NewPhotosTitle.primary(
-                isPaused: paused,
-                hasInterruptedRun: interrupted,
-                needsFolder: !folder,
-                isEverything: everything,
-                hasNewPhotosStatus: status,
-                backedUpCount: backedUp,
-                fallback: fallback
-            )
-        }
-        // Paused keeps the fallback, which is Resume.
-        #expect(title(paused: true, fallback: "Resume") == "Resume")
-        // An interrupted run keeps the fallback too, so resuming wins.
-        #expect(title(interrupted: true, fallback: "Resume Export") == "Resume Export")
-        #expect(title(paused: true, backedUp: 1_243, fallback: "Resume") == "Resume")
-        #expect(title(interrupted: true, backedUp: 1_243, fallback: "Resume Export") == "Resume Export")
-        // No folder beats new photos.
-        #expect(title(folder: false) == "Choose Backup Folder…")
-        #expect(title(folder: false, backedUp: 1_243) == "Choose Backup Folder…")
-        // New photos apply to everything only.
-        #expect(title() == "Export Photos by Date…")
-        #expect(title(everything: false, fallback: "Export 3 Photos") == "Export 3 Photos")
-        #expect(title(everything: false, backedUp: 1_243, fallback: "Export 3 Photos") == "Export 3 Photos")
-        // No complete export yet: the default.
-        #expect(title(status: false) == fallback)
-    }
-
-    @Test func newOnlyTitleDoesNotCountWhatIsNotBackedUp() {
-        func title(backedUp: Int, status: Bool = false) -> String {
-            NewPhotosTitle.primary(
-                isPaused: false,
-                hasInterruptedRun: false,
-                needsFolder: false,
-                isEverything: true,
-                hasNewPhotosStatus: status,
-                backedUpCount: backedUp,
-                fallback: "Export All Photos"
-            )
-        }
-        // A folder with backed-up photos: no number, since the sheet counts what it will export.
-        #expect(title(backedUp: 9_207) == "Export Photos by Date…")
-        #expect(title(backedUp: 9_207, status: true) == "Export Photos by Date…")
-        // A first export: nothing backed up, so the default stays, with or without a watermark.
-        #expect(title(backedUp: 0) == "Export All Photos")
-        #expect(title(backedUp: 0, status: true) == "Export Photos by Date…")
+    @Test func primaryTitleIsTheFallbackOrChooseFolder() {
+        // Without a folder the button chooses one, whatever the fallback.
+        #expect(NewPhotosTitle.primary(needsFolder: true, fallback: "Export All Photos") == "Choose Backup Folder…")
+        // With a folder it keeps the fallback. Export Photos by Date has its own control, so the title never names it.
+        #expect(NewPhotosTitle.primary(needsFolder: false, fallback: "Export All Photos") == "Export All Photos")
+        #expect(NewPhotosTitle.primary(needsFolder: false, fallback: "Export 3 Photos") == "Export 3 Photos")
+        #expect(NewPhotosTitle.primary(needsFolder: false, fallback: "Resume Export") == "Resume Export")
     }
 
     @Test func offersNewOnlyMatchesTheTable() {

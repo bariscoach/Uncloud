@@ -216,15 +216,47 @@ extension ExportCancellationTests {
             // The counts are refreshed after the run ends; wait for them rather than reading them at once.
             #expect(await harness.waitFor { model.onDriveCount == 20 && model.toGoCount == 1 })
             #expect(model.offersNewPhotosOnly)
-            #expect(model.primaryExportHelp(total: nil) == NewPhotosTitle.newOnlyHelp)
+            // The primary button exports everything selected, so its help has nothing to add.
+            #expect(model.primaryExportHelp(total: 21) == nil)
             // Items recorded by asset ID count exactly. Path-only records make the count approximate, and then the
-            // title and subtitle drop the number (plan 1.3). Both are the same offer.
-            // The title never carries a count: the sheet counts what it will export.
-            #expect(model.primaryExportTitle(total: nil) == "Export Photos by Date…")
+            // subtitle drops the number (plan 1.3).
+            // The title never carries a count, and never the date range: that has its own control.
+            #expect(model.primaryExportTitle(total: 21) == "Export All Photos")
             // The subtitle's "not backed up" needs iCloud's unlisted items measured by a complete walk, which this run
             // didn't leave behind, so the count is left out rather than shown as 1.
             #expect(model.trustedToGoCount == nil)
             #expect(model.notBackedUpSummary == nil)
+        }
+        await harness.tearDown()
+    }
+
+    /// Export Photos by Date has its own control: it opens the sheet from an idle folder, also with the primary action
+    /// unchanged, and not while an export runs, where the sheet would start a second one.
+    @Test @MainActor func exportByDateOpensTheSheetOnlyWhenItCanExport() async throws {
+        let fixture = try Fixture(icloudpd: ["--total", "20", "--rate", "0"])
+        let harness = ModelHarness(fixture: fixture, timing: Self.waitingResumes)
+        let model = harness.model
+        try await Self.withLibraryCount(21) {
+            #expect(model.destination != nil)
+            #expect(model.canExportByDate)
+            #expect(model.canOpenExportByDate)
+            // The primary action doesn't open the sheet any more, and the title doesn't name it.
+            #expect(model.primaryExportTitle(total: 21) == "Export All Photos")
+
+            model.openExportByDate()
+            #expect(model.isChoosingExportSince)
+            model.isChoosingExportSince = false
+
+            model.startOrResume()
+            #expect(await harness.waitFor { model.isExporting })
+            #expect(!model.canExportByDate)
+            #expect(!model.canOpenExportByDate)
+            model.openExportByDate()
+            #expect(!model.isChoosingExportSince)
+
+            #expect(await harness.waitFor { model.phase == .completed })
+            #expect(await harness.waitFor { !model.isEngineRunning })
+            #expect(model.canExportByDate)
         }
         await harness.tearDown()
     }
@@ -240,8 +272,9 @@ extension ExportCancellationTests {
             #expect(await harness.waitFor { model.phase == .completed })
             #expect(await harness.waitFor { !model.isEngineRunning })
             #expect(model.offersNewPhotosOnly)
-            #expect(model.primaryExportEnabled(total: nil))
-            #expect(model.primaryExportDisabledReason(total: nil) == nil)
+            // The primary button exports the selection, so it needs the library's count, as Export All does.
+            #expect(model.primaryExportEnabled(total: 21))
+            #expect(model.primaryExportDisabledReason(total: 21) == nil)
 
             // A point as a complete walk leaves it: the layout the model uses, with the unlisted count not yet measured.
             var point = ICloudResumePoint(

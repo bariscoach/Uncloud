@@ -42,7 +42,8 @@ struct ExportView: View {
     }
 }
 
-/// The toolbar of the Export pane: Select All or Deselect All, export progress, and the primary button in its own group.
+/// The toolbar of the Export pane: Select All or Deselect All, export progress, Export Photos by Date, and the primary
+/// button in its own group.
 private struct ExportToolbar: ToolbarContent {
     @Environment(ExportModel.self) private var model
     let browser: LibraryBrowser
@@ -91,6 +92,21 @@ private struct ExportToolbar: ToolbarContent {
                 }
                 .help("Resumes on its own. Click to see why.")
                 .accessibilityLabel("Export waiting to resume. Show Export Settings.")
+            }
+        }
+
+        // Export Photos by Date always has its own button, whatever the primary action is. The progress ring replaces it.
+        if !model.isExporting {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    model.openExportByDate()
+                } label: {
+                    Label("By Date…", systemImage: "calendar")
+                        .labelStyle(.titleAndIcon)
+                }
+                .disabled(!model.canOpenExportByDate)
+                .help("Export the photos taken between two dates")
+                .accessibilityLabel("Export Photos by Date")
             }
         }
 

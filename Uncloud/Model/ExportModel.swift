@@ -622,21 +622,36 @@ final class ExportModel {
         isChoosingDestination = true
     }
 
-    /// The primary action of the Library toolbar and the Export menu: picks a folder first when none is set. With new
-    /// photos only, it opens the sheet that exports a date range, instead of starting at once.
+    /// The primary action of the Library toolbar and the Export menu: picks a folder first when none is set, otherwise
+    /// resumes or starts the export.
     func performPrimaryAction() {
         if destination == nil {
             chooseFolderThenExport()
-        } else if opensExportSince {
-            isChoosingExportSince = true
         } else {
             startOrResume()
         }
     }
 
-    /// True when the primary action opens the Export Photos by Date sheet: it offers new photos only, and can start now.
-    var opensExportSince: Bool {
-        offersNewPhotosOnly && canStart
+    /// Whether Export Photos by Date can run now: a folder is set, and nothing is exporting or paused. It stays available
+    /// while an interrupted run waits for Resume, since it is a separate control from the primary action.
+    var canExportByDate: Bool {
+        destination != nil && phase != .paused && canStart
+    }
+
+    /// Whether the Export Photos by Date control is enabled. Without a folder it is enabled when a folder can be
+    /// chosen, which is what it does then.
+    var canOpenExportByDate: Bool {
+        destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady : canExportByDate
+    }
+
+    /// Opens the Export Photos by Date sheet. Without a folder, it asks for one; the sheet is opened again from the
+    /// control once a folder is set.
+    func openExportByDate() {
+        if destination == nil {
+            beginChoosingDestination()
+        } else if canExportByDate {
+            isChoosingExportSince = true
+        }
     }
 
     /// Exports the photos taken from `from` to `to`, as counted by the sheet (`items`, by ID with rank). The saved
@@ -650,19 +665,11 @@ final class ExportModel {
 
     /// Title of the primary action, shared by the Library toolbar and the Export menu.
     func primaryExportTitle(total: Int?) -> String {
-        NewPhotosTitle.primary(
-            isPaused: phase == .paused,
-            hasInterruptedRun: hasIncompleteRun,
-            needsFolder: destination == nil && !isExporting,
-            isEverything: selection.isEverything,
-            hasNewPhotosStatus: newPhotosStatus != nil,
-            backedUpCount: newOnlyBackedUpCount,
-            fallback: exportTitle(total: total)
-        )
+        NewPhotosTitle.primary(needsFolder: destination == nil && !isExporting, fallback: exportTitle(total: total))
     }
 
-    /// True when the primary action exports new photos only (the title's "Export Photos by Date…"), so the help and
-    /// the subtitle can say so. It reads the manifest's counts, not the watermark, so it holds for any history.
+    /// True when the folder holds the backup of everything, so the subtitle can count what is not backed up. It reads
+    /// the manifest's counts, not the watermark, so it holds for any history.
     var offersNewPhotosOnly: Bool {
         NewPhotosTitle.offersNewOnly(
             isPaused: phase == .paused,
@@ -675,7 +682,7 @@ final class ExportModel {
     }
 
     /// The Export pane's subtitle, such as "1,243 not backed up", "about 1,200 not backed up" or "all backed up". Nil
-    /// unless the primary action offers new photos only and the folder has backed-up photos.
+    /// unless the new-photos offer holds and the folder has backed-up photos.
     var notBackedUpSummary: String? {
         guard offersNewPhotosOnly, newOnlyBackedUpCount > 0, let toGo = trustedToGoCount else { return nil }
         if toGo == 0 { return "all backed up" }
@@ -698,7 +705,6 @@ final class ExportModel {
     func primaryExportEnabled(total: Int?) -> Bool {
         if destination == nil { return !isExporting && !isEngineRunning && !isExportBlocked && isSourceReady }
         if phase == .paused || offersResumeExport { return canStart }
-        if opensExportSince { return true }
         return canStart && selection.selectedCount(total: total ?? 0) > 0
     }
 
