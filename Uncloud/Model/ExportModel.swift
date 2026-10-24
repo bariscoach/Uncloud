@@ -19,18 +19,16 @@ final class ExportModel {
     }
 
     /// The sidebar panes of the main window, declared in sidebar order. The sidebar and the View menu both read
-    /// `allCases`, so the order is defined once. The order follows the steps: get photos out, check them, then free
-    /// up iCloud. Tools and Export Settings come after a break.
+    /// `allCases`, so the order is defined once. The order follows the steps: get photos out, then free up iCloud.
+    /// Export Settings comes after a break.
     /// - `export` is Cloud Library, the photo grid and the home pane.
     /// - `browse` is Browse Backup.
     /// - `cleanup` is Delete from iCloud.
-    /// - `tools` is Tools: Verify Backup, Find Duplicates and Free Up Space.
     /// - `backup` is Export Settings: export, progress, backup folder and its settings.
     enum Pane: Hashable, CaseIterable {
         case export
         case browse
         case cleanup
-        case tools
         case backup
 
         var title: String {
@@ -38,7 +36,6 @@ final class ExportModel {
             case .export: "Cloud Library"
             case .backup: "Export Settings"
             case .browse: "Browse Backup"
-            case .tools: "Tools"
             case .cleanup: "Delete from iCloud"
             }
         }
@@ -48,7 +45,6 @@ final class ExportModel {
             case .export: "photo.on.rectangle"
             case .backup: "gearshape"
             case .browse: "photo.stack"
-            case .tools: "wrench.and.screwdriver"
             case .cleanup: "xmark.icloud"
             }
         }
@@ -59,8 +55,7 @@ final class ExportModel {
             case .export: "1"
             case .browse: "2"
             case .cleanup: "3"
-            case .tools: "4"
-            case .backup: "5"
+            case .backup: "4"
             }
         }
     }
@@ -522,15 +517,15 @@ final class ExportModel {
         authorization == .denied || authorization == .restricted
     }
 
-    /// Set by BackupTools: true while a backup check or library cleanup is running, so no export starts mid-check.
-    @ObservationIgnored var isExportBlocked: () -> Bool = { false }
+    /// True while a Delete from iCloud run is going, so no export starts mid-deletion.
+    var isExportBlocked: Bool { iCloudCleanup?.isRunning == true }
 
     /// Set by the app: called when a run ends, whatever its result. The account applies a session revoked during the run (M4).
     @ObservationIgnored var onRunFinished: @MainActor () -> Void = {}
 
     var canStart: Bool {
         if phase == .paused { return true }
-        return !isExporting && !isEngineRunning && !isExportBlocked()
+        return !isExporting && !isEngineRunning && !isExportBlocked
             && destination != nil && destinationIssue == nil && isSourceReady
     }
 
@@ -701,7 +696,7 @@ final class ExportModel {
     /// Whether the primary action can run. Without a folder it only needs a ready source. The New Photos action
     /// opens its sheet, which counts the photos itself, so it doesn't need the library's total.
     func primaryExportEnabled(total: Int?) -> Bool {
-        if destination == nil { return !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady }
+        if destination == nil { return !isExporting && !isEngineRunning && !isExportBlocked && isSourceReady }
         if phase == .paused || offersResumeExport { return canStart }
         if opensExportSince { return true }
         return canStart && selection.selectedCount(total: total ?? 0) > 0
@@ -711,7 +706,7 @@ final class ExportModel {
     func primaryExportDisabledReason(total: Int?) -> String? {
         if primaryExportEnabled(total: total) { return nil }
         if destination == nil {
-            if isExporting || isEngineRunning || isExportBlocked() { return "Another task is running." }
+            if isExporting || isEngineRunning || isExportBlocked { return "Another task is running." }
             return "Your library isn’t ready yet."
         }
         if let reason = startBlockReason { return reason }
@@ -723,7 +718,7 @@ final class ExportModel {
     /// Why `canStart` is false, or nil when it's true.
     private var startBlockReason: String? {
         if phase == .paused { return nil }
-        if isExporting || isEngineRunning || isExportBlocked() { return "Another task is running." }
+        if isExporting || isEngineRunning || isExportBlocked { return "Another task is running." }
         if let destinationIssue { return destinationIssue }
         if !isSourceReady { return "Your library isn’t ready yet." }
         return nil
@@ -733,7 +728,7 @@ final class ExportModel {
     /// interrupted run awaits Resume Export: those continue the run, and starting another export over it would replace it.
     var canExportAll: Bool {
         if phase == .paused || offersResumeExport { return false }
-        return destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady : canStart
+        return destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked && isSourceReady : canStart
     }
 
     private func startRun(
@@ -1410,7 +1405,7 @@ final class ExportModel {
     /// still stopping, and no backup tool running.
     var canCheckDrive: Bool {
         guard let url = destination?.url else { return false }
-        return !isExporting && !isEngineRunning && !isExportBlocked() && destinationIssue == nil
+        return !isExporting && !isEngineRunning && !isExportBlocked && destinationIssue == nil
             && isSourceReady && driveCheckTask == nil && !Self.exportingDestinations.contains(url.standardizedFileURL)
     }
 
@@ -1481,7 +1476,7 @@ final class ExportModel {
         return backedUp
     }
 
-    /// Checks the drive now: `full` stats every file (Backup Tools > Check Drive); otherwise only folders
+    /// Checks the drive now: `full` stats every file (Export Settings > Check Drive); otherwise only folders
     /// that changed since the last check. Does nothing while an export or another check runs.
     func checkDrive(full: Bool = true) {
         guard let task = startDriveCheck(full: full, changesDrive: true) else { return }
@@ -1964,7 +1959,7 @@ final class ExportModel {
 
     /// Whether a background run may start now: no export in progress, a ready source, and a destination.
     var canBackUpAutomatically: Bool {
-        !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady && destination != nil
+        !isExporting && !isEngineRunning && !isExportBlocked && isSourceReady && destination != nil
     }
 
     /// The volume that holds the destination, such as the external drive.
@@ -2112,7 +2107,7 @@ final class ExportModel {
             cancelAutoResume()
             return
         }
-        guard !isEngineRunning, !isExportBlocked() else { return }
+        guard !isEngineRunning, !isExportBlocked else { return }
         switch source {
         case .iCloud:
             guard ICloudAccount.appleID != nil else {

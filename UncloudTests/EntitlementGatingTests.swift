@@ -12,11 +12,11 @@ struct EntitlementGatingTests {
         await AccountModelTests.signIn(harness.model)
         var ran = false
 
-        harness.model.require(.findDuplicates) { ran = true }
+        harness.model.require(.cleanUpICloud) { ran = true }
 
         #expect(ran == false)
-        #expect(harness.model.paywall?.feature == .findDuplicates)
-        #expect(harness.model.allows(.findDuplicates) == false)
+        #expect(harness.model.paywall?.feature == .cleanUpICloud)
+        #expect(harness.model.allows(.cleanUpICloud) == false)
     }
 
     @Test("A subscribed account runs the feature at once and no paywall opens")
@@ -25,7 +25,7 @@ struct EntitlementGatingTests {
         await AccountModelTests.signIn(harness.model, email: "plus@example.com")
         var ran = false
 
-        harness.model.require(.verifyBackup) { ran = true }
+        harness.model.require(.browseBackup) { ran = true }
 
         #expect(ran)
         #expect(harness.model.paywall == nil)
@@ -51,16 +51,16 @@ struct EntitlementGatingTests {
         let harness = AccountModelTests.makeHarness()
         await AccountModelTests.signIn(harness.model)
         var ran = 0
-        harness.model.require(.freeUpSpace) { ran += 1 }
+        harness.model.require(.cleanUpICloud) { ran += 1 }
 
-        await harness.model.openCheckout(for: .freeUpSpace, renewal: .automatic)
+        await harness.model.openCheckout(for: .cleanUpICloud, renewal: .automatic)
         await harness.model.refreshEntitlement(force: true)
         #expect(harness.model.checkout == .active)
         harness.model.finishPaywall()
 
         #expect(ran == 1)
         #expect(harness.model.paywall == nil)
-        #expect(harness.model.allows(.freeUpSpace))
+        #expect(harness.model.allows(.cleanUpICloud))
     }
 
     @Test("One year, no auto-renewal is the same subscription set not to renew")
@@ -145,13 +145,6 @@ struct EntitlementGatingTests {
         #expect(MainWindow.showsCleanup(allowed: false, isRunning: true))
         #expect(MainWindow.showsCleanup(allowed: true, isRunning: false))
         #expect(MainWindow.showsCleanup(allowed: true, isRunning: true))
-    }
-
-    @Test("Tools is locked only when none of its three tools is allowed")
-    func toolsRowLock() {
-        #expect(MainWindow.toolsLocked(allows: { _ in false }))
-        #expect(MainWindow.toolsLocked(allows: { $0 == .freeUpSpace }) == false)
-        #expect(MainWindow.toolsLocked(allows: { $0 == .verifyBackup }) == false)
     }
 
     @Test("A free account keeps the new-photos offer: its title and subtitle never read the account")

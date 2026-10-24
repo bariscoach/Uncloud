@@ -179,7 +179,7 @@ struct CheckDriveResultsSheet: View {
                         Image(systemName: "checkmark.circle")
                             .foregroundStyle(.green)
                     }
-                    Text("These were already in your backup folder. Verify Backup can check them after the next export.")
+                    Text("These were already in your backup folder. Uncloud now records them.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     fileList(report.registeredFiles, title: "Show Files")

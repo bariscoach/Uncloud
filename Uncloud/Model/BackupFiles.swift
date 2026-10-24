@@ -2,7 +2,7 @@ import Foundation
 import os
 import Photos
 
-/// File and library helpers for Verify Backup and Free Up Space. Every path read
+/// File and library helpers for the backup folder, used by Browse Backup and the export checks. Every path read
 /// from the manifest goes through `containedURL` before it's touched.
 enum BackupFiles {
     private static let manifestFolderName = ".photo-export"
@@ -51,58 +51,6 @@ enum BackupFiles {
         return details
     }
 
-    // MARK: - Removing files
-
-    struct RemovalResult: Sendable {
-        /// Items whose recorded files are all gone now, so they can be forgotten.
-        var clearedIDs: Set<String> = []
-        var removedFileCount = 0
-        /// Paths left in place: outside the destination, not a file, shared with another item, or couldn't be removed.
-        var keptPaths: [String] = []
-    }
-
-    /// Removes the files recorded for `itemIDs`, item by item. An item is cleared only when none of its files remain.
-    static func removeRecordedFiles(for itemIDs: Set<String>, in destination: URL) -> RemovalResult {
-        let records = ExportManifest.records(in: destination)
-        let pathsOfOtherItems = Set(records.filter { !itemIDs.contains($0.key) }.values.joined())
-        let fileManager = FileManager.default
-        var result = RemovalResult()
-
-        for id in itemIDs.sorted() {
-            guard let paths = records[id] else { continue }
-            var isCleared = true
-            for path in paths {
-                guard !pathsOfOtherItems.contains(path), let url = containedURL(for: path, in: destination) else {
-                    result.keptPaths.append(path)
-                    isCleared = false
-                    continue
-                }
-                let filePath = url.path(percentEncoded: false)
-                // attributesOfItem doesn't follow a final symlink, so this sees the link itself.
-                guard let attributes = try? fileManager.attributesOfItem(atPath: filePath) else {
-                    continue // Already missing.
-                }
-                let type = attributes[.type] as? FileAttributeType
-                guard type == .typeRegular || type == .typeSymbolicLink else {
-                    result.keptPaths.append(path)
-                    isCleared = false
-                    continue
-                }
-                do {
-                    try fileManager.removeItem(atPath: filePath)
-                    result.removedFileCount += 1
-                } catch {
-                    result.keptPaths.append(path)
-                    isCleared = false
-                }
-            }
-            if isCleared {
-                result.clearedIDs.insert(id)
-            }
-        }
-        return result
-    }
-
     // MARK: - Library
 
     /// Fetch options that include hidden items and every burst photo, like the export does.
@@ -119,16 +67,6 @@ enum BackupFiles {
             ids.insert(asset.localIdentifier)
         }
         return ids
-    }
-
-    /// The identifiers from `ids` that are still in the library.
-    static func existingLibraryIDs(_ ids: some Collection<String>) -> Set<String> {
-        guard !ids.isEmpty else { return [] }
-        var existing = Set<String>()
-        PHAsset.fetchAssets(withLocalIdentifiers: Array(ids), options: libraryFetchOptions()).enumerateObjects { asset, _, _ in
-            existing.insert(asset.localIdentifier)
-        }
-        return existing
     }
 }
 

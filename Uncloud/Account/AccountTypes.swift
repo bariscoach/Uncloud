@@ -79,7 +79,7 @@ struct Entitlement: Codable, Equatable, Sendable {
 
 /// The features behind Uncloud Plus. Export, its folders and history, and the backup folder are free and aren't listed.
 enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
-    case automaticBackups, newPhotos, browseBackup, findDuplicates, verifyBackup, freeUpSpace, cleanUpICloud
+    case automaticBackups, newPhotos, browseBackup, cleanUpICloud
 
     var id: Self { self }
 
@@ -88,9 +88,6 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
         case .automaticBackups: "Automatic Backups"
         case .newPhotos: "New Photo Reminders"
         case .browseBackup: "Browse Backup"
-        case .findDuplicates: "Find Duplicates"
-        case .verifyBackup: "Verify Backup"
-        case .freeUpSpace: "Free Up Space"
         case .cleanUpICloud: "Delete from iCloud"
         }
     }
@@ -100,9 +97,6 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
         case .automaticBackups: "clock.arrow.circlepath"
         case .newPhotos: "bell.badge"
         case .browseBackup: "photo.stack"
-        case .findDuplicates: "doc.on.doc"
-        case .verifyBackup: "checkmark.shield"
-        case .freeUpSpace: "internaldrive"
         case .cleanUpICloud: "icloud"
         }
     }
@@ -127,9 +121,6 @@ enum PaidFeature: String, CaseIterable, Identifiable, Sendable {
         case .automaticBackups: "Exports new photos on its own when your drive connects, or once a day."
         case .newPhotos: "Reminds you when new photos are waiting to be exported."
         case .browseBackup: "Look through your backup by date, place or map, without iCloud."
-        case .findDuplicates: "Finds photos saved more than once, so you can tidy up."
-        case .verifyBackup: "Checks that every file in your backup is intact."
-        case .freeUpSpace: "Removes backed-up photos from Photos on this Mac to make room."
         case .cleanUpICloud: "Deletes backed-up photos from iCloud, and recovers them if you change your mind."
         }
     }

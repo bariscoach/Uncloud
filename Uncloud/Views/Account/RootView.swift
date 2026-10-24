@@ -13,7 +13,6 @@ struct RootView: View {
             switch account.phase {
             case .off, .signedIn:
                 MainWindow()
-                    .backupToolSheets()
                     // The one sign-out confirmation for the popover and the app menu. Settings has its own.
                     .confirmationDialog("Sign Out of Uncloud?", isPresented: $account.isConfirmingSignOut, titleVisibility: .visible) {
                         Button("Sign Out", role: .destructive) {

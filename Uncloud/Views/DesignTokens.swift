@@ -36,8 +36,8 @@ enum Tokens {
     enum Sheet {
         static let padding: CGFloat = 20
         static let narrow: CGFloat = 420   // Sign In, delete and recover confirmations
-        static let regular: CGFloat = 520  // Verify, Free Up Space, Check Drive, Session Detail
-        static let wide: CGFloat = 560     // Find Duplicates
+        static let regular: CGFloat = 520  // Check Drive, Session Detail
+        static let wide: CGFloat = 560     // History
         /// The buttons along a sheet's bottom edge.
         static let footerControlSize: ControlSize = .regular
     }

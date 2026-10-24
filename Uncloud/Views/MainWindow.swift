@@ -29,9 +29,6 @@ struct MainWindow: View {
             case .backup:
                 ExportSettingsPane()
                     .navigationTitle(ExportModel.Pane.backup.title)
-            case .tools:
-                ToolsPane()
-                    .navigationTitle(ExportModel.Pane.tools.title)
             case .cleanup:
                 // Delete from iCloud is the Uncloud Plus feature; while a run is going, its grid stays open after a lapse.
                 if Self.showsCleanup(allowed: account.allows(.cleanUpICloud), isRunning: model.iCloudCleanup?.isRunning == true) {
@@ -105,11 +102,6 @@ struct MainWindow: View {
         allowed || isRunning
     }
 
-    /// Tools is locked only when none of its three tools is allowed. A free account sees the row locked, and the pane shows the cards (D5).
-    static func toolsLocked(allows: (PaidFeature) -> Bool) -> Bool {
-        !(allows(.verifyBackup) || allows(.findDuplicates) || allows(.freeUpSpace))
-    }
-
     /// The sidebar selection. The list never clears it, so the optional is only a SwiftUI requirement.
     private var paneSelection: Binding<ExportModel.Pane?> {
         Binding(
@@ -145,16 +137,16 @@ struct PaneSidebar: View {
     }
 }
 
-/// The five pane rows, in `ExportModel.Pane` order, with a break before Tools. The sidebar's `List` holds it, and the
-/// snapshot tests render it.
+/// The four pane rows, in `ExportModel.Pane` order, with a break before Export Settings. The sidebar's `List` holds it,
+/// and the snapshot tests render it.
 struct SidebarPaneRows: View {
     @Environment(ExportModel.self) private var model
     @Environment(AccountModel.self) private var account
 
     var body: some View {
         ForEach(ExportModel.Pane.allCases, id: \.self) { pane in
-            // The break sets the free-up-iCloud steps apart from the utilities and settings that follow.
-            if pane == .tools {
+            // The break sets the free-up-iCloud steps apart from the settings that follow.
+            if pane == .backup {
                 Divider()
             }
             row(for: pane).tag(pane)
@@ -176,8 +168,6 @@ struct SidebarPaneRows: View {
                 .accessibilityValue(backupAccessibilityValue)
         case .browse:
             LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: !account.allows(.browseBackup))
-        case .tools:
-            LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: MainWindow.toolsLocked(allows: { account.allows($0) }))
         case .cleanup:
             LockableSidebarRow(title: pane.title, symbol: pane.symbol, isLocked: !account.allows(.cleanUpICloud))
         }

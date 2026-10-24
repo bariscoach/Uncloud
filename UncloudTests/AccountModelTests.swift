@@ -199,7 +199,7 @@ struct AccountModelTests {
     func modeOff() async throws {
         let harness = Self.makeHarness(mode: .off)
         #expect(harness.model.phase == .off)
-        #expect(harness.model.allows(.verifyBackup))
+        #expect(harness.model.allows(.browseBackup))
         await harness.model.submitEmail("name@example.com", intent: .signUp)
         #expect(harness.model.phase == .off)
         #expect(harness.model.handle(URL(string: "uncloud://checkout/success")!) == false)
@@ -210,11 +210,11 @@ struct AccountModelTests {
         let harness = Self.makeHarness()
         await Self.signIn(harness.model)
         var ran = 0
-        harness.model.require(.verifyBackup) { ran += 1 }
+        harness.model.require(.browseBackup) { ran += 1 }
         #expect(ran == 0)
-        #expect(harness.model.paywall?.feature == .verifyBackup)
+        #expect(harness.model.paywall?.feature == .browseBackup)
 
-        await harness.model.openCheckout(for: .verifyBackup)
+        await harness.model.openCheckout(for: .browseBackup)
         #expect(harness.opened.urls.count == 1)
         #expect(harness.model.checkout == .waiting(processing: false))
 
@@ -222,7 +222,7 @@ struct AccountModelTests {
         #expect(harness.model.handle(url))
         await harness.model.refreshTask?.value
         #expect(harness.model.checkout == .active)
-        #expect(harness.model.allows(.verifyBackup))
+        #expect(harness.model.allows(.browseBackup))
 
         harness.model.finishPaywall()
         #expect(ran == 1)
@@ -234,7 +234,7 @@ struct AccountModelTests {
         let harness = Self.makeHarness()
         await Self.signIn(harness.model)
         var ran = false
-        harness.model.require(.findDuplicates) { ran = true }
+        harness.model.require(.cleanUpICloud) { ran = true }
         harness.model.dismissPaywall()
         #expect(harness.model.paywall == nil)
         #expect(ran == false)
@@ -244,8 +244,8 @@ struct AccountModelTests {
     func checkoutCancel() async throws {
         let harness = Self.makeHarness()
         await Self.signIn(harness.model)
-        harness.model.require(.freeUpSpace) {}
-        await harness.model.openCheckout(for: .freeUpSpace)
+        harness.model.require(.cleanUpICloud) {}
+        await harness.model.openCheckout(for: .cleanUpICloud)
         #expect(harness.model.handle(URL(string: "uncloud://checkout/cancel")!))
         #expect(harness.model.checkout == .idle)
     }

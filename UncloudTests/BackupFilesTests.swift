@@ -47,22 +47,4 @@ struct BackupFilesTests {
             #expect(url?.deletingLastPathComponent().lastPathComponent == "2024")
         }
     }
-
-    @Test func removalKeepsFilesSharedWithOtherItemsAndOutsideLinks() throws {
-        try withTemporaryDirectory { destination in
-            let manifest = try ExportManifest(destination: destination)
-            try writeFile("a", to: "Trips/shared.jpg", in: destination)
-            try writeFile("b", to: "2024/only-one.jpg", in: destination)
-            try manifest.recordExport(of: "one", files: ["Trips/shared.jpg", "2024/only-one.jpg"])
-            try manifest.recordExport(of: "two", files: ["Trips/shared.jpg"])
-
-            let result = BackupFiles.removeRecordedFiles(for: ["one"], in: destination)
-
-            #expect(!FileManager.default.fileExists(atPath: destination.appending(path: "2024/only-one.jpg").path(percentEncoded: false)))
-            #expect(FileManager.default.fileExists(atPath: destination.appending(path: "Trips/shared.jpg").path(percentEncoded: false)))
-            #expect(result.keptPaths == ["Trips/shared.jpg"])
-            #expect(result.clearedIDs.isEmpty)
-            #expect(result.removedFileCount == 1)
-        }
-    }
 }

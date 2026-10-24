@@ -31,8 +31,8 @@ struct Benefit: Identifiable {
             tint: .pink
         ),
         Benefit(
-            title: "Verified and Automatic",
-            caption: "Records every file so Verify Backup can prove it’s intact, and exports on its own when your drive connects.",
+            title: "Recorded and Automatic",
+            caption: "Records every file in your backup, and exports on its own when your drive connects.",
             symbol: "checkmark.shield",
             tint: .green
         ),

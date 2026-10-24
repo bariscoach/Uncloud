@@ -5,7 +5,6 @@ import SwiftUI
 /// on the drive is never changed.
 struct CleanupView: View {
     @Environment(ExportModel.self) private var model
-    @Environment(BackupTools.self) private var tools
     @Environment(AccountModel.self) private var account
 
     var body: some View {
@@ -23,18 +22,12 @@ struct CleanupView: View {
                 ContentUnavailableView {
                     Label("Delete from iCloud", systemImage: "icloud")
                 } description: {
-                    Text("Delete from iCloud works with iCloud Photos. To make room on this Mac instead, use Free Up Space.")
+                    Text("Delete from iCloud works with iCloud Photos. Switch to iCloud Photos to choose photos to delete.")
                 } actions: {
                     Button("Switch to iCloud Photos") {
                         model.source = .iCloud
                     }
                     .buttonStyle(.borderedProminent)
-
-                    Button("Free Up Space…") {
-                        account.require(.freeUpSpace) { tools.showFreeUpSpace() }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!tools.canOpenFreeUpSpace)
                 }
             } else {
                 ContentUnavailableView {

@@ -158,22 +158,6 @@ struct ExportCommands: Commands {
                     }
                     .disabled(!model.canExportAll || model.destination == nil)
                 }
-
-                Button("Verify Backup…") {
-                    account.require(.verifyBackup) { tools.showVerify() }
-                }
-                .disabled(!tools.canOpenVerify)
-
-                Button("Find Duplicates…") {
-                    account.require(.findDuplicates) { tools.showDuplicates() }
-                }
-                .disabled(!tools.canOpenDuplicates)
-
-                // Always listed. Only Photos on This Mac can free up space, so it is disabled for iCloud.
-                Button("Free Up Space…") {
-                    account.require(.freeUpSpace) { tools.showFreeUpSpace() }
-                }
-                .disabled(!tools.canOpenFreeUpSpace)
             }
         }
 
