@@ -1,89 +1,28 @@
-// Stripe subscription -> entitlement row (pure), read-time expiry, and the Ed25519 signature
-// the app verifies. The message format is shared with the Swift verifier; see
-// test/fixtures/entitlement-vector.json.
+// The entitlement the app verifies. Every signed-in account is on Uncloud Plus for good: there is no plan
+// lookup. The shape and the signed bytes are fixed by the shipped app (Uncloud/Account/LiveAccountService.swift
+// and Uncloud/Account/EntitlementVerifier.swift), so older builds keep unlocking. Keep them in sync.
+// The signature message is pinned by test/fixtures/entitlement-vector.json.
 
 import { createPrivateKey, sign } from 'node:crypto';
-import { idOf, firstItem, periodEnd, periodStart } from './stripe-shapes.js';
-
-// How long a failing renewal keeps Plus. Matches the app's EntitlementPolicy.
-const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
-import { PRODUCT_ID } from './config.js';
 
 export const SIGNATURE_PREFIX = 'uncloud-entitlement-v1';
+
+// The period end sent to the app. An active plan with no future period end counts as free in the app, so this
+// must always be in the future. Far away on purpose: the plan never lapses.
+export const PERMANENT_PERIOD_END = '2100-01-01T00:00:00Z';
 
 // Whole-second ISO 8601 UTC, e.g. 2027-10-18T09:41:00Z.
 export function isoSeconds(date) {
   return new Date(Math.floor(date.getTime() / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-const STATUS_MAP = {
-  active: { plan: 'plus', status: 'active' },
-  trialing: { plan: 'plus', status: 'trialing' },
-  past_due: { plan: 'plus', status: 'pastDue' },
-  unpaid: { plan: 'free', status: 'expired' },
-  paused: { plan: 'free', status: 'expired' },
-  canceled: { plan: 'free', status: 'expired' },
-  incomplete: { plan: 'free', status: 'none' },
-  incomplete_expired: { plan: 'free', status: 'none' },
-};
-
-// True when the subscription is one of ours: the Uncloud price lookup key, or any price on the
-// Uncloud product (so an old price keeps working after a lookup key moves to a new price).
-export function isOurSubscription(subscription, { priceLookupKey, productId = PRODUCT_ID }) {
-  const price = firstItem(subscription)?.price;
-  if (!price) return false;
-  return price.lookup_key === priceLookupKey || idOf(price.product) === productId;
-}
-
-// True when the subscription will not renew: cancel_at_period_end, or a cancel_at (a Dashboard
-// cancellation on a date, or flexible billing) that falls at or before the period end (review L2).
-export function willNotRenew(subscription, end) {
-  if (subscription.cancel_at_period_end === true) return true;
-  if (typeof subscription.cancel_at !== 'number') return false;
-  return end !== null && subscription.cancel_at <= Math.floor(end.getTime() / 1000);
-}
-
-// Maps a Stripe subscription to the entitlements row shape (snake_case, as the table and
-// apply_subscription use it). Returns null for a subscription that is not ours.
-export function mapSubscription(subscription, { now, priceLookupKey, livemode }) {
-  if (!isOurSubscription(subscription, { priceLookupKey })) return null;
-  const mapped = STATUS_MAP[subscription.status] ?? { plan: 'free', status: 'none' };
-  // While a renewal payment is failing, Stripe has already moved the period forward. The app's 7-day grace
-  // counts from the period end it receives, so send the start of the unpaid period instead (review H4).
-  const end = subscription.status === 'past_due' ? periodStart(subscription) : periodEnd(subscription);
+// The entitlement as the app receives it (camelCase, before the signature is added).
+export function permanentEntitlement(now) {
   return {
-    plan: mapped.plan,
-    status: mapped.status,
-    current_period_end: end ? isoSeconds(end) : null,
-    cancel_at_period_end: willNotRenew(subscription, end),
-    stripe_subscription_id: subscription.id,
-    stripe_price_id: idOf(firstItem(subscription)?.price) ?? null,
-    livemode: livemode ?? subscription.livemode === true,
-  };
-}
-
-// Entitlement as the app receives it (camelCase), with the read-time rule applied:
-// an active, non-renewing plan whose period has ended is expired (covers a late deletion event).
-export function toWire(row, now) {
-  const source = row ?? {};
-  let plan = source.plan ?? 'free';
-  let status = source.status ?? 'none';
-  const end = source.current_period_end ? new Date(source.current_period_end) : null;
-  const cancelAtPeriodEnd = source.cancel_at_period_end === true;
-  if (status === 'active' && cancelAtPeriodEnd && end && end.getTime() <= now.getTime()) {
-    status = 'expired';
-    plan = 'free';
-  }
-  // A renewal that has been failing for longer than the grace period is over, even before Stripe gives up.
-  if (status === 'pastDue' && end && end.getTime() + PAST_DUE_GRACE_MS <= now.getTime()) {
-    status = 'expired';
-    plan = 'free';
-  }
-  return {
-    plan,
-    status,
-    currentPeriodEnd: end ? isoSeconds(end) : null,
-    cancelAtPeriodEnd,
+    plan: 'plus',
+    status: 'active',
+    currentPeriodEnd: PERMANENT_PERIOD_END,
+    cancelAtPeriodEnd: false,
     checkedAt: isoSeconds(now),
   };
 }

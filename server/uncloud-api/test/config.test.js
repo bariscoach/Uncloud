@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfig, requireEnv, stripeModeOf, ConfigError, DEFAULT_PUBLIC_BASE_URL } from '../lib/config.js';
-import { FAKE_RESTRICTED_TEST_KEY, FAKE_RESTRICTED_LIVE_KEY, FAKE_WEBHOOK_SECRET } from './fixtures/keys.js';
+import { loadConfig, requireEnv, stripeModeOf, ConfigError } from '../lib/config.js';
+import { FAKE_RESTRICTED_TEST_KEY, FAKE_RESTRICTED_LIVE_KEY } from './fixtures/keys.js';
 
 test('a missing secret throws a ConfigError that names the variable and never its value', () => {
   const config = loadConfig({});
   assert.throws(
-    () => config.stripeSecretKey,
+    () => config.supabaseSecretKey,
     (error) => {
       assert.ok(error instanceof ConfigError);
-      assert.equal(error.varName, 'STRIPE_SECRET_KEY');
-      assert.match(error.message, /STRIPE_SECRET_KEY/);
+      assert.equal(error.varName, 'SUPABASE_SECRET_KEY');
+      assert.match(error.message, /SUPABASE_SECRET_KEY/);
       assert.doesNotMatch(error.message, /rk_|sk_|whsec_|sb_/);
       return true;
     },
@@ -23,49 +23,35 @@ test('an empty or whitespace value counts as missing', () => {
 });
 
 test('secrets are read lazily, so an unrelated route does not need them', () => {
-  const config = loadConfig({ PUBLIC_BASE_URL: 'https://example.test' });
-  assert.equal(config.publicBaseUrl, 'https://example.test');
+  const config = loadConfig({ WAITLIST_ALLOWED_ORIGINS: 'https://example.test' });
+  assert.deepEqual(config.waitlistOrigins, ['https://example.test']);
   assert.throws(() => config.supabaseUrl, ConfigError);
 });
 
-test('Stripe mode comes from the key prefix', () => {
+test('the signing key getter names only its variable', () => {
+  const config = loadConfig({ ENTITLEMENT_SIGNING_KEY: 'FAKE_TEST_ONLY' });
+  assert.equal(config.entitlementSigningKey, 'FAKE_TEST_ONLY');
+  assert.throws(() => loadConfig({}).entitlementSigningKey, /ENTITLEMENT_SIGNING_KEY/);
+});
+
+test('the health check reads its mode from the key prefix', () => {
   assert.equal(stripeModeOf(FAKE_RESTRICTED_TEST_KEY), 'test');
   assert.equal(stripeModeOf(FAKE_RESTRICTED_LIVE_KEY), 'live');
   assert.equal(stripeModeOf('pk_test_FAKE'), null, 'publishable keys are not accepted');
   assert.equal(stripeModeOf(''), null);
 });
 
-test('an unrecognised key format is refused by stripeMode', () => {
-  const config = loadConfig({ STRIPE_SECRET_KEY: 'not-a-stripe-key' });
-  assert.throws(() => config.stripeMode, (error) => error instanceof ConfigError && /unrecognised/.test(error.message));
+test('waitlist origins default to the app site, trimmed and split', () => {
+  assert.deepEqual(loadConfig({}).waitlistOrigins, ['https://uncloud-app.vercel.app']);
+  assert.deepEqual(
+    loadConfig({ WAITLIST_ALLOWED_ORIGINS: ' https://a.test , https://b.test ,' }).waitlistOrigins,
+    ['https://a.test', 'https://b.test'],
+  );
 });
 
-test('livemode follows the key', () => {
-  assert.equal(loadConfig({ STRIPE_SECRET_KEY: FAKE_RESTRICTED_TEST_KEY }).livemode, false);
-  assert.equal(loadConfig({ STRIPE_SECRET_KEY: FAKE_RESTRICTED_LIVE_KEY }).livemode, true);
-});
-
-test('defaults: base URL, price lookup key, automatic tax off', () => {
-  const config = loadConfig({});
-  assert.equal(config.publicBaseUrl, DEFAULT_PUBLIC_BASE_URL);
-  assert.equal(config.priceLookupKey, 'uncloud_plus_yearly');
-  assert.equal(config.automaticTax, false);
-});
-
-test('overrides: trailing slashes trimmed, lookup key, automatic tax flag', () => {
-  const config = loadConfig({
-    PUBLIC_BASE_URL: 'https://example.test///',
-    STRIPE_PRICE_LOOKUP_KEY: 'uncloud_plus_next',
-    STRIPE_AUTOMATIC_TAX: 'true',
-  });
-  assert.equal(config.publicBaseUrl, 'https://example.test');
-  assert.equal(config.priceLookupKey, 'uncloud_plus_next');
-  assert.equal(config.automaticTax, true);
-  assert.equal(loadConfig({ STRIPE_AUTOMATIC_TAX: 'yes' }).automaticTax, false);
-});
-
-test('the webhook secret getter names only its variable', () => {
-  const config = loadConfig({ STRIPE_WEBHOOK_SECRET: FAKE_WEBHOOK_SECRET });
-  assert.equal(config.stripeWebhookSecret, FAKE_WEBHOOK_SECRET);
-  assert.throws(() => loadConfig({}).stripeWebhookSecret, /STRIPE_WEBHOOK_SECRET/);
+test('no payment settings are read any more', () => {
+  const config = loadConfig({ STRIPE_SECRET_KEY: FAKE_RESTRICTED_TEST_KEY, PUBLIC_BASE_URL: 'https://example.test' });
+  for (const removed of ['stripeSecretKey', 'stripeWebhookSecret', 'stripeMode', 'livemode', 'priceLookupKey', 'publicBaseUrl']) {
+    assert.equal(removed in config, false, removed);
+  }
 });

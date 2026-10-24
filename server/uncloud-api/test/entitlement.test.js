@@ -3,97 +3,23 @@ import assert from 'node:assert/strict';
 import { createPublicKey, verify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-  mapSubscription,
-  toWire,
-  isoSeconds,
-  signedMessage,
-  isOurSubscription,
-} from '../lib/entitlement.js';
-import { subscription, NOW, DAY, NOW_SECONDS } from './helpers.js';
+import { signedMessage, permanentEntitlement, isoSeconds, PERMANENT_PERIOD_END } from '../lib/entitlement.js';
+import { NOW } from './helpers.js';
 
-const opts = { now: NOW, priceLookupKey: 'uncloud_plus_yearly', livemode: false };
-
-test('mapping table (plan 4.5), row by row', () => {
-  const cases = [
-    ['active', 'plus', 'active'],
-    ['trialing', 'plus', 'trialing'],
-    ['past_due', 'plus', 'pastDue'],
-    ['unpaid', 'free', 'expired'],
-    ['paused', 'free', 'expired'],
-    ['canceled', 'free', 'expired'],
-    ['incomplete', 'free', 'none'],
-    ['incomplete_expired', 'free', 'none'],
-  ];
-  for (const [stripeStatus, plan, status] of cases) {
-    const row = mapSubscription(subscription({ status: stripeStatus }), opts);
-    assert.equal(row.plan, plan, stripeStatus);
-    assert.equal(row.status, status, stripeStatus);
-  }
-});
-
-test('cancel_at_period_end is carried through', () => {
-  assert.equal(mapSubscription(subscription({ cancel: true }), opts).cancel_at_period_end, true);
-  assert.equal(mapSubscription(subscription({ cancel: false }), opts).cancel_at_period_end, false);
-});
-
-test('period end is read from the subscription item (pinned API shape)', () => {
-  const end = NOW_SECONDS + 365 * DAY;
-  const row = mapSubscription(subscription({ periodEnd: end }), opts);
-  assert.equal(row.current_period_end, isoSeconds(new Date(end * 1000)));
-  assert.match(row.current_period_end, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-});
-
-test('a cancel_at on or before the period end means the plan will not renew (review L2)', () => {
-  const end = NOW_SECONDS + 365 * DAY;
-  assert.equal(mapSubscription(subscription({ periodEnd: end, cancelAt: end }), opts).cancel_at_period_end, true);
-  assert.equal(mapSubscription(subscription({ periodEnd: end, cancelAt: end - DAY }), opts).cancel_at_period_end, true);
-});
-
-test('a cancel_at after the period end does not stop renewal, and neither does a null cancel_at', () => {
-  const end = NOW_SECONDS + 365 * DAY;
-  assert.equal(mapSubscription(subscription({ periodEnd: end, cancelAt: end + DAY }), opts).cancel_at_period_end, false);
-  assert.equal(mapSubscription(subscription({ periodEnd: end, cancelAt: null }), opts).cancel_at_period_end, false);
-});
-
-test('a foreign price is ignored (null), by lookup key or by product', () => {
-  assert.equal(mapSubscription(subscription({ lookupKey: 'pageready_other', product: 'prod_other' }), opts), null);
-  assert.equal(mapSubscription(subscription({ lookupKey: null, product: 'uncloud_plus' }), opts) !== null, true);
-  assert.equal(isOurSubscription(subscription({ lookupKey: 'pageready_other', product: 'prod_other' }), { priceLookupKey: 'uncloud_plus_yearly' }), false);
-});
-
-test('an old price on the Uncloud product still counts after its lookup key moved', () => {
-  const sub = subscription({ lookupKey: null, product: 'uncloud_plus', priceId: 'price_old' });
-  assert.equal(mapSubscription(sub, opts).stripe_price_id, 'price_old');
+test('the permanent entitlement is plus, active, never cancelling, with a far-future period end', () => {
+  const entitlement = permanentEntitlement(NOW);
+  assert.deepEqual(entitlement, {
+    plan: 'plus',
+    status: 'active',
+    currentPeriodEnd: PERMANENT_PERIOD_END,
+    cancelAtPeriodEnd: false,
+    checkedAt: '2026-10-18T09:41:07Z',
+  });
+  assert.ok(new Date(PERMANENT_PERIOD_END).getTime() > NOW.getTime() + 50 * 365 * 24 * 60 * 60 * 1000);
 });
 
 test('whole-second ISO formatting drops milliseconds', () => {
   assert.equal(isoSeconds(new Date('2027-10-18T09:41:00.999Z')), '2027-10-18T09:41:00Z');
-});
-
-test('read-time rule: active, non-renewing and past its end becomes expired (and free)', () => {
-  const past = { plan: 'plus', status: 'active', current_period_end: '2026-10-17T00:00:00Z', cancel_at_period_end: true };
-  const wire = toWire(past, NOW);
-  assert.equal(wire.status, 'expired');
-  assert.equal(wire.plan, 'free');
-  assert.equal(wire.currentPeriodEnd, '2026-10-17T00:00:00Z');
-});
-
-test('read-time rule does not expire a renewing plan or one still inside its period', () => {
-  const renewing = { plan: 'plus', status: 'active', current_period_end: '2026-10-17T00:00:00Z', cancel_at_period_end: false };
-  assert.equal(toWire(renewing, NOW).status, 'active');
-  const inside = { plan: 'plus', status: 'active', current_period_end: '2027-10-18T00:00:00Z', cancel_at_period_end: true };
-  assert.equal(toWire(inside, NOW).status, 'active');
-});
-
-test('no row means free / none', () => {
-  assert.deepEqual(toWire(null, NOW), {
-    plan: 'free',
-    status: 'none',
-    currentPeriodEnd: null,
-    cancelAtPeriodEnd: false,
-    checkedAt: '2026-10-18T09:41:07Z',
-  });
 });
 
 test('signed message layout matches the documented bytes', () => {
@@ -124,20 +50,4 @@ test('signatures match the shared vector fixture (same bytes as the app verifier
   const message = signedMessage({ accountId: v.accountId, entitlement });
   assert.equal(message, v.message);
   assert.equal(verify(null, Buffer.from(v.message, 'utf8'), publicKey, Buffer.from(v.signature, 'base64')), true);
-});
-
-test('past_due sends the start of the unpaid period, so the 7-day grace counts from the failed renewal (review H4)', () => {
-  const start = NOW_SECONDS - 2 * DAY;
-  const row = mapSubscription(subscription({ status: 'past_due', periodStart: start, periodEnd: start + 365 * DAY }), opts);
-  assert.equal(row.current_period_end, isoSeconds(new Date(start * 1000)));
-  assert.equal(toWire(row, NOW).status, 'pastDue');
-  assert.equal(toWire(row, NOW).plan, 'plus');
-});
-
-test('past_due for longer than 7 days reads as expired', () => {
-  const start = NOW_SECONDS - 8 * DAY;
-  const row = mapSubscription(subscription({ status: 'past_due', periodStart: start, periodEnd: start + 365 * DAY }), opts);
-  const wire = toWire(row, NOW);
-  assert.equal(wire.status, 'expired');
-  assert.equal(wire.plan, 'free');
 });

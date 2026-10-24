@@ -41,7 +41,7 @@ test('no inline script or style, no style attributes, and no third-party origins
   assert.doesNotMatch(js, /https?:\/\/(?!uncloud-api\.vercel\.app)/, 'app.js third-party URL');
 });
 
-test('the hero, form messages, tiles, pricing and disclaimer copy are present', () => {
+test('the hero, form messages, tiles and disclaimer copy are present', () => {
   const plain = text(html);
   for (const line of [
     'Coming soon to Mac',
@@ -54,12 +54,7 @@ test('the hero, form messages, tiles, pricing and disclaimer copy are present', 
     'Uncloud fixes all four.',
     'How It Works',
     'Everything Your Photos Need',
-    'Simple Pricing',
-    '$9.99/year',
-    '+ tax',
-    'Export is free.',
-    'Renew every year, or buy one year at a time. Cancel anytime.',
-    'Both come with the app at launch.',
+    'Free. Create an account in the app to start.',
     'Your Photos Stay Yours',
     'Questions',
     'Be First to Take Your Photos Home',
@@ -69,11 +64,21 @@ test('the hero, form messages, tiles, pricing and disclaimer copy are present', 
     assert.ok(plain.includes(line), `missing: ${line}`);
   }
   for (const title of [
-    'Full-Quality Originals', 'Skips Your Mac', 'Never Twice', 'Picks Up Again',
-    'Neatly Organized', 'Automatic Backups', 'Browse Backup', 'Clean Up iCloud',
+    'Export from iCloud', 'Export Photos by Date', 'Automatic Backups', 'Browse Backup', 'Delete from iCloud',
   ]) {
     assert.ok(html.includes(`<h3>${title}</h3>`), title);
   }
+});
+
+test('no payment, plan or removed-tool wording on the landing page', () => {
+  const plain = text(html);
+  for (const pattern of [
+    /pric/i, /\$\d/, /\bPlus\b/, /\bbadge/i, /subscri/i, /stripe/i, /checkout/i, /\bplan\b/i,
+    /free up/i, /verify backup/i, /find duplicates/i, /\bduplicates\b/i,
+  ]) {
+    assert.doesNotMatch(plain, pattern, `found ${pattern}`);
+  }
+  assert.doesNotMatch(html, /class="[^"]*\bbadge/, 'badge class');
 });
 
 test('the four form messages are in the script with the approved wording', () => {
@@ -123,15 +128,14 @@ test('the stylesheet supports dark mode and reduced motion', () => {
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
-test('tile titles are at most 3 words and lines at most 10 words', () => {
+test('tile titles are at most 4 words and lines at most 10 words', () => {
   const tiles = [...html.matchAll(/<li class="tile">([\s\S]*?)<\/li>/g)].map((m) => m[1]);
-  assert.equal(tiles.length, 8);
+  assert.equal(tiles.length, 5);
   for (const tile of tiles) {
     const title = /<h3>([^<]+)<\/h3>/.exec(tile)[1];
     const line = /<p>([^<]+)<\/p>/.exec(tile)[1];
-    assert.ok(title.split(/\s+/).length <= 3, title);
+    assert.ok(title.split(/\s+/).length <= 4, title);
     assert.ok(line.split(/\s+/).length <= 10, line);
-    assert.match(tile, /<span class="badge badge-(free|plus)">(Free|Plus)<\/span>/);
   }
 });
 

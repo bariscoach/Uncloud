@@ -152,7 +152,7 @@ test('GET on the real route is a JSON 405 envelope', async () => {
   assert.equal((await response.json()).error.code, 'method_not_allowed');
 });
 
-test('the real route answers preflight without touching Stripe or the signing key', async () => {
+test('the real route answers preflight without touching the database or the signing key', async () => {
   const response = await waitlistRoute.OPTIONS(new Request(URL_WAITLIST, {
     method: 'OPTIONS',
     headers: { origin: ORIGIN },

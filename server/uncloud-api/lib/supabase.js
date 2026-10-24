@@ -58,7 +58,7 @@ export function createSupabase({ url, publishableKey, secretKey, fetchFn = globa
       });
     },
 
-    // Deletes the Supabase user (service key). customers and entitlements cascade. A 404 means the user is
+    // Deletes the Supabase user (service key). The user's own rows cascade. A 404 means the user is
     // already gone, so a retry after a partial failure succeeds.
     async deleteUser(userId) {
       try {

@@ -2,7 +2,7 @@
   "name": "uncloud-api",
   "version": "0.1.0",
   "private": true,
-  "description": "Uncloud Plus account, checkout and entitlement API (Vercel functions) and hosted pages.",
+  "description": "Uncloud account and entitlement API (Vercel functions) and hosted pages.",
   "type": "module",
   "engines": {
     "node": "22.x"
@@ -11,7 +11,6 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "jose": "6.2.12",
-    "stripe": "23.0.0"
+    "jose": "6.2.12"
   }
 }
