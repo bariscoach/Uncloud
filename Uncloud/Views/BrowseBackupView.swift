@@ -247,7 +247,8 @@ struct BrowseBackupView: View {
                 }
             }
             .listStyle(.sidebar)
-            .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
+            .environment(\.sidebarRowSize, .small)
+            .frame(minWidth: 180, idealWidth: 220, maxWidth: 260)
             .overlay {
                 if browse.groups.isEmpty {
                     noLocatedPhotos(browse)
@@ -263,7 +264,7 @@ struct BrowseBackupView: View {
     private func datesLayout(_ browse: BrowseBackup, destination: URL) -> some View {
         HStack(spacing: 0) {
             datesList(browse)
-                .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
+                .frame(minWidth: 150, idealWidth: 180, maxWidth: 220)
             Divider()
             photos(browse, destination: destination)
         }
@@ -298,6 +299,7 @@ struct BrowseBackupView: View {
                 }
             }
             .listStyle(.sidebar)
+            .environment(\.sidebarRowSize, .small)
             .overlay {
                 // Only while there's nothing to show yet: a rebuild during indexing keeps the list up.
                 if browse.timeline.isEmpty && (browse.isBuildingTimeline || browse.isIndexing) {
@@ -467,6 +469,7 @@ private struct DateRow: View {
             }
             Spacer(minLength: Tokens.Space.s)
             Text(count.formatted())
+                .font(.callout)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
