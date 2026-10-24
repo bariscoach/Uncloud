@@ -58,10 +58,10 @@ test('the final copy is present verbatim', () => {
     'public/404.html': ['Page not found', 'There’s nothing here. If you came from Uncloud, return to the app and try again.'],
     'public/index.html': ['Take Your Photos Home. Export full-quality originals from iCloud to your own drive.', 'This address is Uncloud’s account service. To use Uncloud, open the app on your Mac.'],
     'public/terms.html': [
-      'Uncloud is free. Every feature is included.',
-      'Deleting from iCloud removes photos from your iCloud library only when you confirm. Recently Deleted keeps them for up to 30 days.',
+      'Uncloud is free. There are no paid plans.',
+      'Uncloud only deletes photos you select, and only after you confirm.',
     ],
-    'public/privacy.html': ['Your email address and the account record Supabase keeps for sign-in. Nothing else.'],
+    'public/privacy.html': ['your photos and your Apple account never reach us.'],
   };
   for (const [page, strings] of Object.entries(copy)) {
     for (const text of strings) assert.ok(read(page).includes(text), `${page}: ${text}`);
@@ -87,9 +87,9 @@ test('the stylesheet has the dark-mode guard and no external resources', () => {
   assert.doesNotMatch(css, /@import|https?:\/\//);
 });
 
-test('the legal pages carry a draft banner and the support address', () => {
+test('the legal pages say Uncloud is not affiliated with Apple, and give the support address', () => {
   for (const page of ['public/terms.html', 'public/privacy.html']) {
-    assert.match(read(page), /class="placeholder"/, page);
+    assert.match(read(page), /not affiliated with, endorsed, sponsored, or approved by Apple Inc\./, page);
     assert.match(read(page), /mailto:barishiz@gmail\.com/, page);
   }
 });

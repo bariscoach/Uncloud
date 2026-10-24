@@ -93,6 +93,18 @@ struct LiveAccountServiceTests {
         }
     }
 
+    @Test("A code email Supabase can't send says so")
+    func requestCodeEmailNotSent() async throws {
+        let service = Self.service { _ in
+            MockReply(status: 500, json: #"{"code":500,"error_code":"unexpected_failure","msg":"Error sending confirmation email"}"#)
+        }
+        await #expect(throws: AccountError.server(message: LiveAccountService.codeEmailNotSent)) {
+            try await service.requestCode(email: "name@example.com", intent: .signUp)
+        }
+        #expect(AccountError.server(message: LiveAccountService.codeEmailNotSent).message == "Uncloud couldn’t send the code email. Try again later.")
+        #expect(AccountError.server(message: "raw server words").message == "Uncloud couldn’t finish that. Try again in a moment.")
+    }
+
     @Test("An address Supabase rejects is invalidEmail")
     func requestCodeInvalidEmail() async throws {
         let service = Self.service { _ in

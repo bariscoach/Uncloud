@@ -103,7 +103,8 @@ test('the hero, tiles, FAQ and disclaimer copy are present', () => {
     'Why does macOS warn me the first time?',
     'Is it free?',
     '© 2026 Uncloud',
-    'iCloud, Photos and Mac are trademarks of Apple Inc., registered in the U.S. and other countries. Uncloud is not affiliated with Apple.',
+    'Uncloud is an independent app and is not affiliated with, endorsed, sponsored, or approved by Apple Inc.',
+    'Apple, iCloud, iCloud Photos and Mac are trademarks of Apple Inc., registered in the U.S. and other countries and regions.',
   ]) {
     assert.ok(plain.includes(line), `missing: ${line}`);
   }
@@ -143,7 +144,7 @@ test('no "forever" and no Apple mention outside the approved places', () => {
   for (const sentence of sentences) {
     assert.ok(
       /Photos go straight from Apple to your drive\.|They never pass through us|trademarks of Apple Inc\.|notarized by Apple yet/.test(sentence) ||
-        /Uncloud is not affiliated with Apple\./.test(sentence),
+        /not affiliated with, endorsed, sponsored, or approved by Apple Inc\./.test(sentence),
       `unexpected Apple mention: ${sentence}`,
     );
   }

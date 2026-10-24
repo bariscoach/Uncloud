@@ -144,9 +144,15 @@ actor LiveAccountService: AccountService {
             }
             return .server(message: nil)
         default:
+            // Supabase answers 500 "Error sending confirmation email" when its mail sender refuses the address.
+            if reply.status >= 500, failure?.msg?.localizedCaseInsensitiveContains("sending") == true {
+                return .server(message: Self.codeEmailNotSent)
+            }
             return .server(message: nil)
         }
     }
+
+    static let codeEmailNotSent = "Uncloud couldn’t send the code email. Try again later."
 
     private func verifyError(_ reply: Reply, challenge: AuthChallenge) -> AccountError {
         if reply.status == 429 {

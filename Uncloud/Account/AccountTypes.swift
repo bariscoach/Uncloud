@@ -56,6 +56,8 @@ enum AccountError: Error, Equatable, Sendable {
         case .tooManyAttempts: "Too many tries. Send a new code and try again."
         case .rateLimited: "Too many codes requested. Try again in a few minutes."
         case .offline: "Can’t reach Uncloud. Check your internet connection and try again."
+        // Only the code-email failure has its own sentence; server wording is never shown as is.
+        case let .server(message) where message == LiveAccountService.codeEmailNotSent: LiveAccountService.codeEmailNotSent
         case .server: "Uncloud couldn’t finish that. Try again in a moment."
         case .signedOut: "You’ve been signed out. Sign in again to keep using Uncloud."
         case .confirmationMismatch: "The email doesn’t match your Uncloud account."
