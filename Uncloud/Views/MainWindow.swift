@@ -24,6 +24,9 @@ struct MainWindow: View {
             case .export:
                 ExportView()
                     .navigationTitle(model.source.title)
+            case .google:
+                GoogleImportView()
+                    .navigationTitle(ExportModel.Pane.google.title)
             case .backup:
                 ExportSettingsPane()
                     .navigationTitle(ExportModel.Pane.backup.title)
@@ -112,7 +115,7 @@ struct PaneSidebar: View {
     }
 }
 
-/// The four pane rows, in `ExportModel.Pane` order, with a break before Export Settings. The sidebar's `List` holds it,
+/// The pane rows, in `ExportModel.Pane` order, with a break before Export Settings. The sidebar's `List` holds it,
 /// and the snapshot tests render it.
 struct SidebarPaneRows: View {
     @Environment(ExportModel.self) private var model
@@ -131,7 +134,7 @@ struct SidebarPaneRows: View {
     @ViewBuilder
     private func row(for pane: ExportModel.Pane) -> some View {
         switch pane {
-        case .export, .browse, .cleanup:
+        case .export, .google, .browse, .cleanup:
             Label(pane.title, systemImage: pane.symbol)
         case .backup:
             Label(pane.title, systemImage: pane.symbol)

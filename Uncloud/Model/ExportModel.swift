@@ -22,11 +22,13 @@ final class ExportModel {
     /// `allCases`, so the order is defined once. The order follows the steps: get photos out, then free up iCloud.
     /// Export Settings comes after a break.
     /// - `export` is Cloud Library, the photo grid and the home pane.
+    /// - `google` is Google Photos: importing a Google Takeout download into the backup.
     /// - `browse` is Browse Backup.
     /// - `cleanup` is Delete from iCloud.
     /// - `backup` is Export Settings: export, progress, backup folder and its settings.
     enum Pane: Hashable, CaseIterable {
         case export
+        case google
         case browse
         case cleanup
         case backup
@@ -34,6 +36,7 @@ final class ExportModel {
         var title: String {
             switch self {
             case .export: "Cloud Library"
+            case .google: "Google Photos"
             case .backup: "Export Settings"
             case .browse: "Browse Backup"
             case .cleanup: "Delete from iCloud"
@@ -43,6 +46,7 @@ final class ExportModel {
         var symbol: String {
             switch self {
             case .export: "photo.on.rectangle"
+            case .google: "square.and.arrow.down.on.square"
             case .backup: "gearshape"
             case .browse: "photo.stack"
             case .cleanup: "xmark.icloud"
@@ -53,9 +57,10 @@ final class ExportModel {
         var shortcut: Character {
             switch self {
             case .export: "1"
-            case .browse: "2"
-            case .cleanup: "3"
-            case .backup: "4"
+            case .google: "2"
+            case .browse: "3"
+            case .cleanup: "4"
+            case .backup: "5"
             }
         }
     }
@@ -169,6 +174,14 @@ final class ExportModel {
     @ObservationIgnored private var exportTask: Task<Void, Never>?
     /// The engine of the running export; cancelling it stops the export.
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    /// Imports Google Takeout downloads into the backup folder. Its run blocks exports, and an export blocks it.
+    /// Lazy so its host closures can read this model: a stored property can't capture `self` during `init`.
+    @ObservationIgnored private(set) lazy var googleImport = GoogleImportModel(host: GoogleImportModel.Host(
+        destination: { [weak self] in self?.destination?.url },
+        destinationIssue: { [weak self] in self?.destinationIssue },
+        layout: { [weak self] in self?.layout ?? .month },
+        isExporting: { [weak self] in self.map { $0.isExporting || $0.isEngineRunning } ?? false }
+    ))
     /// The engine of the last export until it has really ended (its helper has exited), which can be
     /// after the export shows as cancelled. No new export starts before then.
     @ObservationIgnored private let engine = EngineTracker()
@@ -518,7 +531,8 @@ final class ExportModel {
     }
 
     /// True while a Delete from iCloud run is going, so no export starts mid-deletion.
-    var isExportBlocked: Bool { iCloudCleanup?.isRunning == true }
+    /// True while a Delete from iCloud run or a Google Photos import is going: neither may overlap an export.
+    var isExportBlocked: Bool { iCloudCleanup?.isRunning == true || googleImport.isRunning }
 
     /// Set by the app: called when a run ends, whatever its result. The account applies a session revoked during the run (M4).
     @ObservationIgnored var onRunFinished: @MainActor () -> Void = {}
@@ -840,6 +854,8 @@ final class ExportModel {
     /// unfinished, so Resume continues it after the next launch.
     func stopForTermination() -> Task<Void, Never>? {
         cancelAutoResume()
+        // An import stops too. Its copied photos stay, and the next run skips them.
+        googleImport.stop()
         // The history says why this run stopped; the manifest keeps it resumable.
         recorder?.finish(status: .interrupted, reason: "Uncloud quit while exporting")
         if canCancel {
@@ -882,7 +898,7 @@ final class ExportModel {
         skipsDriveCheck: Bool = false,
         rankHints rankHintOverride: [String: Int]? = nil
     ) async -> Bool {
-        guard !isExporting, !isEngineRunning else { return false }
+        guard !isExporting, !isEngineRunning, !googleImport.isRunning else { return false }
         // A folder organized another way than the setting is never exported into silently: the owner decides first.
         if let mismatch = folderLayoutMismatch() {
             if pendingLayoutChange == nil {

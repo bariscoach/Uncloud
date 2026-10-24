@@ -11,19 +11,25 @@ struct ExportPaneRenameTests {
 
     @Test("The panes follow the steps: get photos out, then free up iCloud, with the settings last")
     func panesAreInSidebarOrder() {
-        #expect(ExportModel.Pane.allCases == [.export, .browse, .cleanup, .backup])
+        #expect(ExportModel.Pane.allCases == [.export, .google, .browse, .cleanup, .backup])
     }
 
     @Test("Each pane has its sidebar title")
     func panesHaveTitles() {
-        #expect(ExportModel.Pane.allCases.map(\.title) == ["Cloud Library", "Browse Backup", "Delete from iCloud", "Export Settings"])
+        #expect(ExportModel.Pane.allCases.map(\.title) == ["Cloud Library", "Google Photos", "Browse Backup", "Delete from iCloud", "Export Settings"])
     }
 
-    @Test("The panes are numbered 1 to 4 in sidebar order for the View menu shortcuts")
+    @Test("Google Photos has the square-and-arrow-down symbol")
+    func googlePaneHasSymbol() {
+        #expect(ExportModel.Pane.google.symbol == "square.and.arrow.down.on.square")
+    }
+
+    @Test("The panes are numbered 1 to 5 in sidebar order for the View menu shortcuts")
     func panesHaveShortcuts() {
-        #expect(ExportModel.Pane.allCases.map(\.shortcut) == ["1", "2", "3", "4"])
-        #expect(ExportModel.Pane.backup.shortcut == "4")
-        #expect(ExportModel.Pane.cleanup.shortcut == "3")
+        #expect(ExportModel.Pane.allCases.map(\.shortcut) == ["1", "2", "3", "4", "5"])
+        #expect(ExportModel.Pane.google.shortcut == "2")
+        #expect(ExportModel.Pane.backup.shortcut == "5")
+        #expect(ExportModel.Pane.cleanup.shortcut == "4")
     }
 
     @Test("Export Settings opens on General")

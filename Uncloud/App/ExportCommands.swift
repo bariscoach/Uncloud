@@ -46,6 +46,11 @@ struct ExportCommands: Commands {
                 .keyboardShortcut("o", modifiers: [.command, .shift])
                 .disabled(model.destination == nil)
 
+                // Opens the Google Photos pane, where the Takeout files are chosen and imported. No shortcut.
+                Button("Import from Google Photos…") {
+                    model.pane = .google
+                }
+
                 Divider()
 
                 Menu("Photos From") {

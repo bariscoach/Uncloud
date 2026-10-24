@@ -21,6 +21,12 @@ final class BackupTools {
             previous()
             browse?.refresh()
         }
+        // A Google Photos import adds photos to the backup too, so Browse refreshes when it ends.
+        let previousImport = model.googleImport.onFinished
+        model.googleImport.onFinished = { [weak browse] in
+            previousImport()
+            browse?.refresh()
+        }
     }
 
     /// The iCloud catalog Browse reads for a destination: the signed-in account's (R18). A destination exported with
