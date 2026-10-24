@@ -1843,6 +1843,10 @@ final class ExportModel {
                 record(.warning, "The folder can’t change while an export is running.")
                 return
             }
+            guard !googleImport.isRunning else {
+                record(.warning, "The folder can’t change while photos are importing from Google.")
+                return
+            }
             // "Choose New Folder…" answered with the same folder: ask again rather than download everything
             // again here without saying so.
             if let newLayout, let current = destination?.url,
@@ -2245,7 +2249,7 @@ final class ExportModel {
     /// Changes the layout, or asks first (`pendingLayoutChange`) when the destination already has iCloud items in
     /// other layouts: icloudpd only looks at the new layout's paths, so the whole library downloads again.
     func requestLayoutChange(to newLayout: FolderLayout, reason: String = "picker") {
-        guard newLayout != layout, !isExporting, newLayout.isAvailable(for: source) else { return }
+        guard newLayout != layout, !isExporting, !googleImport.isRunning, newLayout.isAvailable(for: source) else { return }
         if let confirmation = layoutChangeConfirmation(to: newLayout) {
             pendingLayoutChange = confirmation
         } else {
