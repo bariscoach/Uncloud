@@ -111,6 +111,7 @@
 		4764734B44D428E784501690 /* AccountValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35426BC3B24ABD55123E111 /* AccountValidation.swift */; };
 		48716C6124339242FC71EA11 /* PreviewAccountServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD61400DF991DDD7622C8A0D /* PreviewAccountServiceTests.swift */; };
 		48BDEC2CFEA7D7D78CB3C674 /* AppleDouble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6104027BDA34781D149397C6 /* AppleDouble.swift */; };
+		49CC2384EC4A2DC78AF53544 /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = 466FC1A33A12C2B7C80D84C8 /* Credits.rtf */; };
 		4A143D6072353D941834F730 /* BackupToolsBrowseWiringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71830B5B70B983E589207F03 /* BackupToolsBrowseWiringTests.swift */; };
 		4D55552BFF68FE6458D9CB6D /* no-finder-entry.bin in Resources */ = {isa = PBXBuildFile; fileRef = 376002E21069372A599DF735 /* no-finder-entry.bin */; };
 		4D738CFEE37A860AA6AE2C4F /* ResumePoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 752C89F694B7D658751F1D20 /* ResumePoint.swift */; };
@@ -156,6 +157,7 @@
 		698BC72208B11E1498239BE3 /* BackupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CFD381FEAA670D99CC49142 /* BackupPane.swift */; };
 		69EF6D2774891D9CD1E87879 /* ExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C963958EE52B95322E7B761 /* ExportEngine.swift */; };
 		6D8F66809C78C243412FE7D2 /* ExportRangeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7DC110AE4934D776CF663D1 /* ExportRangeSheet.swift */; };
+		6DCD7967853A968EBEAB8362 /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = 466FC1A33A12C2B7C80D84C8 /* Credits.rtf */; };
 		6E0E9F89A336214A74DB9F45 /* ICloudLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27C133E92ABA2E1FF9213778 /* ICloudLibrary.swift */; };
 		7035C2E294DF95F154744DF5 /* PhotosAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FBAD3077C621AC0ECF24B4C /* PhotosAccessView.swift */; };
 		71440F269AEC0B66E9B32CDB /* BackupHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF9595130C6A1EFBC16BEC1 /* BackupHero.swift */; };
@@ -408,6 +410,7 @@
 		402041E4CAE58912EFEE8C0E /* DriveInventoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveInventoryTests.swift; sourceTree = "<group>"; };
 		421C5BE2CE6BB3A1E697C683 /* SessionRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRecorder.swift; sourceTree = "<group>"; };
 		45884E0EB5714F8BD6593F2B /* ReorganizePlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReorganizePlannerTests.swift; sourceTree = "<group>"; };
+		466FC1A33A12C2B7C80D84C8 /* Credits.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = Credits.rtf; sourceTree = "<group>"; };
 		46DA548814AF18B9549584E9 /* PlaceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceResolver.swift; sourceTree = "<group>"; };
 		4CCF306428858A4445460385 /* ICloudCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudCleanupTests.swift; sourceTree = "<group>"; };
 		4D1E5EDFFD755EC6FF103867 /* AccountFooterContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountFooterContentTests.swift; sourceTree = "<group>"; };
@@ -856,6 +859,7 @@
 		D99C22EFFD6FB934B1A08C8A /* App */ = {
 			isa = PBXGroup;
 			children = (
+				466FC1A33A12C2B7C80D84C8 /* Credits.rtf */,
 				9DC06A9B2A29D7B6A2E9DE9A /* ExportCommands.swift */,
 				5EB9A26D65807CE3C93CA56E /* HelperProbe.swift */,
 				7BB841704199E1A9A83035CB /* UncloudApp.swift */,
@@ -1053,6 +1057,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B0B68DE32A6D632D02A3C3B8 /* Assets.xcassets in Resources */,
+				6DCD7967853A968EBEAB8362 /* Credits.rtf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1061,6 +1066,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E192C25A50A0A22DF2B40357 /* Assets.xcassets in Resources */,
+				49CC2384EC4A2DC78AF53544 /* Credits.rtf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -13,7 +13,7 @@ struct SettingsTabTests {
 
     @Test("The raw values round trip and are the stored strings")
     func rawValues() {
-        #expect(SettingsTab.allCases == [.general, .backups, .account])
+        #expect(SettingsTab.allCases == [.general, .backups, .account, .about])
         for tab in SettingsTab.allCases {
             #expect(SettingsTab(rawValue: tab.rawValue) == tab)
         }

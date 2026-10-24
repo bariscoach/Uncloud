@@ -20,6 +20,7 @@ targets:
         # Versions come from the build settings, as they did before the Info.plist moved here.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSHumanReadableCopyright: Made by Baris Hiz
         UncloudAccountMode: $(UNCLOUD_ACCOUNT_MODE)
         UncloudAPIBaseURL: $(UNCLOUD_API_BASE_URL)
         UncloudSupabaseURL: $(UNCLOUD_SUPABASE_URL)

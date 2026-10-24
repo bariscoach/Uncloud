@@ -18,6 +18,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Made by Baris Hiz</string>
 	<key>UncloudAPIBaseURL</key>
 	<string>$(UNCLOUD_API_BASE_URL)</string>
 	<key>UncloudAccountMode</key>

@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// The tabs of the Settings window. General and Backups always show; Account only when accounts are on (plan §3.5).
+/// The tabs of the Settings window. General, Backups and About always show; Account only when accounts are on (plan §3.5).
 enum SettingsTab: String, CaseIterable {
-    case general, backups, account
+    case general, backups, account, about
 
     /// The selected tab, remembered across launches and set by Uncloud ▸ Account Settings….
     static let storageKey = "uncloudSettingsTab"
@@ -13,7 +13,7 @@ enum SettingsTab: String, CaseIterable {
     }
 }
 
-/// The Settings window (⌘,): General, Backups, and Account when accounts are on.
+/// The Settings window (⌘,): General, Backups, Account when accounts are on, and About.
 struct SettingsView: View {
     @Environment(ExportModel.self) private var model
     @Environment(AccountModel.self) private var account
@@ -34,6 +34,10 @@ struct SettingsView: View {
                     .tabItem { Label("Account", systemImage: "person.crop.circle") }
                     .tag(SettingsTab.account)
             }
+
+            AboutSettingsForm()
+                .tabItem { Label("About", systemImage: "info.circle") }
+                .tag(SettingsTab.about)
         }
         .frame(width: 460)
     }
@@ -138,5 +142,53 @@ struct BackupSettingsForm: View {
             return "Not exported yet. \(note)"
         }
         return "Last export \(date.formatted(.relative(presentation: .named))). \(note)"
+    }
+}
+
+/// The About tab: who made Uncloud, and where to write for inquiries and sponsorship.
+struct AboutSettingsForm: View {
+    static let author = "Baris Hiz"
+    static let terms = URL(string: "https://uncloud-api.vercel.app/terms")!
+    static let privacy = URL(string: "https://uncloud-api.vercel.app/privacy")!
+
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "Version \(short) (\(build))"
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                HStack(spacing: 12) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 56, height: 56)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Uncloud")
+                            .font(.title2.weight(.semibold))
+                        Text(version)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            Section {
+                LabeledContent("Made by", value: Self.author)
+                LabeledContent("Inquiries and sponsorship") {
+                    Link(AccountLinks.supportEmail, destination: AccountLinks.support)
+                }
+            }
+
+            Section {
+                Link("Uncloud Website", destination: AccountLinks.website)
+                Link("Terms of Use", destination: Self.terms)
+                Link("Privacy Policy", destination: Self.privacy)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
