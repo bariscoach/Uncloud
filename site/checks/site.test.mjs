@@ -1,4 +1,4 @@
-// Static checks for the landing page. Run: node --test site/checks
+// Static checks for the download page. Run: node --test site/checks
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -10,54 +10,98 @@ const html = readFileSync(join(root, 'index.html'), 'utf8');
 const css = readFileSync(join(root, 'styles.css'), 'utf8');
 const js = readFileSync(join(root, 'app.js'), 'utf8');
 const text = (s) => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+const SITE = 'https://getuncloud.vercel.app';
+const DMG = 'https://github.com/bariscoach/Uncloud/releases/latest/download/Uncloud.dmg';
 
-test('document head is complete and matches the approved copy', () => {
+// Removes every block that starts with one of the given headers (brace matched).
+function stripBlocks(src, headerRe) {
+  let out = src;
+  for (;;) {
+    headerRe.lastIndex = 0;
+    const m = headerRe.exec(out);
+    if (!m) return out;
+    let depth = 0;
+    let end = m.index + m[0].length;
+    depth = 1;
+    while (depth > 0 && end < out.length) {
+      if (out[end] === '{') depth++;
+      if (out[end] === '}') depth--;
+      end++;
+    }
+    out = out.slice(0, m.index) + out.slice(end);
+  }
+}
+
+test('document head is complete and points at the download page', () => {
   assert.match(html, /^<!doctype html>/i);
   assert.match(html, /<html lang="en">/);
   assert.match(html, /<meta charset="utf-8">/);
   assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
   assert.match(html, /<meta name="color-scheme" content="light dark">/);
   assert.ok(html.includes('<title>Uncloud: Take Your Photos Home</title>'));
-  assert.ok(html.includes('<meta name="description" content="Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Coming soon to Mac.">'));
-  assert.ok(html.includes('<link rel="canonical" href="https://uncloud.vercel.app/">'));
+  assert.ok(html.includes('<meta name="description" content="Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Free for Mac.">'));
+  assert.ok(html.includes(`<link rel="canonical" href="${SITE}/">`));
   for (const property of ['og:title', 'og:description', 'og:type', 'og:url', 'og:site_name', 'og:image', 'og:image:alt']) {
     assert.match(html, new RegExp(`<meta property="${property}" content="[^"]+">`), property);
   }
-  assert.match(html, /<meta property="og:image" content="https:\/\/uncloud\.vercel\.app\/og\.png">/);
+  assert.ok(html.includes(`<meta property="og:url" content="${SITE}/">`));
+  assert.ok(html.includes(`<meta property="og:image" content="${SITE}/og.png">`));
   assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
   for (const name of ['twitter:title', 'twitter:description', 'twitter:image']) {
     assert.match(html, new RegExp(`<meta name="${name}" content="[^"]+">`), name);
   }
+  assert.ok(html.includes(`<meta name="twitter:image" content="${SITE}/og.png">`));
+  assert.doesNotMatch(html, /Coming soon/i, 'coming soon copy');
+  assert.doesNotMatch(html, /https:\/\/uncloud\.vercel\.app/, 'old domain');
 });
 
-test('no inline script or style, no style attributes, and no third-party origins', () => {
+test('no inline script or style, no style attributes, and only allowed origins', () => {
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/, 'inline script');
   assert.doesNotMatch(html, /<style/, 'style element');
   assert.doesNotMatch(html, /\sstyle=/, 'style attribute');
-  const allowed = ['https://uncloud-api.vercel.app', 'https://uncloud.vercel.app'];
+  const allowed = [SITE, 'https://uncloud-api.vercel.app', 'https://github.com/bariscoach/Uncloud'];
   for (const [url] of html.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
     assert.ok(allowed.some((origin) => url.startsWith(origin)), `third-party URL ${url}`);
   }
   assert.doesNotMatch(js, /https?:\/\/(?!uncloud-api\.vercel\.app)/, 'app.js third-party URL');
+  assert.match(html, /<script type="module" src="app.js"><\/script>/);
 });
 
-test('the hero, form messages, tiles and disclaimer copy are present', () => {
+test('the download link is in the top bar, the hero and the closing band', () => {
+  const links = html.split(`href="${DMG}"`).length - 1;
+  assert.ok(links >= 2, `download links: ${links}`);
+  assert.equal(links, 3);
+  const plain = text(html);
+  assert.ok(plain.includes('Download Uncloud for Mac'), 'accessible name of the hero button');
+  assert.ok(plain.includes('Version 0.1.23 · macOS 14 or later'), 'version and requirements');
+  assert.ok(html.includes('href="https://github.com/bariscoach/Uncloud/releases"'), 'all versions link');
+  assert.ok(html.includes('download'), 'download attribute on the hero');
+});
+
+test('the install section has an id, the hero link, and three steps', () => {
+  assert.match(html, /<section class="section" id="install"/);
+  assert.ok(html.includes('href="#install"'), 'How to install link');
+  const plain = text(html);
+  assert.ok(plain.includes('Install in three steps'));
+  assert.equal([...html.matchAll(/<li class="install-card">/g)].length, 3);
+  assert.ok(plain.includes('Open Uncloud.dmg and drag Uncloud to Applications.'));
+  assert.ok(plain.includes('System Settings › Privacy &amp; Security and click Open Anyway.'));
+  assert.ok(plain.includes('Create your free Uncloud account and sign in to iCloud Photos.'));
+});
+
+test('the hero, tiles, FAQ and disclaimer copy are present', () => {
   const plain = text(html);
   for (const line of [
-    'Coming soon to Mac',
     'Take Your Photos Home',
-    'Export every photo from iCloud to your own drive. Full quality, without filling up your Mac.',
-    'For macOS Sonoma 14 or later',
-    'Get notified at launch',
-    'One email when we launch. No spam. We never share your address.',
-    'Sound familiar?',
-    'Uncloud fixes all four.',
+    'Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Free.',
     'How It Works',
     'Everything Your Photos Need',
     'Free. Create an account in the app to start.',
     'Your Photos Stay Yours',
     'Questions',
-    'Be First to Take Your Photos Home',
+    'Ready to take your photos home?',
+    'Why does macOS warn me the first time?',
+    'Is it free?',
     '© 2026 Uncloud',
     'iCloud, Photos and Mac are trademarks of Apple Inc., registered in the U.S. and other countries. Uncloud is not affiliated with Apple.',
   ]) {
@@ -68,9 +112,12 @@ test('the hero, form messages, tiles and disclaimer copy are present', () => {
   ]) {
     assert.ok(html.includes(`<h3>${title}</h3>`), title);
   }
+  for (const gone of ['Get notified at launch', 'Notify Me', 'Be First to Take Your Photos Home', 'Sound familiar?', 'When does Uncloud launch?']) {
+    assert.ok(!plain.includes(gone), `still present: ${gone}`);
+  }
 });
 
-test('no payment, plan or removed-tool wording on the landing page', () => {
+test('no payment, plan or removed-tool wording on the page', () => {
   const plain = text(html);
   for (const pattern of [
     /pric/i, /\$\d/, /\bPlus\b/, /\bbadge/i, /subscri/i, /stripe/i, /checkout/i, /\bplan\b/i,
@@ -81,56 +128,62 @@ test('no payment, plan or removed-tool wording on the landing page', () => {
   assert.doesNotMatch(html, /class="[^"]*\bbadge/, 'badge class');
 });
 
-test('the four form messages are in the script with the approved wording', () => {
-  for (const line of [
-    'Enter a valid email address.',
-    'Too many tries. Try again in a few minutes.',
-    'Couldn’t add you just now. Check your connection and try again.',
-    'You’re on the list. We’ll email you when Uncloud is ready.',
-    'You’re already on the list. See you at launch.',
-    'Joining…',
-  ]) {
-    assert.ok(js.includes(line), `missing: ${line}`);
-  }
-  assert.match(html, /Turn on JavaScript to join the list\./);
+test('app.js only reveals sections and has no network code', () => {
+  assert.match(js, /IntersectionObserver/);
+  assert.match(js, /prefers-reduced-motion: reduce/);
+  assert.match(js, /classList\.add\("js"\)/);
+  assert.doesNotMatch(js, /fetch\(|XMLHttpRequest|waitlist/i);
 });
 
 test('no "forever" and no Apple mention outside the approved places', () => {
   assert.doesNotMatch(html, /forever/i);
   const plain = text(html);
   const sentences = plain.split(/(?<=[.?!])\s+/).filter((s) => /\bApple\b/.test(s));
-  // Approved places: the privacy band, the FAQ answer about photos, and the footer disclaimer.
+  // Approved places: the privacy band, the FAQ answers about photos and notarization, and the footer disclaimer.
   for (const sentence of sentences) {
     assert.ok(
-      /Photos go straight from Apple to your drive\.|They never pass through us|trademarks of Apple Inc\./.test(sentence) ||
+      /Photos go straight from Apple to your drive\.|They never pass through us|trademarks of Apple Inc\.|notarized by Apple yet/.test(sentence) ||
         /Uncloud is not affiliated with Apple\./.test(sentence),
       `unexpected Apple mention: ${sentence}`,
     );
   }
 });
 
-test('every input has a label and the honeypot is hidden from keyboard focus', () => {
+test('every input has a label (the page has none now, so this only guards future forms)', () => {
   const inputs = [...html.matchAll(/<input\b[^>]*>/g)].map((m) => m[0]);
   for (const input of inputs) {
     const id = /\bid="([^"]+)"/.exec(input)?.[1];
-    const named = /\bname="website"/.test(input);
-    if (named) {
-      assert.match(input, /tabindex="-1"/, 'honeypot tabindex');
-    } else {
-      assert.ok(id, `input without id: ${input}`);
-      assert.ok(html.includes(`for="${id}"`), `no label for ${id}`);
-    }
+    assert.ok(id, `input without id: ${input}`);
+    assert.ok(html.includes(`for="${id}"`), `no label for ${id}`);
   }
 });
 
-test('the stylesheet supports dark mode and reduced motion', () => {
+test('the stylesheet supports dark mode, reduced motion and the no-preference motion block', () => {
   assert.match(css, /@media \(prefers-color-scheme: dark\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(css, /@media \(prefers-reduced-motion: no-preference\)/);
+  assert.match(css, /html\.js \[data-reveal\]/);
+});
+
+test('every animation is inside the no-preference block or a keyframes rule', () => {
+  const outside = stripBlocks(
+    css,
+    /@(?:keyframes [^{]+|media \(prefers-reduced-motion: (?:no-preference|reduce)\))\s*\{/g,
+  );
+  assert.doesNotMatch(outside, /\banimation(?:-[a-z]+)?\s*:/, 'animation declared outside the motion block');
+});
+
+test('the feature illustrations exist and are hidden from assistive tech', () => {
+  const tiles = [...html.matchAll(/<li class="tile"[^>]*>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+  assert.equal(tiles.length, 5);
+  for (const tile of tiles) {
+    assert.match(tile, /<div class="tile-art" aria-hidden="true">/);
+    assert.match(tile, /<svg viewBox="0 0 240 120"/);
+  }
 });
 
 test('tile titles are at most 4 words and lines at most 10 words', () => {
-  const tiles = [...html.matchAll(/<li class="tile">([\s\S]*?)<\/li>/g)].map((m) => m[1]);
-  assert.equal(tiles.length, 5);
+  const tiles = [...html.matchAll(/<li class="tile"[^>]*>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
   for (const tile of tiles) {
     const title = /<h3>([^<]+)<\/h3>/.exec(tile)[1];
     const line = /<p>([^<]+)<\/p>/.exec(tile)[1];
@@ -147,6 +200,6 @@ test('the hero visual and the icons carry no text and are hidden from assistive 
   }
 });
 
-test('the privacy band uses a single h2 and the page has one h1', () => {
+test('the page has one h1 and the section headings are h2', () => {
   assert.equal([...html.matchAll(/<h1[\s>]/g)].length, 1);
 });
