@@ -17,13 +17,8 @@ function htmlPages(dir = join(root, 'public')) {
 
 const pages = htmlPages();
 
-test('there are pages for every route the app and Stripe use', () => {
-  for (const expected of [
-    'public/index.html', 'public/404.html', 'public/terms.html', 'public/privacy.html',
-    'public/checkout/success.html', 'public/checkout/cancelled.html', 'public/account/return.html',
-  ]) {
-    assert.ok(pages.includes(expected), expected);
-  }
+test('there are pages for the home page, the 404 page and the legal pages', () => {
+  assert.deepEqual(pages.sort(), ['public/404.html', 'public/index.html', 'public/privacy.html', 'public/terms.html']);
 });
 
 test('every page is a complete light/dark document with a viewport and the shared stylesheet', () => {
@@ -37,70 +32,43 @@ test('every page is a complete light/dark document with a viewport and the share
   }
 });
 
-test('no inline script or style: CSP forbids them', () => {
+test('no script, inline style or inline event handler: the pages need no JavaScript', () => {
   for (const page of pages) {
     const html = read(page);
+    assert.doesNotMatch(html, /<script\b/i, page);
     assert.doesNotMatch(html, /<style[\s>]/i, page);
     assert.doesNotMatch(html, /\sstyle\s*=/i, `${page} has a style attribute`);
-    const scripts = [...html.matchAll(/<script\b([^>]*)>/gi)];
-    for (const [, attributes] of scripts) {
-      assert.match(attributes, /\ssrc="\/assets\/return\.js"/, `${page} has a non-file script`);
-    }
     assert.doesNotMatch(html, /\son[a-z]+\s*=/i, `${page} has an inline event handler`);
   }
 });
 
-test('only the return script is loaded, and only on the return pages', () => {
-  const withScript = pages.filter((p) => read(p).includes('/assets/return.js')).sort();
-  assert.deepEqual(withScript, ['public/account/return.html', 'public/checkout/cancelled.html', 'public/checkout/success.html']);
-});
-
-test('the success page is the only one that syncs the session, and it is marked for it', () => {
+test('no page mentions payments, plans or prices', () => {
   for (const page of pages) {
-    const marked = /data-checkout-sync/.test(read(page));
-    assert.equal(marked, page === 'public/checkout/success.html', page);
+    const html = read(page);
+    assert.doesNotMatch(html, /stripe|subscription|subscribe|checkout|refund|\$\d|uncloud plus|\bplus\b|renew/i, page);
   }
 });
 
-test('return pages open the expected app URLs', () => {
-  assert.match(read('public/checkout/success.html'), /data-app-url="uncloud:\/\/checkout\/success"/);
-  assert.match(read('public/checkout/cancelled.html'), /data-app-url="uncloud:\/\/checkout\/cancel"/);
-  assert.match(read('public/account/return.html'), /data-app-url="uncloud:\/\/account\/refresh"/);
+test('the 404 page keeps its return link to the app', () => {
   assert.match(read('public/404.html'), /href="uncloud:\/\/account\/refresh"/);
 });
 
-test('the final copy from the plan is present verbatim', () => {
+test('the final copy is present verbatim', () => {
   const copy = {
-    'public/checkout/success.html': ['You’re all set', 'Your payment went through and Uncloud Plus is on.', 'Uncloud didn’t open? Switch to it from the Dock. Your plan shows up within a minute.', 'A receipt is on its way to your email.'],
-    'public/checkout/cancelled.html': ['Checkout cancelled', 'You haven’t been charged. You can get Uncloud Plus anytime from Uncloud.'],
-    'public/account/return.html': ['Changes saved', 'Uncloud will show your updated plan in a moment.'],
-    'public/index.html': ['Take Your Photos Home. Export full-quality originals from iCloud to your own drive.', 'This address is Uncloud’s account service. To use Uncloud, open the app on your Mac.'],
     'public/404.html': ['Page not found', 'There’s nothing here. If you came from Uncloud, return to the app and try again.'],
-    'public/terms.html': ['Uncloud Plus costs $9.99 USD per year, plus any tax that applies where you live. Tax is shown before you pay.', 'Clean Up iCloud deletes photos from your iCloud library only when you confirm. Recently Deleted keeps them for up to 30 days.'],
-    'public/privacy.html': ['Your email address, a Stripe customer ID, and your plan’s status and renewal date. Nothing else.'],
+    'public/index.html': ['Take Your Photos Home. Export full-quality originals from iCloud to your own drive.', 'This address is Uncloud’s account service. To use Uncloud, open the app on your Mac.'],
+    'public/terms.html': [
+      'Uncloud is free. Every feature is included.',
+      'Deleting from iCloud removes photos from your iCloud library only when you confirm. Recently Deleted keeps them for up to 30 days.',
+    ],
+    'public/privacy.html': ['Your email address and the account record Supabase keeps for sign-in. Nothing else.'],
   };
   for (const [page, strings] of Object.entries(copy)) {
     for (const text of strings) assert.ok(read(page).includes(text), `${page}: ${text}`);
   }
 });
 
-test('the success sync posts to the same-origin endpoint with a validated session id', () => {
-  const script = read('public/assets/return.js');
-  assert.ok(script.includes("fetch('/v1/checkout/sync'") || script.includes("'/v1/checkout/sync'"));
-  assert.match(script, /\^cs_\(test\|live\)_\[A-Za-z0-9\]\+\$/);
-  assert.match(script, /4000/);
-  assert.doesNotMatch(script, /\beval\(|new Function|innerHTML/);
-});
-
-test('the stylesheet has the dark-mode guard and no external resources', () => {
-  const css = read('public/assets/site.css');
-  assert.match(css, /@media \(prefers-color-scheme: dark\)/);
-  assert.match(css, /:root:not\(\[data-theme="light"\]\)/);
-  assert.match(css, /:root\[data-theme="dark"\]/);
-  assert.doesNotMatch(css, /@import|https?:\/\//);
-});
-
-test('vercel.json sends the CSP with no unsafe directives, and the no-store API cache header', () => {
+test('the vercel.json sends the CSP with no unsafe directives, and the no-store API cache header', () => {
   const config = JSON.parse(read('vercel.json'));
   const headers = config.headers.flatMap((h) => h.headers.map((x) => [h.source, x.key, x.value]));
   const csp = headers.find(([, key]) => key === 'Content-Security-Policy')[2];
@@ -111,9 +79,17 @@ test('vercel.json sends the CSP with no unsafe directives, and the no-store API 
   assert.deepEqual(config.rewrites, [{ source: '/v1/:path*', destination: '/api/v1/:path*' }]);
 });
 
-test('the legal pages carry a draft banner and the support placeholder is visible', () => {
+test('the stylesheet has the dark-mode guard and no external resources', () => {
+  const css = read('public/assets/site.css');
+  assert.match(css, /@media \(prefers-color-scheme: dark\)/);
+  assert.match(css, /:root:not\(\[data-theme="light"\]\)/);
+  assert.match(css, /:root\[data-theme="dark"\]/);
+  assert.doesNotMatch(css, /@import|https?:\/\//);
+});
+
+test('the legal pages carry a draft banner and the support address', () => {
   for (const page of ['public/terms.html', 'public/privacy.html']) {
     assert.match(read(page), /class="placeholder"/, page);
-    assert.match(read(page), /\[support email\]/, page);
+    assert.match(read(page), /mailto:barishiz@gmail\.com/, page);
   }
 });

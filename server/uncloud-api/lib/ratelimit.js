@@ -1,5 +1,4 @@
 // Fixed-window rate limits, counted in Supabase (public.rate_limits, public.consume_rate_limit).
-// Stripe's API rate limit is per account, so a script hitting public endpoints must not reach it (review M6).
 
 import { apiError } from './http.js';
 

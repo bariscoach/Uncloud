@@ -1,4 +1,4 @@
-// POST /v1/waitlist from the landing page. Public, so it never touches Stripe or the signing key:
+// POST /v1/waitlist from the landing page. Public, so it never touches the database or the signing key:
 // defaultDeps() only builds lazy getters. Origin rules live in lib/cors.js.
 import { route } from '../../lib/http.js';
 import { defaultDeps } from '../../lib/deps.js';

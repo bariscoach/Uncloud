@@ -1,7 +1,6 @@
 // Production dependencies, built lazily so a route only touches the secrets it uses.
 
 import { loadConfig } from './config.js';
-import { stripeClient } from './stripe.js';
 import { createSupabase } from './supabase.js';
 import { jwksFor, verifyRequest } from './auth.js';
 import { loadSigningKey } from './entitlement.js';
@@ -14,9 +13,6 @@ export function buildDeps(env = process.env) {
   return {
     config,
     now: () => new Date(),
-    get stripe() {
-      return stripeClient(config);
-    },
     get db() {
       db ??= createSupabase({
         url: config.supabaseUrl,

@@ -13,9 +13,6 @@ export class ApiError extends Error {
 const DEFAULT_MESSAGES = {
   unauthorized: 'Sign in again to continue.',
   bad_request: 'The request was not valid.',
-  already_subscribed: 'You already have Uncloud Plus.',
-  no_subscription: 'There is no Uncloud Plus plan to change.',
-  checkout_unavailable: 'Checkout is unavailable right now. Try again later.',
   confirmation_mismatch: 'The email does not match this account.',
   rate_limited: 'Too many requests. Try again later.',
   server_error: 'Something went wrong. Try again later.',
