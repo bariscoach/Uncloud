@@ -641,7 +641,7 @@ final class ExportModel {
     /// Whether the Export Photos by Date control is enabled. Without a folder it is enabled when a folder can be
     /// chosen, which is what it does then.
     var canOpenExportByDate: Bool {
-        destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked() && isSourceReady : canExportByDate
+        destination == nil ? !isExporting && !isEngineRunning && !isExportBlocked && isSourceReady : canExportByDate
     }
 
     /// Opens the Export Photos by Date sheet. Without a folder, it asks for one; the sheet is opened again from the
