@@ -41,6 +41,7 @@ test('document head is complete and points at the download page', () => {
   assert.ok(html.includes('<title>Uncloud: Take Your Photos Home</title>'));
   assert.ok(html.includes('<meta name="description" content="Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Free for Mac.">'));
   assert.ok(html.includes(`<link rel="canonical" href="${SITE}/">`));
+  assert.ok(html.includes('<meta name="theme-color" content="#0A0A0C" media="(prefers-color-scheme: dark)">'));
   for (const property of ['og:title', 'og:description', 'og:type', 'og:url', 'og:site_name', 'og:image', 'og:image:alt']) {
     assert.match(html, new RegExp(`<meta property="${property}" content="[^"]+">`), property);
   }
@@ -94,10 +95,10 @@ test('the hero, tiles, FAQ and disclaimer copy are present', () => {
   for (const line of [
     'Take Your Photos Home',
     'Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Free.',
-    'How It Works',
-    'Everything Your Photos Need',
+    'How it works',
+    'Everything your photos need',
     'Free. No account, no sign-up.',
-    'Your Photos Stay Yours',
+    'Your photos stay yours',
     'Questions',
     'Ready to take your photos home?',
     'Why does macOS warn me the first time?',
@@ -116,6 +117,23 @@ test('the hero, tiles, FAQ and disclaimer copy are present', () => {
   for (const gone of ['Get notified at launch', 'Notify Me', 'Be First to Take Your Photos Home', 'Sound familiar?', 'When does Uncloud launch?']) {
     assert.ok(!plain.includes(gone), `still present: ${gone}`);
   }
+  assert.ok(html.includes('<h1 id="hero-title">Take your photos home.</h1>'), 'hero h1');
+});
+
+test('sections have ids and the top bar links to them', () => {
+  for (const id of ['how', 'features', 'privacy', 'install', 'faq']) {
+    assert.ok(html.includes(`id="${id}"`), `section id ${id}`);
+  }
+  assert.match(html, /<nav class="topnav" aria-label="Sections">/);
+  for (const href of ['#features', '#privacy', '#install', '#faq']) {
+    assert.ok(html.includes(`href="${href}"`), `nav link ${href}`);
+  }
+});
+
+test('the hero has a secondary install button and no pulsing glow', () => {
+  assert.match(html, /<a class="btn btn-lg btn-ghost" href="#install">/);
+  assert.doesNotMatch(css, /glow-pulse|hero-float/);
+  assert.doesNotMatch(html, /hero-wordmark/);
 });
 
 test('no payment, plan or removed-tool wording on the page', () => {
