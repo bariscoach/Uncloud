@@ -2302,5 +2302,84 @@ class CatalogFieldsTests(unittest.TestCase):
         self.assertEqual(pb._slacked_windows([range(0, 10), range(200, 210)]), [range(0, 35), range(175, 235)])
 
 
+class PreviewTests(unittest.TestCase):
+    """The full-size preview of an item: which version, its URL and its file extension (preview_version)."""
+
+    def asset_with(self, item_type, extra_fields=None):
+        from pyicloud_ipd.services.photos import PhotoAsset
+
+        master, asset = records("PV01", "IMG_0001.HEIC", item_type, ms(2024, 1, 1), thumb=False)
+        # No original unless a test adds one: it is the last fallback for both photos and movies.
+        del master["fields"]["resOriginalRes"], master["fields"]["resOriginalFileType"]
+        master["fields"].update(extra_fields or {})
+        return PhotoAsset(master, asset)
+
+    def test_the_full_size_jpeg_comes_first(self):
+        fields = {}
+        for key, kind in [("resJPEGFullRes", "full"), ("resJPEGMedRes", "med"), ("resOriginalRes", "original")]:
+            fields[key] = res("PV01", kind)
+        fields["resJPEGFullFileType"] = {"value": "public.jpeg"}
+        fields["resOriginalFileType"] = {"value": "public.heic"}
+        self.assertEqual(pb.preview_version(self.asset_with("public.jpeg", fields)),
+                         ("https://fake.example/PV01/full", "jpg"))
+
+    def test_falls_back_to_the_medium_then_the_original_and_takes_the_extension_from_its_file_type(self):
+        medium = {"resJPEGMedRes": res("PV01", "med"), "resJPEGMedFileType": {"value": "public.jpeg"},
+                  "resOriginalRes": res("PV01", "original"), "resOriginalFileType": {"value": "public.heic"}}
+        self.assertEqual(pb.preview_version(self.asset_with("public.heic", medium)),
+                         ("https://fake.example/PV01/med", "jpg"))
+        original = {"resOriginalRes": res("PV01", "original"), "resOriginalFileType": {"value": "public.heic"}}
+        self.assertEqual(pb.preview_version(self.asset_with("public.heic", original)),
+                         ("https://fake.example/PV01/original", "heic"))
+        png = {"resOriginalRes": res("PV01", "original"), "resOriginalFileType": {"value": "public.png"}}
+        self.assertEqual(pb.preview_version(self.asset_with("public.png", png))[1], "png")
+
+    def test_a_movie_prefers_the_medium_video_and_its_extension(self):
+        fields = {"resVidSmallRes": res("PV01", "small"), "resVidSmallFileType": {"value": "com.apple.quicktime-movie"},
+                  "resVidMedRes": res("PV01", "med"), "resVidMedFileType": {"value": "public.mpeg-4"},
+                  "resOriginalRes": res("PV01", "original"), "resOriginalFileType": {"value": "com.apple.quicktime-movie"}}
+        self.assertEqual(pb.preview_version(self.asset_with("com.apple.quicktime-movie", fields)),
+                         ("https://fake.example/PV01/med", "mp4"))
+        small_only = {"resVidSmallRes": res("PV01", "small"), "resVidSmallFileType": {"value": "com.apple.quicktime-movie"}}
+        self.assertEqual(pb.preview_version(self.asset_with("com.apple.quicktime-movie", small_only)),
+                         ("https://fake.example/PV01/small", "mov"))
+
+    def test_an_unknown_file_type_defaults_to_jpg_for_a_photo_and_mov_for_a_movie(self):
+        photo = {"resJPEGFullRes": res("PV01", "full"), "resJPEGFullFileType": {"value": "public.something-new"}}
+        self.assertEqual(pb.preview_version(self.asset_with("public.jpeg", photo)),
+                         ("https://fake.example/PV01/full", "jpg"))
+        movie = {"resVidMedRes": res("PV01", "med")}
+        self.assertEqual(pb.preview_version(self.asset_with("com.apple.quicktime-movie", movie)),
+                         ("https://fake.example/PV01/med", "mov"))
+
+    def test_a_photo_ignores_video_versions_and_a_movie_ignores_photo_versions(self):
+        self.assertIsNone(pb.preview_version(self.asset_with("com.apple.quicktime-movie",
+                                                             {"resJPEGFullRes": res("PV01", "full")})))
+        self.assertIsNone(pb.preview_version(self.asset_with("public.jpeg", {"resVidMedRes": res("PV01", "med")})))
+
+    def test_no_version_gives_none_and_describe_says_so(self):
+        asset = self.asset_with("public.jpeg")
+        self.assertIsNone(pb.preview_version(asset))
+        described = pb.describe(asset)
+        self.assertIsNone(described["previewURL"])
+        self.assertIsNone(described["previewType"])
+
+    def test_describe_carries_the_preview_and_compact_drops_it(self):
+        asset = self.asset_with("public.heic", {"resOriginalRes": res("PV01", "original"),
+                                                "resOriginalFileType": {"value": "public.heic"}})
+        described = pb.describe(asset)
+        self.assertEqual((described["previewURL"], described["previewType"]),
+                         ("https://fake.example/PV01/original", "heic"))
+        compacted = pb.compact(asset, 4)
+        self.assertNotIn("previewURL", compacted)
+        self.assertNotIn("previewType", compacted)
+        self.assertEqual(compacted["rank"], 4)
+
+    def test_the_preview_keys_are_requested_by_listings(self):
+        for key in ("resJPEGFullRes", "resJPEGFullFileType", "resJPEGMedRes", "resVidMedRes", "resVidSmallRes",
+                    "resOriginalFileType"):
+            self.assertIn(key, pb.LISTING_KEYS)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

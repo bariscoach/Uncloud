@@ -28,7 +28,9 @@ private actor FakeLibrary: ICloudPageFetching {
                 filename: "IMG_\(index).HEIC",
                 created: nil,
                 isVideo: false,
-                thumbnailURL: URL(string: "https://example.invalid/\(index)?v=\(thumbnailSuffix)")
+                thumbnailURL: URL(string: "https://example.invalid/\(index)?v=\(thumbnailSuffix)"),
+                previewURL: URL(string: "https://example.invalid/\(index)/preview?v=\(thumbnailSuffix)"),
+                previewExtension: "heic"
             )
         }
     }
@@ -69,6 +71,7 @@ private func makeCache(
         fetcher: library,
         thumbnails: thumbnails,
         thumbnailDirectory: directory,
+        previewDirectory: directory.appending(path: "previews", directoryHint: .isDirectory),
         pageSize: pageSize,
         maxPages: maxPages
     )
@@ -220,6 +223,86 @@ struct ICloudPageCacheTests {
             let asset = try await cache.page(0)[0]
             #expect(await cache.thumbnailData(for: asset) == nil)
             #expect(!FileManager.default.fileExists(atPath: cache.thumbnailFile(for: asset.id).path(percentEncoded: false)))
+        }
+    }
+
+    @Test func previewIsDownloadedOnceAndKeptInThePreviewFolder() async throws {
+        try await withTemporaryDirectoryAsync { folder in
+            let library = FakeLibrary(total: 3)
+            let thumbnails = FakeThumbnails()
+            await thumbnails.script("https://example.invalid/0/preview?v=1", [(Data([4, 5]), 200)])
+            let cache = makeCache(library: library, thumbnails: thumbnails, directory: folder)
+            let asset = try await cache.page(0)[0]
+            let file = try #require(await cache.previewFile(for: asset))
+            #expect(file.pathExtension == "heic")
+            #expect(file.deletingLastPathComponent().lastPathComponent == "previews")
+            #expect(try Data(contentsOf: file) == Data([4, 5]))
+            #expect(await cache.previewFile(for: asset) == file)
+            #expect(await thumbnails.requested.map(\.absoluteString) == ["https://example.invalid/0/preview?v=1"])
+            // A new cache instance finds the file by ID, without its page in memory and without a request.
+            let reopenedThumbnails = FakeThumbnails()
+            let reopened = makeCache(library: library, thumbnails: reopenedThumbnails, directory: folder)
+            #expect(await reopened.previewFile(forID: asset.id) == file)
+            #expect(await reopenedThumbnails.requested.isEmpty)
+        }
+    }
+
+    @Test func concurrentPreviewRequestsShareOneDownload() async throws {
+        try await withTemporaryDirectoryAsync { folder in
+            let library = FakeLibrary(total: 3)
+            let thumbnails = FakeThumbnails()
+            await thumbnails.script("https://example.invalid/0/preview?v=1", [(Data([1]), 200)])
+            let cache = makeCache(library: library, thumbnails: thumbnails, directory: folder)
+            let asset = try await cache.page(0)[0]
+            let files = await withTaskGroup(of: URL?.self) { group in
+                for _ in 0..<6 {
+                    group.addTask { await cache.previewFile(for: asset) }
+                }
+                return await group.reduce(into: [URL?]()) { $0.append($1) }
+            }
+            let first = try #require(files.first ?? nil)
+            #expect(files.allSatisfy { $0 == first })
+            #expect(await thumbnails.requested.count == 1)
+        }
+    }
+
+    @Test func expiredPreviewURLIsRenewedOnce() async throws {
+        try await withTemporaryDirectoryAsync { folder in
+            let library = FakeLibrary(total: 3)
+            let thumbnails = FakeThumbnails()
+            await thumbnails.script("https://example.invalid/0/preview?v=1", [(Data(), 403)])
+            await thumbnails.script("https://example.invalid/0/preview?v=2", [(Data([9]), 200)])
+            let cache = makeCache(library: library, thumbnails: thumbnails, directory: folder)
+            let asset = try await cache.page(0)[0]
+            await library.renewURLs()
+            let file = try #require(await cache.previewFile(for: asset))
+            #expect(try Data(contentsOf: file) == Data([9]))
+            #expect(await thumbnails.requested.map(\.absoluteString) == [
+                "https://example.invalid/0/preview?v=1", "https://example.invalid/0/preview?v=2",
+            ])
+        }
+    }
+
+    @Test func failedPreviewGivesNilAndIsNotSaved() async throws {
+        try await withTemporaryDirectoryAsync { folder in
+            let thumbnails = FakeThumbnails()
+            await thumbnails.script("https://example.invalid/0/preview?v=1", [(Data(), 500)])
+            let cache = makeCache(library: FakeLibrary(total: 3), thumbnails: thumbnails, directory: folder)
+            let asset = try await cache.page(0)[0]
+            #expect(await cache.previewFile(for: asset) == nil)
+            let location = cache.previewFileLocation(for: asset.id, fileExtension: "heic")
+            #expect(!FileManager.default.fileExists(atPath: location.path(percentEncoded: false)))
+        }
+    }
+
+    @Test func anItemWithoutAPreviewHasNoFileAndIsNotFetched() async {
+        await withTemporaryDirectoryAsync { folder in
+            let thumbnails = FakeThumbnails()
+            let cache = makeCache(library: FakeLibrary(total: 3), thumbnails: thumbnails, directory: folder)
+            let bare = ICloudAsset(id: "no-preview", filename: "IMG_9.JPG", created: nil, isVideo: false, thumbnailURL: nil)
+            #expect(await cache.previewFile(for: bare) == nil)
+            #expect(await cache.previewFile(forID: "never-seen") == nil)
+            #expect(await thumbnails.requested.isEmpty)
         }
     }
 

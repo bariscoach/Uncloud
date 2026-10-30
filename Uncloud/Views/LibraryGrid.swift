@@ -51,6 +51,8 @@ struct LibraryGrid: View {
     /// The last tile clicked, the start of a shift-click range.
     @State private var anchor: Int?
     @State private var rangeTask: Task<Void, Never>?
+    /// The item whose full-size preview is downloading before Quick Look opens.
+    @State private var loadingPreview: String?
 
     var body: some View {
         if let count = browser.count {
@@ -72,10 +74,17 @@ struct LibraryGrid: View {
                         } ?? false,
                         backedUp: item.map { item in backedUp?.contains(item.id) ?? false } ?? false,
                         showsBackedUpBadge: backedUp != nil,
+                        isLoadingPreview: item.map { loadingPreview == $0.id } ?? false,
                         browser: browser
                     )
                     .focusable()
                     .focused($focusedIndex, equals: index)
+                    // Declared before the single tap, so a double-click is seen as one double-click, not two taps.
+                    .onTapGesture(count: 2) {
+                        // A double-click selects the item as a plain click does, then opens its preview.
+                        tap(index, extendsRange: false)
+                        preview(index)
+                    }
                     .onTapGesture {
                         // A tap with Shift held selects the range from the last tile clicked.
                         tap(index, extendsRange: NSEvent.modifierFlags.contains(.shift))
@@ -84,6 +93,10 @@ struct LibraryGrid: View {
                         tap(index, extendsRange: false)
                         return .handled
                     }
+                    .contextMenu {
+                        Button("Preview") { preview(index) }
+                    }
+                    .accessibilityAction(named: "Preview") { preview(index) }
                 }
             }
         }
@@ -96,6 +109,22 @@ struct LibraryGrid: View {
             selectAll: { selection = selectAll },
             deselectAll: { selection = .only([]) }
         ))
+    }
+
+    /// Opens the item's full-size preview in Quick Look, downloading it first when it must. One preview loads at a
+    /// time, and a tile that isn't loaded (or is a catalog placeholder) does nothing.
+    private func preview(_ index: Int) {
+        guard loadingPreview == nil, let item = browser.selectableItem(at: index) else { return }
+        loadingPreview = item.id
+        let browser = browser
+        Task { @MainActor in
+            let url = await browser.previewFile(for: item)
+            loadingPreview = nil
+            // No preview (or no file) opens nothing; the tile shows nothing new.
+            if let url {
+                QuickLookPanel.shared.show([url], startingAt: 0)
+            }
+        }
     }
 
     private func tap(_ index: Int, extendsRange: Bool) {
@@ -144,6 +173,8 @@ private struct LibraryTile: View {
     let isDimmed: Bool
     let backedUp: Bool
     let showsBackedUpBadge: Bool
+    /// The full-size preview of this item is downloading; a small spinner shows over the thumbnail.
+    let isLoadingPreview: Bool
     let browser: LibraryBrowser
     @State private var image: NSImage?
     /// The accent variant in effect, so the selection ring and badge follow it. Nil keeps the system accent.
@@ -193,6 +224,12 @@ private struct LibraryTile: View {
                 if isSelected {
                     Rectangle()
                         .strokeBorder(accent ?? Color.accentColor, lineWidth: 3)
+                }
+            }
+            .overlay {
+                if isLoadingPreview {
+                    ProgressView()
+                        .controlSize(.small)
                 }
             }
             .opacity(isDimmed ? 0.4 : 1)

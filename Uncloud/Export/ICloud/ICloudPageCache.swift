@@ -9,6 +9,9 @@ struct ICloudAsset: Sendable, Hashable, Identifiable {
     let isVideo: Bool
     /// A signed URL for a small JPEG. It expires, after which iCloud answers 403 or 410.
     let thumbnailURL: URL?
+    /// A signed URL for a full-size version (Quick Look), and its file extension. Nil when the bridge sends none.
+    var previewURL: URL? = nil
+    var previewExtension: String? = nil
     /// What exporting the item writes (the original plus any Live Photo movie), when known.
     var bytes: Int64? = nil
     /// When the item was added to the library. Nil when the bridge doesn't say.
@@ -65,6 +68,7 @@ actor ICloudPageCache {
     private let fetcher: any ICloudPageFetching
     private let thumbnails: any ICloudThumbnailFetching
     private let thumbnailDirectory: URL
+    private let previewDirectory: URL
 
     private(set) var count: Int?
     private var countTask: Task<Int, Error>?
@@ -80,17 +84,22 @@ actor ICloudPageCache {
     /// The export size of each item seen so far, a sample for the storage estimate.
     private var bytesByID: [String: Int64] = [:]
     private var thumbnailTasks: [String: Task<Data?, Never>] = [:]
+    private var previewTasks: [String: Task<URL?, Never>] = [:]
+    /// The preview folder's size limit; the oldest previews go first.
+    static let previewCacheLimit = 1024 * 1024 * 1024
 
     init(
         fetcher: any ICloudPageFetching,
         thumbnails: any ICloudThumbnailFetching = URLSessionThumbnailFetcher(),
         thumbnailDirectory: URL,
+        previewDirectory: URL,
         pageSize: Int = 200,
         maxPages: Int = 30
     ) {
         self.fetcher = fetcher
         self.thumbnails = thumbnails
         self.thumbnailDirectory = thumbnailDirectory
+        self.previewDirectory = previewDirectory
         self.pageSize = pageSize
         self.maxPages = max(1, maxPages)
     }
@@ -260,15 +269,58 @@ actor ICloudPageCache {
         if let task = thumbnailTasks[asset.id] {
             return await task.value
         }
-        let task = Task { await self.downloadThumbnail(for: asset, to: file) }
+        let task = Task { await self.download(\.thumbnailURL, for: asset, to: file) }
         thumbnailTasks[asset.id] = task
         let data = await task.value
         thumbnailTasks[asset.id] = nil
         return data
     }
 
-    private func downloadThumbnail(for asset: ICloudAsset, to file: URL) async -> Data? {
-        var url = self.asset(withID: asset.id)?.thumbnailURL ?? asset.thumbnailURL
+    // MARK: - Previews
+
+    /// The full-size file Quick Look shows for an item, from the preview folder or downloaded once and kept there.
+    /// Nil when the item has no preview or it can't be fetched.
+    func previewFile(for asset: ICloudAsset) async -> URL? {
+        guard (self.asset(withID: asset.id)?.previewURL ?? asset.previewURL) != nil else { return nil }
+        let file = previewFileLocation(
+            for: asset.id,
+            fileExtension: asset.previewExtension ?? (asset.isVideo ? "mov" : "jpg")
+        )
+        if FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) {
+            return file
+        }
+        if let task = previewTasks[asset.id] {
+            return await task.value
+        }
+        let directory = previewDirectory
+        let task = Task { () -> URL? in
+            guard await self.download(\.previewURL, for: asset, to: file) != nil else { return nil }
+            Task.detached(priority: .background) {
+                ICloudPageCache.trimDiskCache(at: directory, limit: ICloudPageCache.previewCacheLimit)
+            }
+            return file
+        }
+        previewTasks[asset.id] = task
+        let result = await task.value
+        previewTasks[asset.id] = nil
+        return result
+    }
+
+    /// The preview of an item by ID: its file if it's already downloaded, or fetched when its page is in memory.
+    /// Nil for an item whose page has left memory and whose preview was never downloaded.
+    func previewFile(forID id: String) async -> URL? {
+        if let asset = asset(withID: id) {
+            return await previewFile(for: asset)
+        }
+        let digest = Self.digest(of: id)
+        let files = (try? FileManager.default.contentsOfDirectory(at: previewDirectory, includingPropertiesForKeys: nil)) ?? []
+        return files.first { $0.deletingPathExtension().lastPathComponent == digest }
+    }
+
+    /// Downloads the file at the item's URL from `source` and writes it to `file`. An expired signed URL (403 or 410)
+    /// is renewed once from a freshly fetched page. Returns the bytes, or nil when the file can't be fetched.
+    private func download(_ source: KeyPath<ICloudAsset, URL?>, for asset: ICloudAsset, to file: URL) async -> Data? {
+        var url = self.asset(withID: asset.id)?[keyPath: source] ?? asset[keyPath: source]
         for attempt in 0..<2 {
             guard let current = url, !Task.isCancelled else { return nil }
             guard let (data, status) = try? await thumbnails.data(from: current) else { return nil }
@@ -281,7 +333,7 @@ actor ICloudPageCache {
                 // The signed URL expired: fetch the item's page again for a fresh one.
                 guard attempt == 0, let index = pageIndex(forID: asset.id),
                       let page = try? await refreshPage(index),
-                      let fresh = page.first(where: { $0.id == asset.id })?.thumbnailURL,
+                      let fresh = page.first(where: { $0.id == asset.id })?[keyPath: source],
                       fresh != current else { return nil }
                 url = fresh
             default:
@@ -292,8 +344,17 @@ actor ICloudPageCache {
     }
 
     nonisolated func thumbnailFile(for id: String) -> URL {
-        let digest = SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
+        let digest = Self.digest(of: id)
         return thumbnailDirectory.appending(path: "\(digest.prefix(2))/\(digest).jpg")
+    }
+
+    /// Where an item's preview is saved: `<sha256 of the ID>.<extension>` in the preview folder.
+    nonisolated func previewFileLocation(for id: String, fileExtension: String) -> URL {
+        previewDirectory.appending(path: "\(Self.digest(of: id)).\(fileExtension)")
+    }
+
+    nonisolated static func digest(of id: String) -> String {
+        SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Removes the least recently modified thumbnails until the folder is under `limit` bytes.

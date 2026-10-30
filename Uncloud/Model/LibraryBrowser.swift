@@ -1,7 +1,9 @@
 import AppKit
+import AVFoundation
 import ImageIO
 import Observation
 import Photos
+import UniformTypeIdentifiers
 
 /// One item in the library browser, newest first.
 struct LibraryItem: Identifiable, Hashable, Sendable {
@@ -260,6 +262,11 @@ final class LibraryBrowser {
         await backend.thumbnail(for: item, pixelSize: pixelSize)
     }
 
+    /// A local file at full size that Quick Look can open, or nil when there is none. It may download first.
+    func previewFile(for item: LibraryItem) async -> URL? {
+        await backend.previewFile(for: item)
+    }
+
     /// Where the given iCloud IDs were last seen, so an export of hand-picked items can find them quickly.
     func rankHints(for ids: Set<String>) async -> [String: Int] {
         await backend.rankHints(for: ids)
@@ -280,6 +287,8 @@ protocol LibraryBrowserBackend: AnyObject {
     /// Items `index * pageSize ..< (index + 1) * pageSize`, newest first.
     func loadPage(_ index: Int, pageSize: Int) async throws -> [LibraryItem]
     func thumbnail(for item: LibraryItem, pixelSize: CGSize) async -> NSImage?
+    /// A local file at full size for Quick Look, or nil. Sources without one keep the default (nil).
+    func previewFile(for item: LibraryItem) async -> URL?
     func rankHints(for ids: Set<String>) async -> [String: Int]
     /// The export sizes of the items loaded so far, by ID; empty when the source has none.
     func knownBytes() async -> [String: Int64]
@@ -294,6 +303,7 @@ protocol LibraryBrowserBackend: AnyObject {
 extension LibraryBrowserBackend {
     func placeholderCount() async -> Int? { nil }
     func placeholderPage(_ index: Int, pageSize: Int) async -> [LibraryItem]? { nil }
+    func previewFile(for item: LibraryItem) async -> URL? { nil }
 }
 
 /// Carries Photos objects that are safe to read from any thread but aren't marked Sendable.
@@ -379,6 +389,66 @@ final class PhotoKitBrowserBackend: LibraryBrowserBackend {
         }.value
     }
 
+    /// A photo's full-size data, written to the temporary folder, or a movie's own file. Network access is allowed,
+    /// so an item that lives only in iCloud downloads first.
+    func previewFile(for item: LibraryItem) async -> URL? {
+        var asset = assetsByID[item.id]
+        if asset == nil {
+            asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id], options: nil).firstObject
+        }
+        guard let asset else { return nil }
+        return item.isVideo ? await movieFile(for: asset) : await photoFile(for: asset, id: item.id)
+    }
+
+    private func photoFile(for asset: PHAsset, id: String) async -> URL? {
+        let options = PHImageRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .highQualityFormat
+        options.version = .current
+        let result: PhotosBox<PhotoData?> = await withCheckedContinuation { continuation in
+            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, uti, _, _ in
+                // High-quality delivery calls this exactly once.
+                continuation.resume(returning: PhotosBox(value: data.map { PhotoData(data: $0, uti: uti) }))
+            }
+        }
+        guard let photo = result.value else { return nil }
+        let fileExtension = photo.uti.flatMap { UTType($0) }?.preferredFilenameExtension ?? "jpg"
+        let url = Self.previewFolder.appending(path: "\(Self.safeFileName(id)).\(fileExtension)")
+        let data = photo.data
+        return await Task.detached(priority: .userInitiated) { () -> URL? in
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            do {
+                try data.write(to: url, options: .atomic)
+                return url
+            } catch {
+                return nil
+            }
+        }.value
+    }
+
+    private func movieFile(for asset: PHAsset) async -> URL? {
+        let options = PHVideoRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .highQualityFormat
+        options.version = .current
+        let result: PhotosBox<AVAsset?> = await withCheckedContinuation { continuation in
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in
+                continuation.resume(returning: PhotosBox(value: avAsset))
+            }
+        }
+        // Quick Look can open the movie's own file; anything else has no file to show.
+        return (result.value as? AVURLAsset)?.url
+    }
+
+    private static var previewFolder: URL {
+        FileManager.default.temporaryDirectory.appending(path: "UncloudPreviews", directoryHint: .isDirectory)
+    }
+
+    /// A local identifier made of file-name-safe characters (identifiers contain slashes).
+    private static func safeFileName(_ id: String) -> String {
+        String(id.map { $0.isLetter || $0.isNumber ? $0 : "_" })
+    }
+
     func rankHints(for ids: Set<String>) async -> [String: Int] {
         [:]
     }
@@ -392,6 +462,12 @@ final class PhotoKitBrowserBackend: LibraryBrowserBackend {
         assetsByID = [:]
         imageManager.stopCachingImagesForAllAssets()
     }
+}
+
+/// A photo's file bytes and the type identifier PhotoKit reports for them.
+private struct PhotoData: Sendable {
+    let data: Data
+    let uti: String?
 }
 
 enum PhotoKitBrowserError: LocalizedError {
@@ -421,6 +497,7 @@ final class ICloudBrowserBackend: LibraryBrowserBackend {
                 ? CatalogFeedingFetcher(base: bridgeFetcher, catalog: catalog)
                 : bridgeFetcher,
             thumbnailDirectory: directory,
+            previewDirectory: ICloudLibrary.browserPreviewDirectory,
             pageSize: LibraryBrowser.pageSize,
             maxPages: LibraryBrowser.maxPages
         )
@@ -459,6 +536,10 @@ final class ICloudBrowserBackend: LibraryBrowserBackend {
         return await Task.detached(priority: .userInitiated) {
             PhotosBox(value: Self.image(from: data, maxPixels: max(pixelSize.width, pixelSize.height)))
         }.value.value
+    }
+
+    func previewFile(for item: LibraryItem) async -> URL? {
+        await cache.previewFile(forID: item.id)
     }
 
     /// Decodes a JPEG at no more than `maxPixels` on its longer side.

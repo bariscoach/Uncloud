@@ -25,12 +25,17 @@ enum ICloudLibrary {
         cacheDirectory(named: "icloud-browser")
     }
 
+    /// Where the library browser keeps full-size previews for Quick Look, keyed by iCloud asset ID.
+    static var browserPreviewDirectory: URL {
+        cacheDirectory(named: "icloud-previews")
+    }
+
     /// Forgets the cached count, thumbnails and item sizes, for sign-out. Also removes folders that earlier
     /// versions wrote (dry-run output and the recent-thumbnails downloads), since they hold iCloud data too.
     static func clearCaches() {
         UserDefaults.standard.removeObject(forKey: libraryCountKey)
         AssetSizeStore().removeAll()
-        for name in ["icloud-browser", "icloud-thumbnails", "icloud-dry-run"] {
+        for name in ["icloud-browser", "icloud-previews", "icloud-thumbnails", "icloud-dry-run"] {
             try? FileManager.default.removeItem(at: cacheRoot.appending(path: name, directoryHint: .isDirectory))
         }
     }

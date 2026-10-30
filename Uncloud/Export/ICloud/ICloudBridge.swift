@@ -60,6 +60,9 @@ struct ICloudBridgeMessage: Decodable, Sendable {
         /// What a download writes for the item: the original plus any Live Photo movie.
         let bytes: Int64?
         let thumbURL: String?
+        /// A full-size version for Quick Look, and its file extension. Nil from a bridge too old to say.
+        let previewURL: String?
+        let previewType: String?
         /// The CPLMaster record name, the location (nil when unknown) and the time zone offset in seconds, for the
         /// local catalog (R12b). Nil from a bridge too old to say.
         var master: String?
@@ -1154,6 +1157,8 @@ extension ICloudBridgeMessage.Item {
             created: created.flatMap { try? Date($0, strategy: .iso8601) },
             isVideo: type == "movie",
             thumbnailURL: thumbURL.flatMap(URL.init(string:)),
+            previewURL: previewURL.flatMap(URL.init(string:)),
+            previewExtension: previewType,
             bytes: bytes ?? size,
             added: added.flatMap { try? Date($0, strategy: .iso8601) },
             master: master,

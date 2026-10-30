@@ -17,8 +17,10 @@ Requests, each with an "id" that every reply carries. Ranks are positions in icl
 is the NEWEST item, and an item added to iCloud is inserted at rank 0, shifting every other rank by one.
   {"cmd":"page","offset":O,"limit":L}  -> {"event":"page","offset":O,"items":[...]}
       items in icloudpd's order from rank O: {id, rank, filename, created, added, type, size, bytes, thumbURL,
-      master, lat, lon, tz} (size: the original's bytes; bytes: what a download writes, see stats; master: the
-      CPLMaster record name; lat and lon: the location, null when unknown; tz: timeZoneOffset in seconds, or null)
+      previewURL, previewType, master, lat, lon, tz} (size: the original's bytes; bytes: what a download writes, see
+      stats; previewURL and previewType: a full-size version for Quick Look and its file extension, see preview_version;
+      master: the CPLMaster record name; lat and lon: the location, null when unknown; tz: timeZoneOffset in seconds,
+      or null)
   {"cmd":"count"}                     -> {"event":"count","count":N}
   {"cmd":"albums"}                    -> {"event":"albums","albums":[names]}  (no smart albums)
   {"cmd":"download","mode":"only"|"allExcept","ids":[...],"dest":DIR,"layout":"month"|"album"|"none",
@@ -1005,6 +1007,40 @@ def thumb_url(asset: Any) -> Optional[str]:
     return None
 
 
+# The full-size versions Quick Look can show, best first, for photos and for movies.
+PREVIEW_IMAGE_KEYS = ("resJPEGFullRes", "resJPEGMedRes", "resOriginalRes")
+PREVIEW_MOVIE_KEYS = ("resVidMedRes", "resVidSmallRes", "resOriginalRes")
+PREVIEW_EXTENSIONS = {
+    "public.jpeg": "jpg",
+    "public.heic": "heic",
+    "public.png": "png",
+    "com.apple.quicktime-movie": "mov",
+    "public.mpeg-4": "mp4",
+}
+
+
+def preview_version(asset: Any) -> Optional[Tuple[str, str]]:
+    """(URL, file extension) of the best full-size version of an item for Quick Look, or None.
+
+    The first of PREVIEW_IMAGE_KEYS (movies: PREVIEW_MOVIE_KEYS) that the master or asset record has with a download URL.
+    The extension comes from that version's file type; without a known one, "jpg" for a photo and "mov" for a movie."""
+    from pyicloud_ipd.item_type import AssetItemType
+
+    is_movie = asset.item_type == AssetItemType.MOVIE
+    keys = PREVIEW_MOVIE_KEYS if is_movie else PREVIEW_IMAGE_KEYS
+    records = [_record_fields(asset, "_asset_record"), _record_fields(asset, "_master_record")]
+    for key in keys:
+        for fields in records:
+            entry = fields.get(key)
+            url = entry.get("value", {}).get("downloadURL") if isinstance(entry, dict) else None
+            if not url:
+                continue
+            file_type = _field_value(fields, key[: -len("Res")] + "FileType")
+            default = "mov" if is_movie else "jpg"
+            return str(url), PREVIEW_EXTENSIONS.get(file_type, default)
+    return None
+
+
 def download_bytes(asset: Any) -> Optional[int]:
     """The bytes icloudpd writes for an item with Uncloud's arguments (`--size original`, Live Photo
     movies at their original size): the original, plus the Live Photo movie when the record has
@@ -1057,6 +1093,7 @@ def describe(asset: Any) -> Dict[str, Any]:
     except (KeyError, TypeError, ValueError):
         size = None
     lat, lon = catalog_location(asset)
+    preview = preview_version(asset)
     return {
         "id": asset.id,
         "filename": asset.filename,
@@ -1066,6 +1103,8 @@ def describe(asset: Any) -> Dict[str, Any]:
         "size": size,
         "bytes": download_bytes(asset),
         "thumbURL": thumb_url(asset),
+        "previewURL": preview[0] if preview else None,
+        "previewType": preview[1] if preview else None,
         "master": catalog_master(asset),
         "lat": lat,
         "lon": lon,
@@ -1074,9 +1113,11 @@ def describe(asset: Any) -> Dict[str, Any]:
 
 
 def compact(asset: Any, rank: int) -> Dict[str, Any]:
-    """What a `listed` or `statsProgress` item carries: describe() without the thumbnail URL, plus the rank."""
+    """What a `listed` or `statsProgress` item carries: describe() without the thumbnail and preview URLs, plus the rank."""
     item = describe(asset)
     del item["thumbURL"]
+    del item["previewURL"]
+    del item["previewType"]
     return {**item, "rank": rank}
 
 

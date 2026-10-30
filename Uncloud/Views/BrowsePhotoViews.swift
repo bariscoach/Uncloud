@@ -1,6 +1,5 @@
 import AppKit
 import QuickLookThumbnailing
-import Quartz
 import SwiftUI
 
 /// Thumbnails for Browse Backup, made by QuickLook and loaded lazily. The memory cache is least-recently-used, so
@@ -36,36 +35,6 @@ final class BrowseThumbnails {
     private func touch(_ key: String) {
         order.removeAll { $0 == key }
         order.append(key)
-    }
-}
-
-/// Quick Look for Browse Backup's photos. Space or double-click opens the panel, which pages through the grid.
-@MainActor
-final class BrowseQuickLook: NSObject {
-    static let shared = BrowseQuickLook()
-
-    private var items: [URL] = []
-
-    func show(_ urls: [URL], startingAt index: Int) {
-        guard !urls.isEmpty, let panel = QLPreviewPanel.shared() else { return }
-        items = urls
-        panel.dataSource = self
-        panel.reloadData()
-        panel.currentPreviewItemIndex = min(max(index, 0), urls.count - 1)
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-}
-
-/// AppKit calls these on the main thread, where the panel is used. The protocol isn't main-actor isolated, so the
-/// conformance is marked preconcurrency. The panel needs no delegate.
-extension BrowseQuickLook: @preconcurrency QLPreviewPanelDataSource {
-    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        items.count
-    }
-
-    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
-        items[index] as NSURL
     }
 }
 
@@ -168,7 +137,7 @@ struct BrowsePhotoGrid: View {
     private func openQuickLook(startingAt path: String) {
         let urls = paths.compactMap { url(for: $0) }
         let index = paths.firstIndex(of: path) ?? 0
-        BrowseQuickLook.shared.show(urls, startingAt: index)
+        QuickLookPanel.shared.show(urls, startingAt: index)
     }
 }
 
