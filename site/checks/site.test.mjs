@@ -74,7 +74,7 @@ test('the download link is in the top bar, the hero and the closing band', () =>
   assert.equal(links, 3);
   const plain = text(html);
   assert.ok(plain.includes('Download Uncloud for Mac'), 'accessible name of the hero button');
-  assert.ok(plain.includes('Version 0.1.25 · macOS 14 or later'), 'version and requirements');
+  assert.ok(plain.includes('Version 0.1.26 · macOS 14 or later'), 'version and requirements');
   assert.ok(html.includes('href="https://github.com/bariscoach/Uncloud/releases"'), 'all versions link');
   assert.ok(html.includes('download'), 'download attribute on the hero');
 });
