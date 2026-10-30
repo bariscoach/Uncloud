@@ -129,8 +129,8 @@ struct BrowseDriveListing: Sendable {
     }
 }
 
-/// Builds the Browse Backup index from the drive. Lists the manifest's media files, reads the metadata of each file
-/// that's new or changed, and keeps the rest. Reads the drive; never writes to it.
+/// Builds the Browse Backup index from the drive. Lists the manifest's media files and the media files in the folder,
+/// reads the metadata of each file that's new or changed, and keeps the rest. Reads the drive; never writes to it.
 enum BrowseIndexer {
     /// The seconds that must pass between saves of a large index. Saves still happen at every 1,000 files.
     static let minimumSaveInterval: TimeInterval = 30
@@ -148,6 +148,46 @@ enum BrowseIndexer {
             recorded.insert(path)
         }
         return recorded.subtracting(ICloudItemCount.livePhotoMovies(in: recorded)).sorted()
+    }
+
+    /// The media files found by walking `destination`, as relative paths, so photos that no manifest records are listed
+    /// too. Hidden files and folders (`.photo-export`, `.Trashes`, …) and packages (`.photoslibrary`, `.app`) are skipped
+    /// with their contents. Symbolic links are not followed. Documents and `.xmp` sidecars are left out, and
+    /// `mediaPaths(among:)` applies the rest of the rules.
+    /// - Throws: `CancellationError` when cancelled.
+    static func folderMediaPaths(in destination: URL) throws -> [String] {
+        // Resolved like `BackupFiles.containedURL` does, since the enumerator reports paths under the resolved folder.
+        let base = destination.standardizedFileURL.resolvingSymlinksInPath()
+        var basePath = base.path(percentEncoded: false)
+        if basePath.hasSuffix("/") { basePath.removeLast() }
+        let prefix = basePath + "/"
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isPackageKey, .isSymbolicLinkKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: base,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants],
+            errorHandler: { _, _ in true }
+        ) else { return [] }
+
+        var paths: [String] = []
+        var visited = 0
+        for case let url as URL in enumerator {
+            visited += 1
+            if visited % 500 == 0 { try Task.checkCancellation() }
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            if values?.isPackage == true || values?.isSymbolicLink == true {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard values?.isRegularFile == true else { continue }
+            let path = url.path(percentEncoded: false)
+            guard path.hasPrefix(prefix) else { continue }
+            let relativePath = String(path.dropFirst(prefix.count))
+            if ICloudDownloadPaths.hasDownloadExtension(relativePath), !isSidecar(relativePath) {
+                paths.append(relativePath)
+            }
+        }
+        return paths
     }
 
     /// The metadata the catalog knows for the iCloud items' media files, by path. Each file of an `icloud-id:` record
@@ -203,7 +243,9 @@ enum BrowseIndexer {
 
         // Wait before listing, so a run that starts during an export lists the drive once the export has written its files.
         try await waitWhilePaused()
-        let paths = mediaPaths(in: destination)
+        // The recorded media files and every media file in the folder, so photos without a manifest record are listed.
+        let walked = try folderMediaPaths(in: destination)
+        let paths = mediaPaths(among: ExportManifest.records(in: destination).values.joined() + walked)
         let listing = BrowseDriveListing.build(paths: paths, in: destination)
         var entries = previous
         var processed = 0

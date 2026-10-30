@@ -104,7 +104,7 @@ struct BrowseBackupView: View {
         ContentUnavailableView {
             Label("Nothing to Browse Yet", systemImage: "photo.on.rectangle.angled")
         } description: {
-            Text("Export some photos, then see where they were taken.")
+            Text("Export some photos, or add photos to your backup folder, then see where they were taken.")
         } actions: {
             Button("Go to Cloud Library") {
                 model.pane = .export

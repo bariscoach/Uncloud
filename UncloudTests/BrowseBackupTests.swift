@@ -234,6 +234,88 @@ struct BrowseBackupTests {
         }
     }
 
+    // MARK: - Index: walking the folder
+
+    @Test func folderWithoutManifestIsIndexed() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/IMG_1.jpg", in: destination)
+            try writeFile("b", to: "IMG_root.jpg", in: destination)
+            let entries = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(Set(entries.keys) == ["2024/07/IMG_1.jpg", "IMG_root.jpg"])
+        }
+    }
+
+    @Test func recordedAndUnrecordedPhotosAreIndexedOnce() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/recorded.jpg", in: destination)
+            try writeFile("b", to: "2024/07/unrecorded.jpg", in: destination)
+            try ExportManifest.appendRecords([(key: "icloud-id:A", paths: ["2024/07/recorded.jpg"])], in: destination)
+            let reads = ReadCounter()
+            let entries = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in reads.record(); return BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(Set(entries.keys) == ["2024/07/recorded.jpg", "2024/07/unrecorded.jpg"])
+            #expect(reads.count == 2, "each photo is read once, even when it's both recorded and found by walking")
+        }
+    }
+
+    @Test func hiddenPackagesSidecarsAndDocumentsAreNotIndexed() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/IMG_1.jpg", in: destination)
+            try writeFile("b", to: ".photo-export/set-aside/x.jpg", in: destination)
+            try writeFile("c", to: ".hidden/y.jpg", in: destination)
+            try writeFile("d", to: "Library.photoslibrary/originals/z.jpg", in: destination)
+            try writeFile("e", to: "2024/07/IMG_1.xmp", in: destination)
+            try writeFile("f", to: "notes.txt", in: destination)
+            let entries = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(Set(entries.keys) == ["2024/07/IMG_1.jpg"])
+        }
+    }
+
+    @Test func livePhotoFoundByWalkingIsListedOnlyAsThePhoto() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/IMG_1.HEIC", in: destination)
+            try writeFile("b", to: "2024/07/IMG_1.MOV", in: destination)
+            let entries = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(Set(entries.keys) == ["2024/07/IMG_1.HEIC"])
+        }
+    }
+
+    @Test func fileDeletedAfterTheFirstWalkIsGone() async throws {
+        try await withTemporaryDirectoryAsync { destination in
+            try writeFile("a", to: "2024/07/kept.jpg", in: destination)
+            let removed = try writeFile("b", to: "2024/07/removed.jpg", in: destination)
+            let first = try await BrowseIndexer.update(
+                destination: destination, previous: [:],
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(Set(first.keys) == ["2024/07/kept.jpg", "2024/07/removed.jpg"])
+
+            try FileManager.default.removeItem(at: removed)
+            let second = try await BrowseIndexer.update(
+                destination: destination, previous: first,
+                read: { _ in BrowseMetadata() },
+                waitWhilePaused: {}, progress: { _, _ in }, persist: { _ in }
+            )
+            #expect(Set(second.keys) == ["2024/07/kept.jpg"])
+        }
+    }
+
     // MARK: - Index: incremental
 
     @Test func unchangedFileIsNotReadAgain() async throws {
