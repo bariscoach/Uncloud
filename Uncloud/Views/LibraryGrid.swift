@@ -81,8 +81,12 @@ struct LibraryGrid: View {
                     .focused($focusedIndex, equals: index)
                     // Declared before the single tap, so a double-click is seen as one double-click, not two taps.
                     .onTapGesture(count: 2) {
-                        // A double-click selects the item as a plain click does, then opens its preview.
-                        tap(index, extendsRange: false)
+                        // A double-click selects the item (never deselects it, unlike a click), then opens its preview.
+                        focusedIndex = index
+                        anchor = index
+                        if let item = browser.selectableItem(at: index) {
+                            selection.select([item.id])
+                        }
                         preview(index)
                     }
                     .onTapGesture {
