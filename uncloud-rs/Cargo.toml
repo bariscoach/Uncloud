@@ -1,0 +1,25 @@
+[package]
+name = "uncloud-rs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83"
+description = "Copies your macOS Photos library, originals, edits and companion files, into a folder you choose."
+
+[lib]
+name = "uncloud_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "uncloud-rs"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+tempfile = "3"
+
+[profile.release]
+lto = true
