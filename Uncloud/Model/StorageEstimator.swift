@@ -243,8 +243,8 @@ final class StorageEstimator {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, generation == self.generation else { return }
-                libraryCountDidChange()
-                observeLibraryCount()
+                self.libraryCountDidChange()
+                self.observeLibraryCount()
             }
         }
     }

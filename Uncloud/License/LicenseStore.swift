@@ -53,10 +53,12 @@ struct KeychainLicenseStore: LicensePersisting, @unchecked Sendable {
 }
 
 enum LicenseStore {
-    static var current: any LicensePersisting = KeychainLicenseStore()
-    static var tier: LicenseTier { current.load()?.tier ?? .free }
+    /// App state read from the main window and `ExportModel`. A `static var` of a
+    /// `Sendable` value is shared mutable state, which Swift 6 rejects unless it is isolated.
+    @MainActor static var current: any LicensePersisting = KeychainLicenseStore()
+    @MainActor static var tier: LicenseTier { current.load()?.tier ?? .free }
 
-    static func unlimited(now: Date = Date(), enforced: Bool = LicenseGating.isEnforced()) -> Bool {
+    @MainActor static func unlimited(now: Date = Date(), enforced: Bool = LicenseGating.isEnforced()) -> Bool {
         guard let license = current.load() else {
             return LicensePolicy.unlimited(tier: .free, activatedAt: nil, lastCheck: nil, now: now, enforced: enforced)
         }
@@ -105,7 +107,8 @@ struct KeychainExportCountStore: ExportCountStoring {
 }
 
 enum ExportCountStore {
-    static var current: any ExportCountStoring = KeychainExportCountStore()
+    /// Same isolation as `LicenseStore.current`: the counter is only touched from `ExportModel`.
+    @MainActor static var current: any ExportCountStoring = KeychainExportCountStore()
 }
 
 enum KeychainBlob {

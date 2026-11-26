@@ -19,6 +19,26 @@ func writeFile(_ text: String, to relativePath: String, in folder: URL) throws -
     return url
 }
 
+/// Bytes of an AppleDouble fixture. Prefers the file next to the test source. The sandboxed
+/// test host cannot read the checkout when it sits outside the container, so the same file
+/// copied into the test bundle is the fallback. `sourceFile` must be the caller's `#filePath`:
+/// a default would point at this file instead.
+func appleDoubleFixture(_ name: String, sourceFile: String) -> Data? {
+    let source = URL(fileURLWithPath: sourceFile)
+        .deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/AppleDouble/\(name).bin")
+    if FileManager.default.isReadableFile(atPath: source.path(percentEncoded: false)),
+       let data = try? Data(contentsOf: source) {
+        return data
+    }
+    guard let bundled = Bundle(for: TestSupportBundleToken.self).url(forResource: name, withExtension: "bin") else {
+        return nil
+    }
+    return try? Data(contentsOf: bundled)
+}
+
+private final class TestSupportBundleToken {}
+
 /// The async version, for tests whose closure awaits.
 func withTemporaryDirectoryAsync<T>(
     isolation: isolated (any Actor)? = #isolation,

@@ -78,11 +78,6 @@ targets:
           set -eu
           SRC="$SRCROOT/Vendor/icloudpd-runtime"
           DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime"
-          IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
-          # Hardened runtime only with a Developer ID: Python loads its own extension modules, and ad hoc or
-          # self-signed (scripts/make-local-signing-identity.sh) signatures have no team ID for library validation.
-          RUNTIME=""
-          case "$IDENTITY" in "Developer ID"*) RUNTIME="--options runtime" ;; esac
           if [ ! -f "$SRC/.stamp" ]; then
               echo "error: $SRC is missing; run scripts/build-icloudpd.sh" >&2
               exit 1
@@ -92,6 +87,21 @@ targets:
           # The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain
           # resource, sealed by the app's signature like the rest of the runtime's Python files.
           cp "$SRCROOT/Uncloud/Helper/photo_bridge.py" "$DEST/photo_bridge.py"
+          # CI runs `xcodebuild test` with CODE_SIGNING_ALLOWED=NO. There is no signing
+          # identity, and codesign of the embedded runtime fails the build. Skip that step
+          # only then. A local or release build (CI unset, signing allowed) still signs below.
+          # codesign also strips the quarantine flag curl leaves on the downloaded interpreter;
+          # without it the sandboxed test host cannot launch python.
+          if [ "${CI:-}" = "true" ] || [ "${CODE_SIGNING_ALLOWED:-}" = "NO" ]; then
+              echo "note: skipping icloudpd runtime codesign (CI=${CI:-unset} CODE_SIGNING_ALLOWED=${CODE_SIGNING_ALLOWED:-unset})"
+              xattr -cr "$DEST" 2>/dev/null || true
+              exit 0
+          fi
+          IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+          # Hardened runtime only with a Developer ID: Python loads its own extension modules, and ad hoc or
+          # self-signed (scripts/make-local-signing-identity.sh) signatures have no team ID for library validation.
+          RUNTIME=""
+          case "$IDENTITY" in "Developer ID"*) RUNTIME="--options runtime" ;; esac
           INTERPRETER="$DEST/python/bin/python3.13"
           # Sign the libraries and extension modules first, then the interpreter. Only the
           # interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.
