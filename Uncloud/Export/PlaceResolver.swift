@@ -108,9 +108,10 @@ actor PlaceResolver {
     private static func lookUp(latitude: Double, longitude: Double) async throws -> Place {
         let location = CLLocation(latitude: latitude, longitude: longitude)
         if #available(macOS 26, *) {
-            guard let request = MKReverseGeocodingRequest(location: location) else { return Place() }
-            let address = try await request.mapItems.first?.addressRepresentations
-            return Place(country: address?.regionName, city: address?.cityName)
+            // mapItems is nonisolated and MKReverseGeocodingRequest is not Sendable, so the
+            // request has to be created and read off the main actor. Only the names come back.
+            let names = try await modernAddress(at: location)
+            return Place(country: names.country, city: names.city)
         } else {
             let placemark = try await CLGeocoder().reverseGeocodeLocation(location).first
             return Place(
@@ -118,6 +119,14 @@ actor PlaceResolver {
                 city: placemark?.locality ?? placemark?.subAdministrativeArea ?? placemark?.administrativeArea
             )
         }
+    }
+
+    /// Reverse-geocodes on macOS 26 without sending the MapKit request across actors.
+    @available(macOS 26, *)
+    private static func modernAddress(at location: CLLocation) async throws -> (country: String?, city: String?) {
+        guard let request = MKReverseGeocodingRequest(location: location) else { return (nil, nil) }
+        let address = try await request.mapItems.first?.addressRepresentations
+        return (address?.regionName, address?.cityName)
     }
 
     /// The location has no address (open sea, for example), so retrying won't help.
