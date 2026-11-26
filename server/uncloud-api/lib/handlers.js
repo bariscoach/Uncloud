@@ -5,13 +5,16 @@ import { apiError, json, noContent, readJSON, logEvent } from './http.js';
 import { enforceRateLimit, clientAddress } from './ratelimit.js';
 import { permanentEntitlement, signEntitlement } from './entitlement.js';
 import { deleteAccountFor } from './account.js';
+import { normalizeSignInEmail } from './signin.js';
+
+export const API_VERSION = '0.1.27';
 
 // Account deletion: five attempts an hour per user (plan §4.1).
 const DELETE_LIMIT = { limit: 5, windowSeconds: 60 * 60 };
 
 // GET /v1/health: no auth, no secrets.
 export function health() {
-  return json({ ok: true });
+  return json({ ok: true, version: API_VERSION });
 }
 
 // GET /v1/me. Needs a valid Supabase access token; no database or payment lookup.
@@ -95,4 +98,50 @@ export async function waitlist(request, deps) {
   await deps.db.upsert('waitlist', { email, source }, { onConflict: 'email', ignoreDuplicates: true }, { service: true });
   logEvent({ evt: 'waitlist', result: 'ok' });
   return json({ ok: true });
+}
+
+// Sign-in codes. Five requests an hour per address and per IP, matching a person retrying,
+// not a script. The code itself is emailed and never written to the response or the log.
+const AUTH_CODE_LIMIT = { limit: 5, windowSeconds: 60 * 60 };
+const AUTH_VERIFY_LIMIT = { limit: 10, windowSeconds: 5 * 60 };
+
+export async function requestAuthCode(request, deps) {
+  const body = await readJSON(request);
+  const email = normalizeSignInEmail(body.email);
+  if (email === null) {
+    logEvent({ evt: 'auth_code', result: 'invalid' });
+    throw apiError('invalid_email', 400);
+  }
+  await enforceRateLimit(deps, `auth:ip:${clientAddress(request)}`, AUTH_CODE_LIMIT);
+  await enforceRateLimit(deps, `auth:email:${email}`, AUTH_CODE_LIMIT);
+  let code;
+  try {
+    code = await deps.mail.issueCode(email);
+  } catch {
+    logEvent({ evt: 'auth_code', result: 'unavailable' });
+    throw apiError('code_email_not_sent', 503);
+  }
+  try {
+    await deps.mail.sendCode(email, code);
+  } catch (error) {
+    logEvent({ evt: 'auth_code', result: error?.code === 'undeliverable_sender' ? 'undeliverable_sender' : 'mail_failed' });
+    throw apiError('code_email_not_sent', 503);
+  }
+  logEvent({ evt: 'auth_code', result: 'ok' });
+  return json({ ok: true });
+}
+
+// Exchanges the code for a Supabase session. The same answer for a wrong code and an unknown
+// address, so this route does not reveal who has an account.
+export async function verifyAuthCode(request, deps) {
+  const body = await readJSON(request);
+  const email = normalizeSignInEmail(body.email);
+  const token = typeof body.token === 'string' ? body.token.trim() : '';
+  if (email === null) throw apiError('invalid_email', 400);
+  if (!/^\d{6}$/.test(token)) throw apiError('wrong_code', 400);
+  await enforceRateLimit(deps, `auth-verify:ip:${clientAddress(request)}`, AUTH_VERIFY_LIMIT);
+  await enforceRateLimit(deps, `auth-verify:email:${email}`, AUTH_VERIFY_LIMIT);
+  const session = await deps.mail.verifyCode(email, token);
+  logEvent({ evt: 'auth_verify', result: 'ok' });
+  return json(session);
 }

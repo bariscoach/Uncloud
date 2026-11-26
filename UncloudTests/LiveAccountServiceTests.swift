@@ -65,9 +65,9 @@ struct LiveAccountServiceTests {
 
     // MARK: - Sign-in
 
-    @Test("requestCode posts the email to Supabase with the publishable key and no tokens")
+    @Test("requestCode posts the email to the Uncloud API and not to Supabase's mailer")
     func requestCode() async throws {
-        let service = Self.service { _ in MockReply(json: "{}") }
+        let service = Self.service { _ in MockReply(json: #"{"ok":true}"#) }
         let fresh = try await service.requestCode(email: "name@example.com", intent: .signUp)
         #expect(fresh.email == "name@example.com")
         #expect(fresh.expiresAt == Self.now.addingTimeInterval(600))
@@ -75,40 +75,46 @@ struct LiveAccountServiceTests {
 
         let request = try #require(MockURLProtocol.requests.first)
         #expect(request.method == "POST")
-        #expect(request.url.absoluteString == "https://supabase.test.example/auth/v1/otp")
-        #expect(request.headers["apikey"] == "sb_publishable_test")
+        #expect(request.url.absoluteString == "https://api.test.example/v1/auth/code")
+        #expect(request.headers["apikey"] == nil)
         #expect(request.headers["Authorization"] == nil)
         #expect(request.headers["User-Agent"]?.hasPrefix("Uncloud/") == true)
         #expect(request.json?["email"] as? String == "name@example.com")
-        #expect(request.json?["create_user"] as? Bool == true)
+        #expect(request.json?["create_user"] == nil)
     }
 
-    @Test("A rate-limited code request reads the wait from Supabase's message")
+    @Test("A rate-limited code request reads Retry-After from the API")
     func requestCodeRateLimited() async throws {
         let service = Self.service { _ in
-            MockReply(status: 429, json: #"{"code":429,"error_code":"over_email_send_rate_limit","msg":"For security purposes, you can only request this after 42 seconds."}"#)
+            MockReply(status: 429, headers: ["Retry-After": "42"], json: #"{"error":{"code":"rate_limited","message":"Too many requests. Try again later."}}"#)
         }
         await #expect(throws: AccountError.rateLimited(retryAfter: Self.now.addingTimeInterval(42))) {
             try await service.requestCode(email: "name@example.com", intent: .signIn)
         }
     }
 
-    @Test("A code email Supabase can't send says so")
+    @Test("A code email the API can't send says so, including the old Supabase failure")
     func requestCodeEmailNotSent() async throws {
-        let service = Self.service { _ in
+        let api = Self.service { _ in
+            MockReply(status: 503, json: #"{"error":{"code":"code_email_not_sent","message":"Uncloud couldn’t send the code email. Try again later."}}"#)
+        }
+        await #expect(throws: AccountError.server(message: LiveAccountService.codeEmailNotSent)) {
+            try await api.requestCode(email: "name@example.com", intent: .signUp)
+        }
+        let legacy = Self.service { _ in
             MockReply(status: 500, json: #"{"code":500,"error_code":"unexpected_failure","msg":"Error sending confirmation email"}"#)
         }
         await #expect(throws: AccountError.server(message: LiveAccountService.codeEmailNotSent)) {
-            try await service.requestCode(email: "name@example.com", intent: .signUp)
+            try await legacy.requestCode(email: "name@example.com", intent: .signUp)
         }
         #expect(AccountError.server(message: LiveAccountService.codeEmailNotSent).message == "Uncloud couldn’t send the code email. Try again later.")
         #expect(AccountError.server(message: "raw server words").message == "Uncloud couldn’t finish that. Try again in a moment.")
     }
 
-    @Test("An address Supabase rejects is invalidEmail")
+    @Test("An address the API rejects is invalidEmail")
     func requestCodeInvalidEmail() async throws {
         let service = Self.service { _ in
-            MockReply(status: 422, json: #"{"code":422,"error_code":"email_address_invalid","msg":"bad"}"#)
+            MockReply(status: 400, json: #"{"error":{"code":"invalid_email","message":"Enter a valid email address."}}"#)
         }
         await #expect(throws: AccountError.invalidEmail) {
             try await service.requestCode(email: "name@example.com", intent: .signIn)
@@ -118,7 +124,7 @@ struct LiveAccountServiceTests {
     @Test("Verify signs in, confirms the account with /v1/me, and reports a new account")
     func verifySignsIn() async throws {
         let service = Self.service { request in
-            if request.path == "/auth/v1/verify" { return MockReply(json: Self.sessionJSON(newAccount: true)) }
+            if request.path == "/v1/auth/verify" { return MockReply(json: Self.sessionJSON(newAccount: true)) }
             if request.path == "/v1/me" { return MockReply(json: Self.meJSON) }
             throw URLError(.badURL)
         }
@@ -131,9 +137,10 @@ struct LiveAccountServiceTests {
         #expect(session.tokens.accessExpiresAt == Self.now.addingTimeInterval(3600))
 
         let requests = MockURLProtocol.requests
-        let verify = try #require(requests.first { $0.path == "/auth/v1/verify" })
-        #expect(verify.json?["type"] as? String == "email")
+        let verify = try #require(requests.first { $0.path == "/v1/auth/verify" })
+        #expect(verify.json?["email"] as? String == "name@example.com")
         #expect(verify.json?["token"] as? String == "123456")
+        #expect(verify.url.host == "api.test.example")
         let me = try #require(requests.first { $0.path == "/v1/me" })
         #expect(me.headers["Authorization"] == "Bearer access-new")
     }
@@ -307,14 +314,14 @@ struct LiveAccountServiceTests {
     @Test("Verify reads the creation date, with or without fractional seconds")
     func verifyReadsCreatedAt() async throws {
         let fresh = Self.service { request in
-            if request.path == "/auth/v1/verify" { return MockReply(json: Self.sessionJSON(newAccount: true)) }
+            if request.path == "/v1/auth/verify" { return MockReply(json: Self.sessionJSON(newAccount: true)) }
             return MockReply(json: Self.meJSON)
         }
         let newSession = try await fresh.verify(challenge: Self.challenge, code: "123456")
         #expect(newSession.account.createdAt != nil)
 
         let older = Self.service { request in
-            if request.path == "/auth/v1/verify" { return MockReply(json: Self.sessionJSON(newAccount: false)) }
+            if request.path == "/v1/auth/verify" { return MockReply(json: Self.sessionJSON(newAccount: false)) }
             return MockReply(json: Self.meJSON)
         }
         let oldSession = try await older.verify(challenge: Self.challenge, code: "123456")

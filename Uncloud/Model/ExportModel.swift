@@ -1397,7 +1397,7 @@ final class ExportModel {
         }
     }
 
-    /// "0.1.4 (14)".
+    /// "0.1.27 (28)".
     static var appVersion: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"

@@ -1,11 +1,9 @@
-import AppKit
 import SwiftUI
 
-/// Settings › Account (account-menu plan §2): profile, sign out and Delete Account. The sections that
-/// show depend on the phase: loading, signed out (with the notice after a deletion) or signed in.
+/// Settings › Account. Signed out, this offers optional sign-in. Signed in, it shows the profile,
+/// sign out and Delete Account. Loading covers the moment a session is restored.
 struct AccountSettingsForm: View {
     @Environment(AccountModel.self) private var account
-    @Environment(\.openWindow) private var openWindow
     /// True while an export runs. Sign Out and Delete Account are disabled then, as the model refuses them too.
     var isExporting = false
     @State private var confirmingSignOut = false
@@ -31,7 +29,14 @@ struct AccountSettingsForm: View {
                 Task { await account.signOut() }
             }
         } message: {
-            Text("Your photos and backup aren’t changed. Sign in again to use Uncloud.")
+            Text("Your photos and backup aren’t changed. You can keep using Uncloud without an account.")
+        }
+        .sheet(isPresented: authSheetPresented) {
+            if case let .signedOut(route) = account.phase {
+                AccountFlowView(route: route)
+                    .environment(account)
+                    .frame(minWidth: 560, minHeight: 560)
+            }
         }
         .sheet(isPresented: $isDeletingAccount) {
             DeleteAccountSheet(email: account.account?.email ?? "", isExporting: isExporting)
@@ -62,24 +67,33 @@ struct AccountSettingsForm: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            Text("Create your free Uncloud account to start.")
+            Text("Optional. Export, backup, browse and verify all work with no account. Sign in only if you want an Uncloud account.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if account.error == .signedOut {
+                Text(account.error?.message ?? "")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
-                Button("Continue with Email…") {
-                    openMain(.signUp)
+                Button("Sign In…") {
+                    account.show(.signUp)
                 }
                 .buttonStyle(.bordered)
             }
         }
     }
 
-    /// Signed out from Settings: the main window shows the route, and the app comes forward (as before).
-    private func openMain(_ route: AccountModel.Route) {
-        account.show(route)
-        openWindow(id: "main")
-        NSApp.activate()
+    /// The email and code steps. Dismissing the sheet returns to the app; it does not lock it.
+    private var authSheetPresented: Binding<Bool> {
+        Binding(
+            get: { account.isPresentingAuth },
+            set: { presented in
+                if !presented { account.dismissAuth() }
+            }
+        )
     }
 
     // MARK: - Signed in

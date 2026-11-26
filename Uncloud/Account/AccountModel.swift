@@ -121,12 +121,29 @@ import Observation
         AccountSummary.make(mode: mode, phase: phase, account: account)
     }
 
-    /// Whether the full menus show. Signed out, the menus are reduced to the system items and Help (plan B.2).
+    /// Whether the full menus show. An account is optional, so signed-out use keeps every free feature.
     var showsAppMenus: Bool {
-        phase == .off || phase == .signedIn
+        phase != .restoring
     }
 
-    /// Moves between Welcome, Sign Up, Sign In and the code screen. Does nothing while signed in.
+    /// True while Settings is showing the email or code sheet. Welcome is the resting signed-out state, not a gate.
+    var isPresentingAuth: Bool {
+        guard case let .signedOut(route) = phase else { return false }
+        switch route {
+        case .welcome: return false
+        case .signUp, .signIn, .code: return true
+        }
+    }
+
+    /// Closes the sign-in sheet and leaves the person in the app. A session-ended notice is kept.
+    func dismissAuth() {
+        guard case .signedOut = phase else { return }
+        if isBusy { cancelRequest() }
+        phase = .signedOut(.welcome)
+        if error != .signedOut { error = nil }
+    }
+
+    /// Moves the sign-in sheet between email and code. Does nothing while signed in, and never replaces the app.
     func show(_ route: Route) {
         guard case .signedOut = phase else { return }
         if isBusy {

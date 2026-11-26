@@ -1,6 +1,6 @@
 {
   "name": "uncloud-api",
-  "version": "0.1.0",
+  "version": "0.1.27",
   "private": true,
   "description": "Uncloud account and entitlement API (Vercel functions) and hosted pages.",
   "type": "module",
