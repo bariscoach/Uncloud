@@ -34,6 +34,10 @@ export function loadConfig(env = process.env) {
     supabasePublishableKey: { enumerable: true, get: () => requireEnv(env, 'SUPABASE_PUBLISHABLE_KEY') },
     supabaseSecretKey: { enumerable: true, get: () => requireEnv(env, 'SUPABASE_SECRET_KEY') },
     entitlementSigningKey: { enumerable: true, get: () => requireEnv(env, 'ENTITLEMENT_SIGNING_KEY') },
+    // Resend API key and a From address on a domain Resend has verified for this account.
+    // onboarding@resend.dev is rejected by the mailer: it cannot deliver to real users.
+    resendApiKey: { enumerable: true, get: () => requireEnv(env, 'RESEND_API_KEY') },
+    authFromEmail: { enumerable: true, get: () => requireEnv(env, 'AUTH_FROM_EMAIL') },
   });
   return config;
 }

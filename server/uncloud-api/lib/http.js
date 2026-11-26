@@ -19,6 +19,8 @@ const DEFAULT_MESSAGES = {
   method_not_allowed: 'This method is not allowed here.',
   invalid_email: 'Enter a valid email address.',
   forbidden_origin: 'This origin is not allowed.',
+  code_email_not_sent: 'Uncloud couldn’t send the code email. Try again later.',
+  wrong_code: 'That code isn’t right. Check it and try again.',
 };
 
 export function apiError(code, status, message, headers = {}) {

@@ -6,10 +6,7 @@ import Testing
 struct AppleDoubleTests {
     /// Loads `Fixtures/AppleDouble/<name>.bin`, the byte-exact companions written by an independent encoder.
     private static func fixture(_ name: String) -> Data {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/AppleDouble/\(name).bin")
-        guard let data = try? Data(contentsOf: url) else {
+        guard let data = appleDoubleFixture(name, sourceFile: #filePath) else {
             fatalError("AppleDouble fixture \(name).bin is missing")
         }
         return data

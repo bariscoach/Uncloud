@@ -6,11 +6,21 @@ import SwiftUI
 @main
 enum Launcher {
     static func main() {
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+        if runningUnderTestRunner {
             TestHostApp.main()
         } else {
             UncloudApp.main()
         }
+    }
+
+    /// The test runner publishes the XCTest configuration. A sandboxed host cannot read that
+    /// file when it lives outside the container (CI's DerivedData), but the variables are set
+    /// in the environment before launch. A normal launch sets none of them.
+    private static var runningUnderTestRunner: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["XCTestConfigurationFilePath"] != nil
+            || env["XCTestBundlePath"] != nil
+            || env["XCTestSessionIdentifier"] != nil
     }
 }
 
@@ -33,8 +43,9 @@ struct UncloudApp: App {
     init() {
         let model = ExportModel()
         let settings = AutoBackupSettings()
-        // Accounts are off in Release builds, and in Debug they use the preview service (plan A.6).
-        // A revoked session waits for a running export (M4); `onRunFinished` applies it when the run ends.
+        // Release signs in optionally against the account service. Debug uses the preview service.
+        // Either way the app works with no account. A revoked session waits for a running export (M4);
+        // `onRunFinished` applies it when the run ends.
         let account = AccountModel(configuration: .current, isExportRunning: { [weak model] in model?.isExporting ?? false })
         model.onRunFinished = { [weak account] in account?.exportDidFinish() }
         let controller = AutoBackupController(model: model, settings: settings)
@@ -81,7 +92,7 @@ struct UncloudApp: App {
         .menuBarExtraStyle(.menu)
     }
 
-    /// The menu bar item shows only when the user wants it and automatic backup is on. Never while signed out.
+    /// The menu bar item shows when the user wants it and automatic backup is on, with or without an account.
     private var showsMenuBarItem: Binding<Bool> {
         let settings = settings
         let account = account

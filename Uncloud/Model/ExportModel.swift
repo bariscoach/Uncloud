@@ -982,7 +982,8 @@ final class ExportModel {
             resumeAttempt: resumeAttempt,
             isResuming: isResuming,
             resumesInterrupted: resumesInterrupted,
-            appleID: appleID
+            appleID: appleID,
+            writesSidecars: sidecars
         )
 
         // Check the drive first, so the run starts from what is already there. An idle check gives way.
@@ -1258,7 +1259,8 @@ final class ExportModel {
         resumeAttempt: Int?,
         isResuming: Bool,
         resumesInterrupted: Bool,
-        appleID: String?
+        appleID: String?,
+        writesSidecars: Bool
     ) {
         heartbeatTask?.cancel()
         let now = currentDate()
@@ -1268,7 +1270,10 @@ final class ExportModel {
         )
         var trigger: ExportSession.Trigger = automatic ? .automaticBackup : (override?.isEverything == true ? .exportAll : .manual)
         var previous: ExportSession?
+        // Memory can miss the attempt that just finished when its folder URL and the destination URL
+        // differ by a symlink. The file on the drive is the fallback.
         let newest = sessions.last { $0.kind == .export && !$0.isReadOnly }
+            ?? SessionStore(destination: url).list().last { $0.kind == .export && !$0.isReadOnly }
         if resumeAttempt != nil {
             trigger = .autoResume
             previous = newest
@@ -1291,7 +1296,7 @@ final class ExportModel {
             source: source,
             account: account,
             layout: layout,
-            writesSidecars: sidecars,
+            writesSidecars: writesSidecars,
             selection: summary
         )
         session.libraryCount = source == .iCloud ? ICloudLibrary.cachedLibraryCount : nil
@@ -1348,8 +1353,19 @@ final class ExportModel {
         lastSessionRecorder = recorder
     }
 
+    /// True when `url` is the destination folder, including when one path is `/var/...` and the other
+    /// is `/private/var/...`. The sandboxed test host's temporary directory is that kind of link.
+    private static func sameFolder(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.standardizedFileURL.resolvingSymlinksInPath() == rhs.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    private func isCurrentDestination(_ url: URL) -> Bool {
+        guard let current = destination?.url else { return false }
+        return Self.sameFolder(current, url)
+    }
+
     private func upsertSession(_ session: ExportSession, destination url: URL) {
-        guard destination?.url == url else { return }
+        guard let current = destination?.url, Self.sameFolder(current, url) else { return }
         if let index = sessions.lastIndex(where: { $0.id == session.id }) {
             sessions[index] = session
         } else {
@@ -1371,7 +1387,7 @@ final class ExportModel {
                 _ = try? store.markInterrupted(currentLaunch: launch)
                 return store.list()
             }.value
-            guard destination?.url == url else { return }
+            guard let current = destination?.url, Self.sameFolder(current, url) else { return }
             // Sessions this launch wrote meanwhile are newer in memory than on disk (the writer may still
             // have them queued), and the running attempt's state is newer than its last checkpoint.
             var merged = loaded
@@ -1433,7 +1449,7 @@ final class ExportModel {
         }
     }
 
-    /// "0.1.4 (14)".
+    /// "0.1.27 (28)".
     static var appVersion: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
@@ -1625,7 +1641,7 @@ final class ExportModel {
             driveCheckState = .checked(report)
             lastDriveCheck = report
             lastDriveCheckedAt = currentDate()
-            if destination?.url == url, self.source == source {
+            if isCurrentDestination(url), self.source == source {
                 if report.selectedCount > 0 {
                     totalCount = report.selectedCount
                 }
@@ -1730,7 +1746,7 @@ final class ExportModel {
                 return (Self.iCloudProgress(toward: url, selection: selection, layout: layout, records: records),
                         isReadable ? ICloudItemCount.itemsByLayout(records: records) : nil)
             }.value
-            if source == .iCloud, let byLayout, destination?.url == url, destinationIssue == nil, self.source == source {
+            if source == .iCloud, let byLayout, isCurrentDestination(url), destinationIssue == nil, self.source == source {
                 if iCloudItemsByLayout != byLayout {
                     iCloudItemsByLayout = byLayout
                 }
@@ -1742,7 +1758,7 @@ final class ExportModel {
             let wasExportAll = progress.progress.hasIncompleteRun
                 ? await Task.detached(priority: .utility) { Self.interruptedRunWasExportAll(sessions: SessionStore(destination: url).list()) }.value
                 : false
-            guard !isExporting, destination?.url == url, self.source == source, self.selection == selection,
+            guard !isExporting, isCurrentDestination(url), self.source == source, self.selection == selection,
                   self.layout == layout else { return }
             totalCount = progress.progress.total
             processedCount = progress.progress.exported
@@ -1842,7 +1858,7 @@ final class ExportModel {
         freeSpaceReadAt = .now
         Task {
             let free = await Task.detached(priority: .utility) { StorageCheck.freeBytes(at: url) }.value
-            guard destination?.url == url, destinationFreeBytes != free else { return }
+            guard isCurrentDestination(url), destinationFreeBytes != free else { return }
             destinationFreeBytes = free
         }
     }
@@ -1888,10 +1904,10 @@ final class ExportModel {
     /// The layout chosen before "Choose New Folder…", applied once the new folder has been read: through
     /// `requestLayoutChange(to:)`, so a folder that already has exports in another layout asks first too.
     private func switchLayoutAfterChoosing(_ newLayout: FolderLayout, folder url: URL) {
-        guard destination?.url == url, destinationIssue == nil else { return }
+        guard isCurrentDestination(url), destinationIssue == nil else { return }
         Task {
             await loadICloudItemsByLayout(for: url)
-            guard destination?.url == url, destinationIssue == nil, !isExporting else { return }
+            guard isCurrentDestination(url), destinationIssue == nil, !isExporting else { return }
             requestLayoutChange(to: newLayout, reason: "chosen with new folder")
         }
     }
@@ -2332,8 +2348,8 @@ final class ExportModel {
 
     /// Whether `iCloudItemsByLayout` describes the current, reachable folder.
     var knowsICloudItemsByLayout: Bool {
-        guard let url = destination?.url, destinationIssue == nil else { return false }
-        return iCloudItemsByLayoutFolder == url
+        guard let url = destination?.url, let folder = iCloudItemsByLayoutFolder, destinationIssue == nil else { return false }
+        return Self.sameFolder(folder, url)
     }
 
     /// Reads the folder's iCloud items by layout off the main actor. False when the folder can't be read
@@ -2344,7 +2360,7 @@ final class ExportModel {
             guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return nil }
             return ICloudItemCount.itemsByLayout(records: ExportManifest.records(in: url))
         }.value
-        guard let byLayout, destination?.url == url, destinationIssue == nil else { return false }
+        guard let byLayout, isCurrentDestination(url), destinationIssue == nil else { return false }
         if iCloudItemsByLayout != byLayout {
             iCloudItemsByLayout = byLayout
         }
@@ -2424,7 +2440,7 @@ final class ExportModel {
         guard layout == .flat, let url = destination?.url, destinationIssue == nil else { return }
         Task {
             let count = await Task.detached(priority: .utility) { Self.unrecordedEntryCount(in: url) }.value
-            guard let count, destination?.url == url else { return }
+            guard let count, isCurrentDestination(url) else { return }
             if flatFolderOtherFiles?.folder != url || flatFolderOtherFiles?.count != count {
                 flatFolderOtherFiles = (url, count)
             }

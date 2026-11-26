@@ -24,10 +24,7 @@ struct ReorganizeExecutorTests {
 
     /// The bytes of a companion from the AppleDouble fixtures.
     private static func fixture(_ name: String) -> Data {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/AppleDouble/\(name).bin")
-        return (try? Data(contentsOf: url)) ?? Data()
+        appleDoubleFixture(name, sourceFile: #filePath) ?? Data()
     }
 
     /// A flat backup: a photo, a Live Photo pair with its sidecar, an icloudpd-named photo, an unrecorded file, a

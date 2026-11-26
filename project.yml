@@ -55,16 +55,15 @@ targets:
         # The account server (Vercel) and Supabase project. Public values; only `live` reads them.
         UNCLOUD_API_BASE_URL: "https://uncloud-api.vercel.app"
         UNCLOUD_SUPABASE_URL: "https://nkcbuwuuatsbskqcqosc.supabase.co"
-        # Empty until the orchestrator fills it in (the Supabase publishable key). While empty, `live` resolves to `off`,
-        # so nothing half-configured ships.
+        # The Supabase publishable key. While empty, `live` resolves to `off`, so nothing half-configured ships.
         UNCLOUD_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_XIZXliAMljBaJUlJcb14FA_-sc_NF6B"
       configs:
         Debug:
           # Debug runs `preview`. Launch with `-UncloudAccountMode live` (scheme argument) to use the test backend.
           UNCLOUD_ACCOUNT_MODE: "preview"
         Release:
-          # Until the server exists, release builds have no accounts: the app is exactly the free build.
-          UNCLOUD_ACCOUNT_MODE: "off"
+          # Optional sign-in against the account service. The app works with no account; sign-in is not a gate.
+          UNCLOUD_ACCOUNT_MODE: "live"
     preBuildScripts: &preBuildScripts
       - name: Build icloudpd helper
         script: '"$SRCROOT/scripts/build-icloudpd.sh"'
@@ -79,11 +78,6 @@ targets:
           set -eu
           SRC="$SRCROOT/Vendor/icloudpd-runtime"
           DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/icloudpd-runtime"
-          IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
-          # Hardened runtime only with a Developer ID: Python loads its own extension modules, and ad hoc or
-          # self-signed (scripts/make-local-signing-identity.sh) signatures have no team ID for library validation.
-          RUNTIME=""
-          case "$IDENTITY" in "Developer ID"*) RUNTIME="--options runtime" ;; esac
           if [ ! -f "$SRC/.stamp" ]; then
               echo "error: $SRC is missing; run scripts/build-icloudpd.sh" >&2
               exit 1
@@ -93,6 +87,21 @@ targets:
           # The app's own bridge to pyicloud_ipd runs next to run_icloudpd.py. It's a plain
           # resource, sealed by the app's signature like the rest of the runtime's Python files.
           cp "$SRCROOT/Uncloud/Helper/photo_bridge.py" "$DEST/photo_bridge.py"
+          # CI runs `xcodebuild test` with CODE_SIGNING_ALLOWED=NO. There is no signing
+          # identity, and codesign of the embedded runtime fails the build. Skip that step
+          # only then. A local or release build (CI unset, signing allowed) still signs below.
+          # codesign also strips the quarantine flag curl leaves on the downloaded interpreter;
+          # without it the sandboxed test host cannot launch python.
+          if [ "${CI:-}" = "true" ] || [ "${CODE_SIGNING_ALLOWED:-}" = "NO" ]; then
+              echo "note: skipping icloudpd runtime codesign (CI=${CI:-unset} CODE_SIGNING_ALLOWED=${CODE_SIGNING_ALLOWED:-unset})"
+              xattr -cr "$DEST" 2>/dev/null || true
+              exit 0
+          fi
+          IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+          # Hardened runtime only with a Developer ID: Python loads its own extension modules, and ad hoc or
+          # self-signed (scripts/make-local-signing-identity.sh) signatures have no team ID for library validation.
+          RUNTIME=""
+          case "$IDENTITY" in "Developer ID"*) RUNTIME="--options runtime" ;; esac
           INTERPRETER="$DEST/python/bin/python3.13"
           # Sign the libraries and extension modules first, then the interpreter. Only the
           # interpreter is launched, so only it gets the inherit-the-app's-sandbox entitlements.
