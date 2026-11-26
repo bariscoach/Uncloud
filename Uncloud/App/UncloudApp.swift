@@ -6,11 +6,21 @@ import SwiftUI
 @main
 enum Launcher {
     static func main() {
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+        if runningUnderTestRunner {
             TestHostApp.main()
         } else {
             UncloudApp.main()
         }
+    }
+
+    /// The test runner publishes the XCTest configuration. A sandboxed host cannot read that
+    /// file when it lives outside the container (CI's DerivedData), but the variables are set
+    /// in the environment before launch. A normal launch sets none of them.
+    private static var runningUnderTestRunner: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["XCTestConfigurationFilePath"] != nil
+            || env["XCTestBundlePath"] != nil
+            || env["XCTestSessionIdentifier"] != nil
     }
 }
 
