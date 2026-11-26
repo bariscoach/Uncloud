@@ -48,8 +48,21 @@ jobs:
 
       - name: Select Xcode
         run: |
-          if [ -d /Applications/Xcode_16.4.app ]; then
-            sudo xcode-select -s /Applications/Xcode_16.4.app
+          # The app calls macOS 26 APIs (MapKit reverse geocoding, glassEffect,
+          # ToolbarSpacer, ConcentricRectangle). Those symbols are in the Xcode 26
+          # SDK. The macos-15 image defaults to Xcode 16.4, which cannot compile them.
+          selected=""
+          for xcode in Xcode_26.3.app Xcode_26.2.app Xcode_26.1.1.app Xcode_26.0.1.app; do
+            if [ -d "/Applications/$xcode" ]; then
+              sudo xcode-select -s "/Applications/$xcode"
+              selected="$xcode"
+              break
+            fi
+          done
+          if [ -z "$selected" ]; then
+            echo "error: no Xcode 26 is installed" >&2
+            ls /Applications | grep Xcode || true
+            exit 1
           fi
           xcodebuild -version
 
