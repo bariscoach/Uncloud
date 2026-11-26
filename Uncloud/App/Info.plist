@@ -26,6 +26,25 @@
 	<string>$(UNCLOUD_ACCOUNT_MODE)</string>
 	<key>UncloudLicenseGating</key>
 	<false/>
+	<key>UncloudLicensePublicKey</key>
+	<string>9eTHD62q5241M5GcgIzPInNbF+/Jsi9c7emeztduWFQ=</string>
+	<key>UncloudCheckoutPlusURL</key>
+	<string>https://buy.stripe.com/test_5kQ28r5RY9448P64A4c3m00</string>
+	<key>UncloudCheckoutProURL</key>
+	<string>https://buy.stripe.com/test_bJe28r1BI3JKaXe7Mgc3m01</string>
+	<key>UncloudCheckoutFamilyURL</key>
+	<string>https://buy.stripe.com/test_28E28rfsy6VW7L24A4c3m02</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.example.Uncloud</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>uncloud</string>
+			</array>
+		</dict>
+	</array>
 	<key>UncloudSupabasePublishableKey</key>
 	<string>$(UNCLOUD_SUPABASE_PUBLISHABLE_KEY)</string>
 	<key>UncloudSupabaseURL</key>

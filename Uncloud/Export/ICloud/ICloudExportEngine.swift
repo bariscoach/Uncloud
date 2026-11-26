@@ -34,6 +34,8 @@ struct ICloudExportEngine: Sendable {
     /// A whole-library export only looks for new photos at the top of the library, when a full check was
     /// done recently enough (see `ICloudQuickUpdate`). False runs the full check, as before.
     var quickUpdate = false
+    /// New items this run may write, in every mode. Nil means no free-tier cap.
+    var newItemLimit: Int? = nil
 
     /// The hidden switch for whole-library bridge exports (on unless set to false).
     static let fullExportsUseBridgeKey = "iCloudFullExportsUseBridge"
@@ -56,13 +58,14 @@ struct ICloudExportEngine: Sendable {
     }
 
     private func run(emit: @escaping @Sendable (ExportEvent) -> Void) async throws {
+        let budget = ExportItemBudget(limit: newItemLimit)
         do {
             let manifest = try ExportManifest(destination: destination)
             try manifest.recordLayout(layout)
             let scanner = ICloudChecksumScanner(destination: destination, manifest: manifest, layout: layout)
             guard selection.isEverything else {
                 emit(.continuation(.init(strategy: .selection)))
-                try await runWithBridge(manifest: manifest, scanner: scanner, emit: emit)
+                try await runWithBridge(manifest: manifest, scanner: scanner, emit: emit, budget: budget)
                 return
             }
             var fallbackReason: String?
@@ -75,7 +78,7 @@ struct ICloudExportEngine: Sendable {
                     fallbackReason = "A faster resume wasn’t possible, so Uncloud checked the whole library"
                 }
                 if fallbackReason == nil {
-                    try await runEverythingWithBridge(bridge, manifest: manifest, scanner: scanner, emit: emit)
+                    try await runEverythingWithBridge(bridge, manifest: manifest, scanner: scanner, emit: emit, budget: budget)
                     return
                 }
             }
@@ -99,7 +102,7 @@ struct ICloudExportEngine: Sendable {
             for run in runs {
                 await gate.waitWhilePaused()
                 try Task.checkCancellation()
-                try await perform(run, scanner: scanner, skips: &skips, prepare: prepare, isPrepared: { isPrepared }, emit: emit)
+                try await perform(run, scanner: scanner, skips: &skips, prepare: prepare, isPrepared: { isPrepared }, emit: emit, budget: budget)
             }
             if !isPrepared {
                 // No albums, or icloudpd never announced a total: the run is still complete.
@@ -142,7 +145,8 @@ struct ICloudExportEngine: Sendable {
         skips: inout SkipAbsorber,
         prepare: (Int) -> Void,
         isPrepared: () -> Bool,
-        emit: @escaping @Sendable (ExportEvent) -> Void
+        emit: @escaping @Sendable (ExportEvent) -> Void,
+        budget: ExportItemBudget
     ) async throws {
         let folderURL = run.folder.isEmpty ? destination : destination.appending(path: run.folder, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
@@ -186,6 +190,7 @@ struct ICloudExportEngine: Sendable {
                         prepare(total ?? 0)
                     case .downloaded(let path):
                         if !isPrepared() { prepare(0) }
+                        try budget.claim()
                         let bytes = ExportEngine.totalSize(of: [URL(filePath: path)])
                         emit(.exported(name: Self.displayName(of: path), fileCount: 1, bytes: bytes))
                         if isFlat {
@@ -244,7 +249,8 @@ struct ICloudExportEngine: Sendable {
     private func runWithBridge(
         manifest: ExportManifest,
         scanner: ICloudChecksumScanner,
-        emit: @escaping @Sendable (ExportEvent) -> Void
+        emit: @escaping @Sendable (ExportEvent) -> Void,
+        budget: ExportItemBudget
     ) async throws {
         let bridge = ICloudBridge.shared(appleID: appleID)
         let (mode, ids): (String, Set<String>) = switch selection {
@@ -308,7 +314,7 @@ struct ICloudExportEngine: Sendable {
 
             do {
                 try await receive(download, folderURL: folderURL, manifest: manifest, scanner: scanner,
-                                  tally: &tally, failures: &failures, emit: emit)
+                                  tally: &tally, failures: &failures, emit: emit, budget: budget)
                 try Task.checkCancellation()
             } catch {
                 pauseTask.cancel()
@@ -356,7 +362,8 @@ struct ICloudExportEngine: Sendable {
         scanner: ICloudChecksumScanner,
         tally: inout BridgeTally,
         failures: inout Int,
-        emit: @escaping @Sendable (ExportEvent) -> Void
+        emit: @escaping @Sendable (ExportEvent) -> Void,
+        budget: ExportItemBudget
     ) async throws {
         var runTotal = 0
         var downloadsSinceScan = 0
@@ -376,6 +383,7 @@ struct ICloudExportEngine: Sendable {
                 }
                 runTotal = total
             case .downloaded(let item):
+                try budget.claim()
                 let files = relativePaths(item.files)
                 try record(item, files: files, manifest: manifest, scanner: scanner)
                 let bytes = ExportEngine.totalSize(of: item.paths.map { URL(filePath: $0) })
@@ -522,7 +530,8 @@ extension ICloudExportEngine {
         _ bridge: ICloudBridge,
         manifest: ExportManifest,
         scanner: ICloudChecksumScanner,
-        emit: @escaping @Sendable (ExportEvent) -> Void
+        emit: @escaping @Sendable (ExportEvent) -> Void,
+        budget: ExportItemBudget
     ) async throws {
         let libraryCount = try await bridge.count()
         let known = Self.knownItems(in: destination, layout: layout)
@@ -542,7 +551,7 @@ extension ICloudExportEngine {
                 )
                 switch quick {
                 case .only(let items):
-                    try await runQuickUpdate(items, bridge: bridge, manifest: manifest, scanner: scanner, known: known, emit: emit)
+                    try await runQuickUpdate(items, bridge: bridge, manifest: manifest, scanner: scanner, known: known, emit: emit, budget: budget)
                     return
                 case .fullCheck(let reason):
                     emit(.note(reason))
@@ -621,6 +630,7 @@ extension ICloudExportEngine {
         /// Items this run has finished, so a later walk in the same run passes over them without a file check.
         var doneThisRun: Set<String> = []
         func finished(_ item: ICloudBridgeItemResult, downloaded: Bool) throws {
+            if downloaded { try budget.claim() }
             let files = relativePaths(item.files)
             try record(item, files: files, manifest: manifest, scanner: scanner)
             pendingHashes += files
@@ -818,7 +828,8 @@ extension ICloudExportEngine {
         manifest: ExportManifest,
         scanner: ICloudChecksumScanner,
         known: Set<String>,
-        emit: @escaping @Sendable (ExportEvent) -> Void
+        emit: @escaping @Sendable (ExportEvent) -> Void,
+        budget: ExportItemBudget
     ) async throws {
         emit(.continuation(.init(strategy: .quick, startRank: nil, fallbackReason: nil)))
         // Progress starts from what is on the drive already, as in a full check.
@@ -844,6 +855,7 @@ extension ICloudExportEngine {
             }, bridge: bridge) { message, event in
                 switch event {
                 case .downloaded(let item):
+                    try budget.claim()
                     let files = relativePaths(item.files)
                     try record(item, files: files, manifest: manifest, scanner: scanner)
                     pendingHashes += files

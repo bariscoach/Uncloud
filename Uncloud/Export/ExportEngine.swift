@@ -21,6 +21,8 @@ enum ExportError: LocalizedError {
     case destinationFull
     case destinationUnavailable
     case noExportableFiles
+    /// This run has written every new item the free allowance allows.
+    case freeLimit
 
     var errorDescription: String? {
         switch self {
@@ -30,7 +32,26 @@ enum ExportError: LocalizedError {
             "Your backup folder isn’t available. Reconnect the drive, then resume."
         case .noExportableFiles:
             "It has no files that can be exported."
+        case .freeLimit:
+            "You’ve exported 1,000 photos for free. Unlock Uncloud to continue."
         }
+    }
+}
+
+/// How many new items one run may write. Shared by the Photos and iCloud engines. Nil means no cap.
+final class ExportItemBudget: @unchecked Sendable {
+    let limit: Int?
+    private var used = 0
+
+    init(limit: Int?) {
+        self.limit = limit
+    }
+
+    func claim() throws {
+        if let limit, used >= limit {
+            throw ExportError.freeLimit
+        }
+        used += 1
     }
 }
 
@@ -43,6 +64,8 @@ struct ExportEngine: Sendable {
     let gate: PauseGate
     /// Items outside the selection are left out: neither exported nor counted as work.
     var selection: LibrarySelection = .everything
+    /// New items this run may write. Nil exports without a free-tier cap.
+    var newItemLimit: Int? = nil
 
     /// Starts the export. Cancelling the run's task stops it; its events then finish once it has stopped.
     func start() -> ExportRun {
@@ -73,9 +96,11 @@ struct ExportEngine: Sendable {
         }
 
         var failures = 0
+        let budget = ExportItemBudget(limit: newItemLimit)
         for asset in pending {
             await gate.waitWhilePaused()
             try Task.checkCancellation()
+            try budget.claim()
 
             let files = AssetFiles(asset: asset)
             do {

@@ -113,6 +113,8 @@ final class ExportModel {
     /// The selection override for the export that waits for a folder, such as Export All Photos.
     @ObservationIgnored private var pendingExportSelection: LibrarySelection?
     var isShowingICloudSignIn = false
+    /// The download cap sheet. Shown when this Mac has exported its free 1,000 items.
+    var isShowingLicensePaywall = false
     /// Shows the one sign-out confirmation, from the sidebar footer or the File menu.
     var isConfirmingICloudSignOut = false
     /// Help > Getting Started.
@@ -337,7 +339,7 @@ final class ExportModel {
     private func sourceDidChange() {
         cancelAutoResume()
         if !LicensePolicy.layoutAvailable(
-            layout, source: source, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+            layout, source: source, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced()
         ) {
             setLayout(.month, reason: "source not available")
         }
@@ -870,17 +872,6 @@ final class ExportModel {
         record(.info, "Resumed.")
     }
 
-    /// How many items this selection would export, when the library count is known.
-    private func exportItemCount(_ selection: LibrarySelection) -> Int? {
-        switch selection {
-        case .only(let ids):
-            return ids.count
-        case .allExcept(let excluded):
-            guard let total = browser?.count else { return nil }
-            return max(0, total - excluded.count)
-        }
-    }
-
     /// `selection` overrides the saved selection for this run only (Export All Photos).
     /// `automatic` marks the run as started by automatic backup, once it has really started.
     /// `resumeAttempt` marks it as an automatic resume; any other run replaces a pending resume.
@@ -900,26 +891,21 @@ final class ExportModel {
         isDateRange: Bool = false
     ) async -> Bool {
         let sidecars = writesSidecars && LicensePolicy.allows(
-            .xmpSidecars, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+            .xmpSidecars, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced()
         )
         guard !isExporting, !isEngineRunning else { return false }
-        if automatic, !LicensePolicy.allows(
-            .automaticBackups, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
-        ) {
-            record(.info, LicensePolicy.automaticBackupRefusal)
+        let enforced = LicenseGating.isEnforced()
+        let allowance = ExportQuota.allowance(
+            exportedCount: ExportCountStore.current.load(),
+            unlimited: LicenseStore.unlimited(enforced: enforced),
+            enforced: enforced
+        )
+        if allowance.blockStart {
+            record(.warning, LicensePolicy.freeExportRefusal)
+            isShowingLicensePaywall = true
             return false
         }
-        let runSelection = override ?? selection
-        if let refusal = LicensePolicy.exportRefusal(
-            selection: runSelection,
-            itemCount: exportItemCount(runSelection),
-            isDateRange: isDateRange,
-            tier: LicenseStore.standard.tier,
-            enforced: LicenseGating.isEnforced()
-        ) {
-            record(.warning, refusal)
-            return false
-        }
+        let newItemLimit = allowance.remaining
         // A folder organized another way than the setting is never exported into silently: the owner decides first.
         if let mismatch = folderLayoutMismatch() {
             if pendingLayoutChange == nil {
@@ -971,7 +957,7 @@ final class ExportModel {
         record(.info, "\(isResuming ? "Resuming" : "Starting") export to “\(destination.displayName)”, \(layout.title.lowercased()).")
 
         if !LicensePolicy.layoutAvailable(
-            layout, source: source, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+            layout, source: source, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced()
         ) {
             setLayout(.month, reason: "source not available")
         }
@@ -1057,13 +1043,15 @@ final class ExportModel {
         let run: ExportRun
         switch source {
         case .photosLibrary:
-            run = ExportEngine(
+            var photos = ExportEngine(
                 destination: destination.url,
                 layout: layout,
                 writesSidecars: sidecars,
                 gate: gate,
                 selection: selection
-            ).start()
+            )
+            photos.newItemLimit = newItemLimit
+            run = photos.start()
         case .iCloud:
             var hints: [String: Int] = [:]
             // Files the check found missing are fetched again by ID, near where the browser last saw them.
@@ -1086,7 +1074,7 @@ final class ExportModel {
                     return true
                 }
             }
-            run = ICloudExportEngine(
+            var cloud = ICloudExportEngine(
                 destination: destination.url,
                 layout: layout,
                 writesSidecars: sidecars,
@@ -1098,7 +1086,9 @@ final class ExportModel {
                 missingItems: missing,
                 resumeSettings: iCloudResumeSettings,
                 quickUpdate: selection.isEverything && !forcesFullCheck
-            ).start()
+            )
+            cloud.newItemLimit = newItemLimit
+            run = cloud.start()
         }
         runTask = run.task
         engine.track(run.task) { [weak self] in self?.refreshProgress() }
@@ -1117,7 +1107,11 @@ final class ExportModel {
             case .success:
                 finish(.completed)
             case .failure(let error):
-                if phase == .cancelling || error is CancellationError {
+                if let exportError = error as? ExportError, case .freeLimit = exportError {
+                    finish(.cancelled)
+                    record(.info, LicensePolicy.freeExportRefusal)
+                    isShowingLicensePaywall = true
+                } else if phase == .cancelling || error is CancellationError {
                     finish(.cancelled)
                 } else {
                     finish(.failed(error.localizedDescription), error: error)
@@ -1168,6 +1162,9 @@ final class ExportModel {
         }
         skippedThisRun += batch.skipped
         exportedThisRun += batch.exported
+        if batch.exported > 0 {
+            ExportCountStore.current.add(batch.exported)
+        }
         failedCount += batch.failed
         if batch.sawSkip {
             // Skips take almost no time, so keep them out of the rate the estimate uses.
@@ -2022,12 +2019,6 @@ final class ExportModel {
     /// Copies new items without leaving the current screen.
     func backUpAutomatically(reason: String) {
         guard canBackUpAutomatically else { return }
-        guard LicensePolicy.allows(
-            .automaticBackups, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
-        ) else {
-            record(.info, LicensePolicy.automaticBackupRefusal)
-            return
-        }
         // A run waiting to resume goes first, the way it was started, rather than being replaced.
         if autoResume != nil {
             resumeNow()
@@ -2275,7 +2266,7 @@ final class ExportModel {
     /// other layouts: icloudpd only looks at the new layout's paths, so the whole library downloads again.
     func requestLayoutChange(to newLayout: FolderLayout, reason: String = "picker") {
         guard newLayout != layout, !isExporting, LicensePolicy.layoutAvailable(
-            newLayout, source: source, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+            newLayout, source: source, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced()
         ) else { return }
         if let confirmation = layoutChangeConfirmation(to: newLayout) {
             pendingLayoutChange = confirmation

@@ -141,7 +141,7 @@ struct BackupSettingsForm: View {
     }
 
     private var automaticBackupsAllowed: Bool {
-        LicensePolicy.allows(.automaticBackups, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced())
+        LicensePolicy.allows(.automaticBackups, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced())
     }
 
     private var statusText: String {

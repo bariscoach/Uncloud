@@ -241,7 +241,7 @@ struct ExportSettingsPane: View {
 
         Section {
             Toggle("Save an XMP file with each photo", isOn: Binding(get: { model.writesSidecars }, set: { model.writesSidecars = $0 }))
-                .disabled(model.isExporting || !LicensePolicy.allows(.xmpSidecars, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()))
+                .disabled(model.isExporting || !LicensePolicy.allows(.xmpSidecars, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced()))
                 .help(xmpExplanation)
                 .accessibilityHint(xmpExplanation)
             Text("Keeps albums, favorites, places and dates for apps like Lightroom.")
@@ -262,7 +262,7 @@ struct ExportSettingsPane: View {
 
         return Picker("Folders", selection: Binding(get: { model.layout }, set: { model.requestLayoutChange(to: $0) })) {
             ForEach(FolderLayout.allCases.filter {
-                LicensePolicy.layoutAvailable($0, source: model.source, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced())
+                LicensePolicy.layoutAvailable($0, source: model.source, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced())
             }) { layout in
                 HStack {
                     Text(layout.title)

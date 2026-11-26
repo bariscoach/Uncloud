@@ -4,6 +4,7 @@ import SwiftUI
 /// screens while signed out (plan B.1). `off` never reaches the account screens, so it looks like v0.1.8.
 struct RootView: View {
     @Environment(AccountModel.self) private var account
+    @Environment(ExportModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -34,11 +35,24 @@ struct RootView: View {
             // Confirms the account at launch, at most once a day.
             await account.refreshAccount(force: false)
         }
+        .onOpenURL { url in
+            guard let key = LicenseDeepLink.key(from: url) else { return }
+            Task { await activateLicense(key) }
+        }
         .onChange(of: account.phase) { _, phase in
             // A new account gets one line of announcement, since there is no separate welcome screen (plan B.1).
             if phase == .signedIn, account.isNewAccount {
                 AccessibilityNotification.Announcement("Welcome to Uncloud").post()
             }
+        }
+    }
+
+    private func activateLicense(_ key: String) async {
+        guard let parsed = LicenseKey.parse(key) else { return }
+        let remote = await LicenseVerifier.live(baseURL: LicenseVerifier.baseURL()).verify(parsed.key)
+        if case .saved(let license) = LicenseActivation.decide(parsed: parsed, remote: remote) {
+            LicenseStore.current.save(license)
+            model.isShowingLicensePaywall = false
         }
     }
 }

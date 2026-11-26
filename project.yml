@@ -23,6 +23,13 @@ targets:
         NSHumanReadableCopyright: Made by Baris Hiz
         UncloudAccountMode: $(UNCLOUD_ACCOUNT_MODE)
         UncloudLicenseGating: false
+        UncloudLicensePublicKey: "9eTHD62q5241M5GcgIzPInNbF+/Jsi9c7emeztduWFQ="
+        UncloudCheckoutPlusURL: "https://buy.stripe.com/test_5kQ28r5RY9448P64A4c3m00"
+        UncloudCheckoutProURL: "https://buy.stripe.com/test_bJe28r1BI3JKaXe7Mgc3m01"
+        UncloudCheckoutFamilyURL: "https://buy.stripe.com/test_28E28rfsy6VW7L24A4c3m02"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.example.Uncloud
+            CFBundleURLSchemes: [uncloud]
         UncloudAPIBaseURL: $(UNCLOUD_API_BASE_URL)
         UncloudSupabaseURL: $(UNCLOUD_SUPABASE_URL)
         UncloudSupabasePublishableKey: $(UNCLOUD_SUPABASE_PUBLISHABLE_KEY)
@@ -109,6 +116,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UncloudAccountMode: "preview"
         UncloudLicenseGating: false
+        UncloudLicensePublicKey: "9eTHD62q5241M5GcgIzPInNbF+/Jsi9c7emeztduWFQ="
     sources: *appSources
     settings:
       base:

@@ -266,18 +266,21 @@ test('robots.txt and sitemap.xml name the public site', () => {
   assert.match(robots, /Sitemap: https:\/\/www\.tryuncloud\.com\/sitemap\.xml/);
   assert.match(sitemap, /<loc>https:\/\/www\.tryuncloud\.com\/<\/loc>/);
   assert.match(sitemap, /<loc>https:\/\/www\.tryuncloud\.com\/pricing<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/www\.tryuncloud\.com\/license<\/loc>/);
 });
 
 test('checkout URLs come from env, then the config file, and reject anything that is not https', () => {
   const file = JSON.parse(readFileSync(join(root, 'checkout.config.json'), 'utf8'));
-  assert.deepEqual(file, { plus: '', pro: '', family: '' });
-  assert.deepEqual(checkoutLinks({}, file), { plus: null, pro: null, family: null });
+  assert.equal(file.plus, 'https://buy.stripe.com/test_5kQ28r5RY9448P64A4c3m00');
+  assert.equal(file.pro, 'https://buy.stripe.com/test_bJe28r1BI3JKaXe7Mgc3m01');
+  assert.equal(file.family, 'https://buy.stripe.com/test_28E28rfsy6VW7L24A4c3m02');
+  assert.deepEqual(checkoutLinks({}, file), file);
   assert.deepEqual(
     checkoutLinks({ UNCLOUD_CHECKOUT_PLUS_URL: ' https://buy.example/plus ' }, { plus: 'https://file.example/plus' }),
     { plus: 'https://buy.example/plus', pro: null, family: null },
   );
   assert.equal(checkoutLinks({}, { pro: 'http://buy.example/pro' }).pro, null);
-  assert.deepEqual(checkoutResponse({}, root), { plus: null, pro: null, family: null });
+  assert.equal(checkoutResponse({}, root).plus, file.plus);
   assert.equal(
     checkoutResponse({ UNCLOUD_CHECKOUT_FAMILY_URL: 'https://buy.example/family' }, root).family,
     'https://buy.example/family',

@@ -3,11 +3,13 @@
 API and hosted legal pages for Uncloud. Not part of the Mac app build: nothing
 here is read by XcodeGen (`project.yml`) or `scripts/make-dmg.sh`.
 
-Accounts are optional. Export and license keys do not require one. `POST /v1/licenses/verify` and
-`POST /v1/webhooks/payments` are stubs in `uncloud-api/lib/licenses.js`: no payment-provider secret,
-and nothing is stored. Checkout URLs are not set here. They are `UNCLOUD_CHECKOUT_PLUS_URL`,
-`UNCLOUD_CHECKOUT_PRO_URL`, and `UNCLOUD_CHECKOUT_FAMILY_URL` on the website project (`site/`,
-Vercel project `uncloud`, https://www.tryuncloud.com), or `site/checkout.config.json`.
+Accounts are optional. Export and license keys do not require one. `POST /v1/licenses/verify` checks
+an Ed25519 signature and the revocation list. `POST /v1/webhooks/payments` verifies
+`Stripe-Signature`, mints one key per Checkout session, emails it with Resend, and revokes it on
+`charge.refunded`. Names are in `uncloud-api/.env.example`. The test keypair is not a production key.
+Checkout URLs are `UNCLOUD_CHECKOUT_PLUS_URL`, `UNCLOUD_CHECKOUT_PRO_URL`, and
+`UNCLOUD_CHECKOUT_FAMILY_URL` on the website project (`site/`, Vercel project `uncloud`,
+https://www.tryuncloud.com), or `site/checkout.config.json`.
 
 `server/scripts/RUNBOOK.md` is the earlier account and Stripe setup. It is not required for the
 license stub. The marketing site is not this service.
