@@ -30,7 +30,12 @@ struct BrowseBackupView: View {
                 sortMenu(browse)
             }
         }
-        .onAppear { sync() }
+        .onAppear {
+            if !LicensePolicy.allowsBrowse(browse.mode, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()) {
+                browse.mode = .dates
+            }
+            sync()
+        }
         .onChange(of: model.destination?.url) { _, _ in sync() }
         .onChange(of: model.destinationIssue) { _, _ in sync() }
         .onChange(of: model.isExporting) { _, _ in sync() }
@@ -51,7 +56,9 @@ struct BrowseBackupView: View {
 
     private func modePicker(_ browse: BrowseBackup) -> some View {
         Picker("View", selection: Bindable(browse).mode) {
-            ForEach(BrowseBackup.Mode.allCases) { mode in
+            ForEach(BrowseBackup.Mode.allCases.filter {
+                LicensePolicy.allowsBrowse($0, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced())
+            }) { mode in
                 Text(mode.title).tag(mode)
             }
         }

@@ -24,6 +24,8 @@
 	<string>$(UNCLOUD_API_BASE_URL)</string>
 	<key>UncloudAccountMode</key>
 	<string>$(UNCLOUD_ACCOUNT_MODE)</string>
+	<key>UncloudLicenseGating</key>
+	<false/>
 	<key>UncloudSupabasePublishableKey</key>
 	<string>$(UNCLOUD_SUPABASE_PUBLISHABLE_KEY)</string>
 	<key>UncloudSupabaseURL</key>

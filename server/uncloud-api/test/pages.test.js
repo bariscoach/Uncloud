@@ -42,10 +42,16 @@ test('no script, inline style or inline event handler: the pages need no JavaScr
   }
 });
 
-test('no page mentions payments, plans or prices', () => {
+test('pages describe a free app plus one-time licenses, not a subscription', () => {
+  const terms = read('public/terms.html');
+  assert.match(terms, /one-time purchases, not a subscription/);
+  assert.match(terms, /does not require an account to export photos or to use a license/);
+  assert.doesNotMatch(terms, /There are no paid plans/);
+  assert.doesNotMatch(terms, /always be free|always free/i);
   for (const page of pages) {
     const html = read(page);
-    assert.doesNotMatch(html, /stripe|subscription|subscribe|checkout|refund|\$\d|uncloud plus|\bplus\b|renew/i, page);
+    assert.doesNotMatch(html, /\bstripe\b|\bsubscribe\b|\brefund\b|\brenew\b/i, page);
+    assert.doesNotMatch(html, /getuncloud\.vercel\.app/, page);
   }
 });
 
@@ -58,12 +64,12 @@ test('the final copy is present verbatim', () => {
     'public/404.html': ['Page not found', 'There’s nothing here. If you came from Uncloud, return to the app and try again.'],
     'public/index.html': ['Take Your Photos Home. Export full-quality originals from iCloud to your own drive.', 'This address is Uncloud’s account service. To use Uncloud, open the app on your Mac.'],
     'public/terms.html': [
-      'Uncloud is free. There are no paid plans.',
-      'Uncloud doesn’t need an Uncloud account.',
+      'Uncloud is free to start.',
+      'Uncloud does not require an account to export photos or to use a license.',
       'Uncloud only deletes photos you select, and only after you confirm.',
     ],
     'public/privacy.html': [
-      'Uncloud has no accounts. Your photos and your Apple account never reach us',
+      'You do not need an account to export photos or to use a license. Your photos never reach us.',
     ],
   };
   for (const [page, strings] of Object.entries(copy)) {

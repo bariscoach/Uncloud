@@ -8,7 +8,13 @@ struct CleanupView: View {
 
     var body: some View {
         Group {
-            if let cleanup = model.iCloudCleanup, let browser = model.browser, let recentlyDeleted = model.recentlyDeletedBrowser,
+            if !LicensePolicy.allows(.verifiedICloudCleanup, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()) {
+                ContentUnavailableView {
+                    Label("Uncloud Pro", systemImage: "key")
+                } description: {
+                    Text("Verified iCloud cleanup is part of Uncloud Pro.")
+                }
+            } else if let cleanup = model.iCloudCleanup, let browser = model.browser, let recentlyDeleted = model.recentlyDeletedBrowser,
                model.source == .iCloud {
                 CleanupGridView(
                     cleanup: cleanup,

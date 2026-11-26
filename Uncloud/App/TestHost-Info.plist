@@ -20,5 +20,7 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>UncloudAccountMode</key>
 	<string>preview</string>
+	<key>UncloudLicenseGating</key>
+	<false/>
 </dict>
 </plist>

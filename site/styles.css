@@ -1111,6 +1111,113 @@ h1 {
   100% { opacity: 0; }
 }
 
+/* One-time prices on the home page, and the pricing page cards. */
+
+.price-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  max-width: 880px;
+  margin: 0 auto;
+  list-style: none;
+}
+.price-strip li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  text-align: center;
+}
+.price-strip span { color: var(--text-2); font-size: var(--fs-small); }
+.price-strip strong { font-size: 1.75rem; letter-spacing: -0.03em; }
+
+.plans {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.plan-featured { border-color: var(--border-strong); }
+.plan-kicker {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.plan h3 { margin: 0; font-size: 1.25rem; letter-spacing: -0.02em; }
+.plan-price {
+  margin: 0;
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.plan-price span {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.plan ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text-2);
+  flex: 1;
+}
+.plan li + li { margin-top: 8px; }
+.checkout-placeholder {
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+.plan > .btn,
+.plan > .checkout-placeholder { margin-top: auto; }
+/* .btn sets display, which would otherwise show a buy link before a checkout URL exists. */
+[hidden] { display: none !important; }
+.grandfather {
+  max-width: 68ch;
+  margin: 28px auto 0;
+  color: var(--text-2);
+  text-align: center;
+}
+.section-head h1 {
+  max-width: 18ch;
+  margin: 12px auto 0;
+  font-size: var(--fs-h2);
+}
+
+.brand-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.04em;
+}
+
+@media (max-width: 1023px) {
+  .plans { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 759px) {
+  .price-strip { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 639px) {
+  .plans { grid-template-columns: 1fr; }
+}
+
 /* Reduced motion: no animation, no transitions, no smooth scroll. */
 @media (prefers-reduced-motion: reduce) {
   *,

@@ -347,6 +347,13 @@
 		FE73ED7054EC265A6839B579 /* AppleDouble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6104027BDA34781D149397C6 /* AppleDouble.swift */; };
 		FE8D9A360BABC9C7B5114A4A /* BrowseIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FDC54E21128C8108A56AEC3 /* BrowseIndex.swift */; };
 		FFAF314EFA380461F8358568 /* wrong-version.bin in Resources */ = {isa = PBXBuildFile; fileRef = CAD23AB7F4549E26B35EAB7E /* wrong-version.bin */; };
+		2C55A55051FE78727A67AE26 /* LicensePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB7372308F8BFF39D7E993C7 /* LicensePolicy.swift */; };
+		644430090694938D05AE08FF /* LicensePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB7372308F8BFF39D7E993C7 /* LicensePolicy.swift */; };
+		57C24CD5CF3E4ED5B46A6267 /* LicenseStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A20A9D89ED113E21DFDD392 /* LicenseStore.swift */; };
+		62936999942257BF34C11111 /* LicenseStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A20A9D89ED113E21DFDD392 /* LicenseStore.swift */; };
+		E0FD0ECE037A97932FE5C679 /* LicenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5E02201BB47638E51DE63CC /* LicenseView.swift */; };
+		1831C4F575CA2ACD2A18D850 /* LicenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5E02201BB47638E51DE63CC /* LicenseView.swift */; };
+		69CBCB5CC8B96609B262A31A /* LicenseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 527DE84A94B7ABEEB725AB8A /* LicenseTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -581,6 +588,10 @@
 		FCC5B3572E36011A4AEEAA9F /* DesignSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSnapshotTests.swift; sourceTree = "<group>"; };
 		FD7AF5335D7FF4CF5E319361 /* ICloudPageCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudPageCacheTests.swift; sourceTree = "<group>"; };
 		FE9887527DC4BED343D59FFB /* AccountAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAvatar.swift; sourceTree = "<group>"; };
+		FB7372308F8BFF39D7E993C7 /* LicensePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePolicy.swift; sourceTree = "<group>"; };
+		4A20A9D89ED113E21DFDD392 /* LicenseStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseStore.swift; sourceTree = "<group>"; };
+		E5E02201BB47638E51DE63CC /* LicenseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseView.swift; sourceTree = "<group>"; };
+		527DE84A94B7ABEEB725AB8A /* LicenseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -608,6 +619,7 @@
 				F0EC52053002D4FE98AFE8ED /* ICloudSignInSheet.swift */,
 				8F79DB331BE406BDDBA688C4 /* IconTile.swift */,
 				878A1648B154D699511DAEF5 /* LandingView.swift */,
+				E5E02201BB47638E51DE63CC /* LicenseView.swift */,
 				DB669F72B489554F906F4C1B /* LibraryGrid.swift */,
 				C261EC1F3BD6BBC68308A49F /* MainWindow.swift */,
 				655C300B76FB724B130CF7D1 /* MenuBarContent.swift */,
@@ -689,6 +701,7 @@
 				89738564B882A968009AE992 /* SessionRecorderTests.swift */,
 				D6D0433ACF883D323723A1B1 /* SessionsAndDriveCheckTests.swift */,
 				B323FF83970C4D84959183E1 /* SessionStoreTests.swift */,
+				527DE84A94B7ABEEB725AB8A /* LicenseTests.swift */,
 				D017031E21B7F448819A6FD9 /* SettingsTabTests.swift */,
 				1DC20CBF53E152BFE8B3AD7C /* SidebarTitlebarTests.swift */,
 				9D49E769A10A138D72E67CD9 /* StorageEstimateTests.swift */,
@@ -775,6 +788,7 @@
 				D99C22EFFD6FB934B1A08C8A /* App */,
 				CB615018765398932C652A8E /* Export */,
 				EB87EE7B636AD7BC0FA2406F /* Model */,
+				F7F24AC9FB29BC03E489D2C3 /* License */,
 				061803C346B15EF48C59F657 /* Views */,
 			);
 			path = Uncloud;
@@ -929,6 +943,15 @@
 				CAD23AB7F4549E26B35EAB7E /* wrong-version.bin */,
 			);
 			path = AppleDouble;
+			sourceTree = "<group>";
+		};
+		F7F24AC9FB29BC03E489D2C3 /* License */ = {
+			isa = PBXGroup;
+			children = (
+				FB7372308F8BFF39D7E993C7 /* LicensePolicy.swift */,
+				4A20A9D89ED113E21DFDD392 /* LicenseStore.swift */,
+			);
+			path = License;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -1167,6 +1190,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2C55A55051FE78727A67AE26 /* LicensePolicy.swift in Sources */,
+				57C24CD5CF3E4ED5B46A6267 /* LicenseStore.swift in Sources */,
+				E0FD0ECE037A97932FE5C679 /* LicenseView.swift in Sources */,
 				9EB53FB0BEF702E08B9AFC98 /* AccountAvatar.swift in Sources */,
 				8C702F592F62D3291746F50C /* AccountButton.swift in Sources */,
 				3C4AEF6736E028256904B16E /* AccountCodeView.swift in Sources */,
@@ -1296,6 +1322,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				644430090694938D05AE08FF /* LicensePolicy.swift in Sources */,
+				62936999942257BF34C11111 /* LicenseStore.swift in Sources */,
+				1831C4F575CA2ACD2A18D850 /* LicenseView.swift in Sources */,
 				41F8464D843891C920CB3430 /* AccountAvatar.swift in Sources */,
 				4DCA509EFC165331BAB4350B /* AccountButton.swift in Sources */,
 				EF4129BC115B09CC06588C0E /* AccountCodeView.swift in Sources */,
@@ -1425,6 +1454,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				69CBCB5CC8B96609B262A31A /* LicenseTests.swift in Sources */,
 				22467CA9946973EA19C5E717 /* AccountConfigurationTests.swift in Sources */,
 				A80E502EC38036D6A710CA8E /* AccountFooterContentTests.swift in Sources */,
 				3CD39B980BFDB006721895CD /* AccountMenuTests.swift in Sources */,

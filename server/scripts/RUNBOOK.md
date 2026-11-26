@@ -1,5 +1,9 @@
 # Uncloud Plus setup runbook
 
+> The current product is a free app plus one-time Plus, Pro, and Family licenses. No account is
+> required to export or to use a license. Checkout URLs and the license stub are in the root README.
+> This runbook is the earlier account and Stripe setup. It is not required for the license stub.
+
 The scripts in this folder create the Stripe, Supabase and Vercel setup for Uncloud Plus (plan:
 `.claude/design/stripe-payments-plan.md` sections 8.1 to 8.6). Everything here is **test mode** until the
 go-live checklist at the bottom is done.
