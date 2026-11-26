@@ -982,7 +982,8 @@ final class ExportModel {
             resumeAttempt: resumeAttempt,
             isResuming: isResuming,
             resumesInterrupted: resumesInterrupted,
-            appleID: appleID
+            appleID: appleID,
+            writesSidecars: sidecars
         )
 
         // Check the drive first, so the run starts from what is already there. An idle check gives way.
@@ -1258,7 +1259,8 @@ final class ExportModel {
         resumeAttempt: Int?,
         isResuming: Bool,
         resumesInterrupted: Bool,
-        appleID: String?
+        appleID: String?,
+        writesSidecars: Bool
     ) {
         heartbeatTask?.cancel()
         let now = currentDate()
@@ -1291,7 +1293,7 @@ final class ExportModel {
             source: source,
             account: account,
             layout: layout,
-            writesSidecars: sidecars,
+            writesSidecars: writesSidecars,
             selection: summary
         )
         session.libraryCount = source == .iCloud ? ICloudLibrary.cachedLibraryCount : nil
