@@ -22,7 +22,7 @@ struct ExportSession: Codable, Identifiable, Equatable, Sendable {
     /// The heartbeat, written at every checkpoint.
     var updatedAt: Date
     var endedAt: Date?
-    /// For example "0.1.4 (14)".
+    /// For example "0.1.27 (28)".
     var appVersion: String
     /// One per app launch: tells "mine, still running" from "orphaned by a quit or a restart".
     var launchID: UUID

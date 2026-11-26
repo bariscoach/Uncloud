@@ -50,9 +50,9 @@ test('me gives every account the same plan and never reads the database', async 
 
 // ---- GET /v1/health ------------------------------------------------------
 
-test('health is unauthenticated', async () => {
+test('health is unauthenticated and names the app version', async () => {
   const response = await json(health());
-  assert.deepEqual(response.body, { ok: true });
+  assert.deepEqual(response.body, { ok: true, version: '0.1.27' });
 });
 
 // ---- unknown /v1 paths (review L5) -----------------------------------------

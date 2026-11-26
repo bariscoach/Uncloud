@@ -47,16 +47,15 @@ targets:
         # The account server (Vercel) and Supabase project. Public values; only `live` reads them.
         UNCLOUD_API_BASE_URL: "https://uncloud-api.vercel.app"
         UNCLOUD_SUPABASE_URL: "https://nkcbuwuuatsbskqcqosc.supabase.co"
-        # Empty until the orchestrator fills it in (the Supabase publishable key). While empty, `live` resolves to `off`,
-        # so nothing half-configured ships.
+        # The Supabase publishable key. While empty, `live` resolves to `off`, so nothing half-configured ships.
         UNCLOUD_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_XIZXliAMljBaJUlJcb14FA_-sc_NF6B"
       configs:
         Debug:
           # Debug runs `preview`. Launch with `-UncloudAccountMode live` (scheme argument) to use the test backend.
           UNCLOUD_ACCOUNT_MODE: "preview"
         Release:
-          # Until the server exists, release builds have no accounts: the app is exactly the free build.
-          UNCLOUD_ACCOUNT_MODE: "off"
+          # Optional sign-in against the account service. The app works with no account; sign-in is not a gate.
+          UNCLOUD_ACCOUNT_MODE: "live"
     preBuildScripts: &preBuildScripts
       - name: Build icloudpd helper
         script: '"$SRCROOT/scripts/build-icloudpd.sh"'

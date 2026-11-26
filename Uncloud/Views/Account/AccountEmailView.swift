@@ -86,7 +86,7 @@ struct AccountEmailView: View {
     }
 
     private var explanation: String {
-        "Enter your email to get a 6-digit code. If you’re new, the code creates your Uncloud account."
+        "Enter your email to get a 6-digit code. If you’re new, the code creates your Uncloud account. The app works without one."
     }
 
     private var footnote: some View {
@@ -105,12 +105,12 @@ struct AccountEmailView: View {
         }
     }
 
-    /// Back goes to Welcome. While a request runs, Esc cancels it and stays here.
+    /// Back closes the sign-in sheet. The app stays open. While a request runs, Esc cancels it and stays here.
     private func goBack() {
         if account.isBusy {
             account.cancelRequest()
         } else {
-            account.show(.welcome)
+            account.dismissAuth()
         }
     }
 }

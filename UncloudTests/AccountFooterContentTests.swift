@@ -85,12 +85,12 @@ struct AccountFooterContentTests {
         #expect(!row.showsUncloudSection)
     }
 
-    @Test func signedOutOfUncloudHidesTheAccountSection() {
+    @Test func signedOutOfUncloudOffersSignIn() {
         let summary = AccountSummary.make(mode: .preview, phase: .signedOut(.welcome), account: nil)
         let row = Self.content(summary)
         #expect(row.line1 == "name@icloud.com")
         #expect(row.line2 == "iCloud Photos")
-        #expect(!row.showsUncloudSection)
+        #expect(row.showsUncloudSection)
     }
 }
 

@@ -10,7 +10,7 @@ struct AccountFooterContent: Equatable {
     let needsAttention: Bool
     /// The row's accessibility value: the account, then the source, then "needs attention" when the dot shows.
     let accessibilityValue: String
-    /// Whether the popover shows the Uncloud account section (hidden when accounts are off or signed out).
+    /// Whether the popover shows the Uncloud account section. Hidden only when accounts are off.
     let showsUncloudSection: Bool
     /// The status under "Photos From": "Connected", "Not signed in", "Ready" or "Needs access".
     let sourceStateText: String
@@ -75,7 +75,7 @@ struct AccountFooterContent: Equatable {
             line2: line2,
             needsAttention: needsAttention,
             accessibilityValue: parts.joined(separator: ", "),
-            showsUncloudSection: accountMode != .off && (isLoading || hasAccount),
+            showsUncloudSection: accountMode != .off && summary.state != .hidden,
             sourceStateText: sourceStateText,
             sourceStateIsWarning: sourceIssue
         )

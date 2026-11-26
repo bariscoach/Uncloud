@@ -7,7 +7,7 @@ enum AccountMode: String, Equatable, Sendable {
     case off
     /// Fake accounts. Debug builds only.
     case preview
-    /// The real server (`LiveAccountService`). Needs every live value below, or it resolves to `off`.
+    /// The real server (`LiveAccountService`). Sign-in is optional. Needs every live value below, or it resolves to `off`.
     case live
 }
 

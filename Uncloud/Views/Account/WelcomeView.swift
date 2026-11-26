@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The first page a signed-out user sees: what Uncloud does, and the one way in (plan F.1).
+/// Kept for the sign-in sheet's resting copy. The app does not open here: an account is optional.
 struct WelcomeView: View {
     @Environment(AccountModel.self) private var account
     @Environment(\.uncloudAccent) private var accent
@@ -18,7 +18,7 @@ struct WelcomeView: View {
                 }
                 features
                     .padding(.bottom, Tokens.Space.xxl)
-                Text("Create your free Uncloud account to start.")
+                Text("An Uncloud account is optional. You can keep using the app without one.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

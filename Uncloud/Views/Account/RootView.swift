@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The main window's content. Shows the app while accounts are off or the user is signed in, and the account
-/// screens while signed out (plan B.1). `off` never reaches the account screens, so it looks like v0.1.8.
+/// The main window. An Uncloud account is optional, so signed-out people get the same window as everyone else.
+/// Sign-in is a sheet from Settings, not a gate in front of export, backup, browse or verify.
 struct RootView: View {
     @Environment(AccountModel.self) private var account
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -11,7 +11,7 @@ struct RootView: View {
 
         Group {
             switch account.phase {
-            case .off, .signedIn:
+            case .off, .signedIn, .signedOut:
                 MainWindow()
                     // The one sign-out confirmation for the popover and the app menu. Settings has its own.
                     .confirmationDialog("Sign Out of Uncloud?", isPresented: $account.isConfirmingSignOut, titleVisibility: .visible) {
@@ -19,13 +19,10 @@ struct RootView: View {
                             Task { await account.signOut() }
                         }
                     } message: {
-                        Text("Your photos and backup aren’t changed. Sign in again to use Uncloud.")
+                        Text("Your photos and backup aren’t changed. You can keep using Uncloud without an account.")
                     }
             case .restoring:
                 Color(nsColor: .windowBackgroundColor)
-            case let .signedOut(route):
-                AccountFlowView(route: route)
-                    .transition(.opacity)
             }
         }
         .frame(minWidth: 760, minHeight: 500)

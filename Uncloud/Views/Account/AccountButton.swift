@@ -23,6 +23,19 @@ struct UncloudAccountSection: View {
                         .font(Tokens.Font.help)
                         .foregroundStyle(.secondary)
                 }
+            } else if !summary.hasAccount {
+                Text("Optional. Uncloud works without an account.")
+                    .font(Tokens.Font.help)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Sign In…") {
+                    close()
+                    account.show(.signUp)
+                    UserDefaults.standard.set(SettingsTab.account.rawValue, forKey: SettingsTab.storageKey)
+                    openSettings()
+                    NSApp.activate()
+                }
+                .buttonStyle(.bordered)
             } else {
                 header
                 Button("Account Settings…") {

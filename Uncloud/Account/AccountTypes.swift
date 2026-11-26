@@ -59,7 +59,7 @@ enum AccountError: Error, Equatable, Sendable {
         // Only the code-email failure has its own sentence; server wording is never shown as is.
         case let .server(message) where message == LiveAccountService.codeEmailNotSent: LiveAccountService.codeEmailNotSent
         case .server: "Uncloud couldn’t finish that. Try again in a moment."
-        case .signedOut: "You’ve been signed out. Sign in again to keep using Uncloud."
+        case .signedOut: "You’ve been signed out of your Uncloud account. Uncloud keeps working on this Mac."
         case .confirmationMismatch: "The email doesn’t match your Uncloud account."
         }
     }
