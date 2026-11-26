@@ -91,6 +91,7 @@ jobs:
             -scheme Uncloud \
             -destination 'platform=macOS,arch=arm64' \
             -resultBundlePath build/Uncloud.xcresult \
+            -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
 
