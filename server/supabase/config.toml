@@ -35,8 +35,9 @@ token_verifications = 30         # per 5 min per IP
 token_refresh = 150              # per 5 min per IP
 sign_in_sign_ups = 30            # per 5 min per IP
 
-# Email through Resend. Until a custom domain is verified in Resend, the sender is Resend's test address,
-# which can only deliver to the email the Resend account was created with (fine for testing).
+# Not used for app sign-in. uncloud-api emails codes itself (RESEND_API_KEY and AUTH_FROM_EMAIL).
+# This sandbox sender, onboarding@resend.dev, can only deliver to the Resend account owner, which is
+# why sign-up and sign-in failed for everyone else. Do not point the app back at Supabase's mailer.
 # The API key comes from the RESEND_API_KEY environment variable at push time (never in this file).
 [auth.email.smtp]
 enabled = true

@@ -3,8 +3,8 @@
 # disk image with the app and an Applications shortcut to drag it onto.
 # Usage: scripts/make-dmg.sh [--identity "Developer ID Application: …"] [--account-mode off|live]
 #
-# --account-mode live builds against the Uncloud Plus server (sign-in and paywall on) and names the image
-# Uncloud-<version>-test.dmg. Without it, Release uses the mode in project.yml.
+# --account-mode live builds with optional sign-in and names the image Uncloud-<version>-test.dmg.
+# Without it, Release uses the mode in project.yml. Sign-in is never a gate.
 #
 # For test builds on this Mac, use --identity "Uncloud Local Signing" (scripts/make-local-signing-identity.sh) so
 # keychain access survives updates. Without --identity the app is signed ad hoc: it runs on this Mac, but on other Macs

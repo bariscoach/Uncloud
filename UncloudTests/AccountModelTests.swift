@@ -152,7 +152,8 @@ struct AccountModelTests {
         harness.model.exportDidFinish()
         #expect(harness.model.phase == .signedOut(.welcome))
         #expect(harness.model.error == .signedOut)
-        #expect(!harness.model.showsAppMenus)
+        // Signing out does not take the free features away.
+        #expect(harness.model.showsAppMenus)
     }
 
     @Test("A revoked session outside an export signs out at once")
@@ -192,6 +193,20 @@ struct AccountModelTests {
         harness.defaults.set(Data("{}".utf8), forKey: "uncloudEntitlement")
         _ = Self.makeHarness(defaults: harness.defaults, clock: harness.clock)
         #expect(harness.defaults.data(forKey: "uncloudEntitlement") == nil)
+    }
+
+    @Test("A signed-out launch keeps the menus, and closing sign-in returns to the app")
+    func optionalAuthDoesNotGate() {
+        let model = Self.makeHarness().model
+        #expect(model.phase == .signedOut(.welcome))
+        #expect(model.showsAppMenus)
+        #expect(model.isPresentingAuth == false)
+        model.show(.signUp)
+        #expect(model.isPresentingAuth)
+        model.dismissAuth()
+        #expect(model.phase == .signedOut(.welcome))
+        #expect(model.isPresentingAuth == false)
+        #expect(model.showsAppMenus)
     }
 
     @Test("Mode off has no account flow")

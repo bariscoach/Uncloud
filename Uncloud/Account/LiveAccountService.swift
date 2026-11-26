@@ -27,8 +27,10 @@ extension URLSession {
     }()
 }
 
-/// The real account backend. Sign-in goes straight to Supabase Auth over REST; the account is confirmed with the
-/// Vercel API (`/v1/me`), which the app reads for identity only. Tokens are never logged.
+/// The real account backend. Sign-in goes through the Uncloud API, which emails the code itself.
+/// Supabase's mailer is not used: its sandbox sender could not deliver a code to a real address.
+/// The account is confirmed with `/v1/me`, which the app reads for identity only. Tokens are never logged.
+/// Refresh and sign-out still talk to Supabase Auth. Photos are never sent.
 actor LiveAccountService: AccountService {
     static let otpLifetime: TimeInterval = 10 * 60
     static let resendInterval: TimeInterval = 60
@@ -66,8 +68,10 @@ actor LiveAccountService: AccountService {
     // MARK: - AccountService
 
     func requestCode(email: String, intent: AuthIntent) async throws -> AuthChallenge {
-        let url = try endpoint(supabaseURL, "/auth/v1/otp")
-        let reply = try await send("POST", url, json: ["email": email, "create_user": true], supabase: true)
+        // `intent` only changes the preview service's wording. The live API sends one email either way.
+        _ = intent
+        let url = try endpoint(apiBaseURL, "/v1/auth/code")
+        let reply = try await send("POST", url, json: ["email": email], supabase: false)
         guard reply.isSuccess else { throw requestCodeError(reply) }
         let current = now()
         return AuthChallenge(
@@ -82,11 +86,11 @@ actor LiveAccountService: AccountService {
         if wrongCodes[challenge.id, default: 0] >= Self.maxWrongCodes {
             throw AccountError.tooManyAttempts
         }
-        let url = try endpoint(supabaseURL, "/auth/v1/verify")
+        let url = try endpoint(apiBaseURL, "/v1/auth/verify")
         let reply = try await send(
             "POST", url,
-            json: ["type": "email", "email": challenge.email, "token": code],
-            supabase: true
+            json: ["email": challenge.email, "token": code],
+            supabase: false
         )
         guard reply.isSuccess else { throw verifyError(reply, challenge: challenge) }
         wrongCodes[challenge.id] = nil
@@ -134,22 +138,37 @@ actor LiveAccountService: AccountService {
     // MARK: - Error mapping (plan §6.2 and §4.4)
 
     private func requestCodeError(_ reply: Reply) -> AccountError {
+        switch apiErrorCode(reply) {
+        case "invalid_email":
+            return .invalidEmail
+        case "rate_limited":
+            return .rateLimited(retryAfter: retryAfter(reply) ?? now().addingTimeInterval(60))
+        case "code_email_not_sent":
+            return .server(message: Self.codeEmailNotSent)
+        default:
+            break
+        }
+        // Older servers answered from Supabase directly. A mail failure must stay its own sentence,
+        // not the generic "couldn't finish that" (issues #1 and #2).
         let failure = decodeFailure(reply.data)
         switch reply.status {
         case 429:
-            return .rateLimited(retryAfter: retryAfter(fromMessage: failure?.msg) ?? now().addingTimeInterval(60))
+            return .rateLimited(retryAfter: retryAfter(reply) ?? retryAfter(fromMessage: failure?.msg) ?? now().addingTimeInterval(60))
         case 400, 422:
-            if ["validation_failed", "email_address_invalid"].contains(failure?.errorCode ?? "") {
+            if ["validation_failed", "email_address_invalid", "invalid_email"].contains(failure?.errorCode ?? "") {
                 return .invalidEmail
             }
             return .server(message: nil)
         default:
-            // Supabase answers 500 "Error sending confirmation email" when its mail sender refuses the address.
             if reply.status >= 500, failure?.msg?.localizedCaseInsensitiveContains("sending") == true {
                 return .server(message: Self.codeEmailNotSent)
             }
             return .server(message: nil)
         }
+    }
+
+    private func apiErrorCode(_ reply: Reply) -> String? {
+        (try? JSONDecoder().decode(APIErrorEnvelope.self, from: reply.data))?.error.code
     }
 
     static let codeEmailNotSent = "Uncloud couldn’t send the code email. Try again later."
