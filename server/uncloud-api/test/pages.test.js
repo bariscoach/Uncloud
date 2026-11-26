@@ -46,11 +46,16 @@ test('pages describe a free app plus one-time licenses, not a subscription', () 
   const terms = read('public/terms.html');
   assert.match(terms, /one-time purchases, not a subscription/);
   assert.match(terms, /does not require an account to export photos or to use a license/);
+  assert.match(terms, /Plus is \$29 once/);
+  assert.match(terms, /Pro is \$49 once/);
+  assert.match(terms, /Family is \$69 once/);
+  assert.match(terms, /within 14 days of purchase and we will refund you in full/);
+  assert.match(terms, /www\.tryuncloud\.com\/refund/);
   assert.doesNotMatch(terms, /There are no paid plans/);
   assert.doesNotMatch(terms, /always be free|always free/i);
   for (const page of pages) {
     const html = read(page);
-    assert.doesNotMatch(html, /\bstripe\b|\bsubscribe\b|\brefund\b|\brenew\b/i, page);
+    assert.doesNotMatch(html, /\bstripe\b|\bsubscribe\b|\brenew\b/i, page);
     assert.doesNotMatch(html, /getuncloud\.vercel\.app/, page);
   }
 });
