@@ -1,7 +1,7 @@
 // Static checks for the download page. Run: node --test site/checks
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkoutLinks } from '../checkout-links.js';
@@ -249,11 +249,17 @@ test('pricing is its own page, with four tiers and checkout placeholders', () =>
   assert.match(plain, /\$29/);
   assert.match(plain, /\$49/);
   assert.match(plain, /\$69/);
-  assert.match(plain, /Checkout isn’t connected yet/);
+  assert.match(pricing, /<li class="plan plan-featured">/);
+  assert.match(pricing, /<p class="plan-badge">Most popular<\/p>/);
+  assert.match(pricing, /id="buy-plus"[^>]*>Buy Plus · \$29</);
+  assert.match(pricing, /id="buy-pro"[^>]*>Buy Pro · \$49</);
+  assert.match(pricing, /id="buy-family"[^>]*>Buy Family · \$69</);
+  assert.match(plain, /Coming soon/);
+  assert.doesNotMatch(pricing, /buy\.stripe\.com/);
   assert.match(plain, /lifetime Plus/);
-  assert.match(plain, /Your photos never touch Uncloud servers/);
+  assert.match(plain, /your photos never touch Uncloud servers/);
   assert.equal(pricing.split(`href="${DMG}"`).length - 1, 2);
-  const allowed = [SITE, 'https://uncloud-api.vercel.app', 'https://github.com/bariscoach/Uncloud'];
+  const allowed = [SITE, 'https://github.com/bariscoach/Uncloud'];
   for (const [url] of pricing.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
     assert.ok(allowed.some((origin) => url.startsWith(origin)), `third-party URL ${url}`);
   }
@@ -264,25 +270,86 @@ test('robots.txt and sitemap.xml name the public site', () => {
   const sitemap = readFileSync(join(root, 'sitemap.xml'), 'utf8');
   assert.match(robots, /Allow: \//);
   assert.match(robots, /Sitemap: https:\/\/www\.tryuncloud\.com\/sitemap\.xml/);
-  assert.match(sitemap, /<loc>https:\/\/www\.tryuncloud\.com\/<\/loc>/);
-  assert.match(sitemap, /<loc>https:\/\/www\.tryuncloud\.com\/pricing<\/loc>/);
-  assert.match(sitemap, /<loc>https:\/\/www\.tryuncloud\.com\/license<\/loc>/);
+  for (const path of ['/', '/pricing', '/license', '/privacy', '/terms', '/refund']) {
+    const loc = path === '/' ? `${SITE}/` : `${SITE}${path}`;
+    assert.ok(sitemap.includes(`<loc>${loc}</loc>`), loc);
+  }
+  assert.ok(existsSync(join(root, 'favicon.ico')), 'favicon.ico');
 });
 
 test('checkout URLs come from env, then the config file, and reject anything that is not https', () => {
   const file = JSON.parse(readFileSync(join(root, 'checkout.config.json'), 'utf8'));
-  assert.equal(file.plus, 'https://buy.stripe.com/test_5kQ28r5RY9448P64A4c3m00');
-  assert.equal(file.pro, 'https://buy.stripe.com/test_bJe28r1BI3JKaXe7Mgc3m01');
-  assert.equal(file.family, 'https://buy.stripe.com/test_28E28rfsy6VW7L24A4c3m02');
-  assert.deepEqual(checkoutLinks({}, file), file);
+  const preview = JSON.parse(readFileSync(join(root, 'checkout.config.preview.json'), 'utf8'));
+  assert.equal(file.plus, '');
+  assert.equal(file.pro, '');
+  assert.equal(file.family, '');
+  assert.match(preview.plus, /^https:\/\/buy\.stripe\.com\/test_/);
+  assert.match(preview.pro, /^https:\/\/buy\.stripe\.com\/test_/);
+  assert.match(preview.family, /^https:\/\/buy\.stripe\.com\/test_/);
+  assert.deepEqual(checkoutLinks({}, file), { plus: null, pro: null, family: null });
+  assert.deepEqual(checkoutLinks({}, preview), { plus: null, pro: null, family: null });
+  assert.deepEqual(checkoutLinks({ VERCEL_ENV: 'production' }, preview), { plus: null, pro: null, family: null });
+  assert.deepEqual(checkoutLinks({ VERCEL_ENV: 'preview' }, preview), preview);
   assert.deepEqual(
     checkoutLinks({ UNCLOUD_CHECKOUT_PLUS_URL: ' https://buy.example/plus ' }, { plus: 'https://file.example/plus' }),
     { plus: 'https://buy.example/plus', pro: null, family: null },
   );
   assert.equal(checkoutLinks({}, { pro: 'http://buy.example/pro' }).pro, null);
-  assert.equal(checkoutResponse({}, root).plus, file.plus);
+  assert.equal(checkoutResponse({}, root).plus, null);
+  assert.equal(checkoutResponse({ VERCEL_ENV: 'production' }, root).plus, null);
+  assert.equal(checkoutResponse({ VERCEL_ENV: 'preview' }, root).plus, preview.plus);
   assert.equal(
     checkoutResponse({ UNCLOUD_CHECKOUT_FAMILY_URL: 'https://buy.example/family' }, root).family,
     'https://buy.example/family',
   );
+  assert.equal(
+    checkoutResponse({ VERCEL_ENV: 'production', UNCLOUD_CHECKOUT_PLUS_URL: preview.plus }, root).plus,
+    null,
+  );
+});
+
+test('privacy, terms and refund are first-party pages for one-time licenses', () => {
+  const pages = {
+    privacy: readFileSync(join(root, 'privacy.html'), 'utf8'),
+    terms: readFileSync(join(root, 'terms.html'), 'utf8'),
+    refund: readFileSync(join(root, 'refund.html'), 'utf8'),
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    assert.match(html, /^<!doctype html>/i, name);
+    assert.equal([...html.matchAll(/<h1[\s>]/g)].length, 1, name);
+    assert.match(html, new RegExp(`<link rel="canonical" href="${SITE}/${name}">`), name);
+    assert.match(html, /href="favicon\.ico"/, name);
+    assert.doesNotMatch(html, /<script/, `${name} script`);
+    assert.doesNotMatch(html, /\sstyle=/, `${name} style attribute`);
+    assert.doesNotMatch(html, /getuncloud\.vercel\.app/, name);
+    assert.doesNotMatch(html, /uncloud-api\.vercel\.app/, name);
+    const plain = text(html);
+    assert.match(plain, /Plus/);
+    assert.match(plain, /\$29/);
+    assert.match(plain, /\$49/);
+    assert.match(plain, /\$69/);
+    assert.match(plain, /one-time|once/i);
+    assert.match(plain, /not a subscription/i);
+    assert.match(plain, /account/i);
+    assert.match(html, /href="\/terms"/, name);
+    assert.match(html, /href="\/privacy"/, name);
+    assert.match(html, /href="\/refund"/, name);
+    assert.match(html, /mailto:barishiz@gmail\.com/, name);
+  }
+  assert.match(text(pages.terms), /does not require an account to export photos or to use a license/);
+  assert.match(text(pages.terms), /within 14 days of purchase and we will refund you in full/);
+  assert.match(text(pages.privacy), /You do not need an account to export photos or to use a license/);
+  assert.match(text(pages.refund), /within 14 days of purchase/);
+  assert.match(text(pages.refund), /license key is revoked/);
+});
+
+test('footers on the marketing site point at first-party legal pages', () => {
+  const license = readFileSync(join(root, 'license.html'), 'utf8');
+  for (const [name, page] of [['index', html], ['pricing', pricing], ['license', license]]) {
+    assert.match(page, /href="\/terms"/, name);
+    assert.match(page, /href="\/privacy"/, name);
+    assert.match(page, /href="\/refund"/, name);
+    assert.doesNotMatch(page, /uncloud-api\.vercel\.app\/(terms|privacy|refund)/, name);
+    assert.doesNotMatch(page, /getuncloud\.vercel\.app/, name);
+  }
 });

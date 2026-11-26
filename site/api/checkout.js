@@ -5,16 +5,20 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkoutLinks } from '../checkout-links.js';
+import { allowTestCheckout, checkoutLinks } from '../checkout-links.js';
+
+function readJSON(root, name) {
+  try {
+    return JSON.parse(readFileSync(join(root, name), 'utf8'));
+  } catch {
+    return {};
+  }
+}
 
 export function checkoutResponse(env, root) {
-  let file = {};
-  try {
-    file = JSON.parse(readFileSync(join(root, 'checkout.config.json'), 'utf8'));
-  } catch {
-    file = {};
-  }
-  return checkoutLinks(env, file);
+  const file = readJSON(root, 'checkout.config.json');
+  const preview = allowTestCheckout(env) ? readJSON(root, 'checkout.config.preview.json') : {};
+  return checkoutLinks(env, { ...file, ...preview });
 }
 
 export default function handler(_req, res) {
