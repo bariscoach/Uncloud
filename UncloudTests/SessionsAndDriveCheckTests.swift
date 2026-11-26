@@ -276,12 +276,16 @@ extension ExportCancellationTests {
             #expect(model.primaryExportEnabled(total: 21))
             #expect(model.primaryExportDisabledReason(total: 21) == nil)
 
-            // A point as a complete walk leaves it: the layout the model uses, with the unlisted count not yet measured.
+            // The run may have cached the 20 items it listed. This test is about a library of 21
+            // whose extra item has not been measured yet. Idle counts are refreshed off the main actor.
+            ICloudLibrary.cacheLibraryCount(21)
             var point = ICloudResumePoint(
                 account: "acct", layout: model.layout.rawValue, libraryCount: 21, coveredThrough: 21,
                 anchor: .init(id: "asset-0", rank: 20), lastFullWalkAt: nil, updatedAt: Date(), unlistedCount: nil
             )
             try point.save(in: fixture.destination)
+            model.refreshProgress()
+            #expect(await Self.wait(timeout: .seconds(5)) { model.toGoCount == 1 } != nil)
             #expect(model.toGoCount == 1)
             #expect(model.trustedToGoCount == nil)
             #expect(model.newOnlyNotBackedUpCount == nil)
@@ -289,8 +293,9 @@ extension ExportCancellationTests {
 
             point.unlistedCount = 0
             try point.save(in: fixture.destination)
+            model.refreshProgress()
             if !model.isOnDriveCountApproximate {
-                #expect(model.trustedToGoCount == 1)
+                #expect(await Self.wait(timeout: .seconds(5)) { model.trustedToGoCount == 1 } != nil)
                 #expect(model.notBackedUpSummary == "1 not backed up")
             }
         }

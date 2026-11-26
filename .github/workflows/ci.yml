@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  site:
+    name: Site checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Site checks
+        run: cd site && node --test checks/site.test.mjs
+
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/uncloud-api/package-lock.json
+      - name: API tests
+        working-directory: server/uncloud-api
+        run: npm ci && npm test
+
+  macos:
+    name: macOS tests
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # The app calls macOS 26 APIs (MapKit reverse geocoding, glassEffect,
+          # ToolbarSpacer, ConcentricRectangle). Those symbols are in the Xcode 26
+          # SDK. The macos-15 image defaults to Xcode 16.4, which cannot compile them.
+          selected=""
+          for xcode in Xcode_26.3.app Xcode_26.2.app Xcode_26.1.1.app Xcode_26.0.1.app; do
+            if [ -d "/Applications/$xcode" ]; then
+              sudo xcode-select -s "/Applications/$xcode"
+              selected="$xcode"
+              break
+            fi
+          done
+          if [ -z "$selected" ]; then
+            echo "error: no Xcode 26 is installed" >&2
+            ls /Applications | grep Xcode || true
+            exit 1
+          fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # scripts/build-icloudpd.sh downloads a pinned Python and icloudpd into this
+      # directory. The Xcode pre-build script rebuilds it only when the stamp is stale.
+      - name: Cache icloudpd runtime
+        uses: actions/cache@v4
+        with:
+          path: Vendor/icloudpd-runtime
+          key: icloudpd-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-icloudpd.sh') }}
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Test
+        run: |
+          set -o pipefail
+          mkdir -p build
+          # GitHub sets TMPDIR outside the app container. A sandboxed test host
+          # then fails every temporary-file write. xcodebuild does not need it.
+          env -u TMPDIR xcodebuild test \
+            -project Uncloud.xcodeproj \
+            -scheme Uncloud \
+            -destination 'platform=macOS,arch=arm64' \
+            -resultBundlePath build/Uncloud.xcresult \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-xcresult
+          path: build/Uncloud.xcresult
+          if-no-files-found: ignore
