@@ -4,16 +4,20 @@ import Testing
 
 @Suite("License")
 struct LicenseTests {
+    /// Matches server/uncloud-api/test/fixtures/license-key.js. Not the app's Info.plist key.
+    private static let testPublicKey = Data(base64Encoded: "9eTHD62q5241M5GcgIzPInNbF+/Jsi9c7emeztduWFQ=")!
     private static let signedPlus = "UC1.eyJpYXQiOjE3NjQwMDAwMDAsImp0aSI6ImNzX3Rlc3RfdmVjdG9yIiwic2VhdHMiOjEsInRpZXIiOiJwbHVzIiwidiI6MX0.G7-VNyTkGua4Q8s27S-GtBJ_ZsaDKrAh5WK11qN4iHanE6ZdNgJ-JJY_hgD7IrY1lgRQqXW5kzpJmELwDP5GCQ"
 
     @Test("Only a signed key activates, including offline")
     func signedKey() {
-        let parsed = LicenseKey.parse(Self.signedPlus)
+        let parsed = LicenseKey.parse(Self.signedPlus, publicKey: Self.testPublicKey)
         #expect(parsed?.tier == .plus)
         #expect(parsed?.seats == 1)
         #expect(parsed?.jti == "cs_test_vector")
-        #expect(LicenseKey.parse("UC1.plus.1.g.EXISTING1") == nil)
-        #expect(LicenseKey.parse(Self.signedPlus + "x") == nil)
+        #expect(LicenseKey.parse("UC1.plus.1.g.EXISTING1", publicKey: Self.testPublicKey) == nil)
+        #expect(LicenseKey.parse(Self.signedPlus + "x", publicKey: Self.testPublicKey) == nil)
+        let production = Data(base64Encoded: "ge6IXI11L3BF4Xiko3MgoG8Ri79wxsewcKLb6yVpy9c=")!
+        #expect(LicenseKey.parse(Self.signedPlus, publicKey: production) == nil)
         let deepLink = LicenseDeepLink.key(from: URL(string: "uncloud://license?key=\(Self.signedPlus)")!)
         #expect(deepLink == Self.signedPlus)
         #expect(LicenseDeepLink.key(from: URL(string: "https://www.tryuncloud.com/license")!) == nil)
@@ -80,7 +84,7 @@ struct LicenseTests {
 
     @Test("An unavailable server still saves a signed key, and a revocation does not")
     func activation() {
-        let parsed = LicenseKey.parse(Self.signedPlus)!
+        let parsed = LicenseKey.parse(Self.signedPlus, publicKey: Self.testPublicKey)!
         let now = Date(timeIntervalSince1970: 1_764_000_000)
         let offline = LicenseActivation.decide(parsed: parsed, remote: .failure(.unavailable), now: now)
         guard case .saved(let saved) = offline else {

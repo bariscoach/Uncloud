@@ -57,7 +57,7 @@ The first 1,000 items this Mac exports are free, in every mode, including a date
 
 A license is an Ed25519-signed key, `UC1.<payload>.<signature>`, stored in the login Keychain. The app embeds the public key (`UncloudLicensePublicKey`) and will not save a key whose signature fails, even offline. While online it calls `POST /v1/licenses/verify`, which also rejects revoked keys. A signed key may be used for 14 days without a successful revocation check. The email link is `uncloud://license?key=…`.
 
-`POST /v1/webhooks/payments` verifies `Stripe-Signature` with `STRIPE_WEBHOOK_SECRET`, mints one key per Checkout session, emails it from `noreply@tryuncloud.com` through Resend, and revokes it on `charge.refunded`. Price IDs come from `STRIPE_PRICE_PLUS`, `STRIPE_PRICE_PRO`, and `STRIPE_PRICE_FAMILY`. The signing key is `LICENSE_SIGNING_PRIVATE_KEY`. None of those values are in the repo. The keypair in `server/uncloud-api/test/fixtures/license-key.js` is for tests only. Apply `server/supabase/migrations/20261126120000_license_keys.sql` before the webhook can store a key. Buying does not create an account.
+`POST /v1/webhooks/payments` verifies `Stripe-Signature` with `STRIPE_WEBHOOK_SECRET`, mints one key per Checkout session, emails it from `noreply@tryuncloud.com` through Resend, and revokes it on `charge.refunded`. Issued keys live in the Supabase project uncloud-licenses (`https://zkdykcghctegpeanslyz.supabase.co`), not the account project. The keypair in `server/uncloud-api/test/fixtures/license-key.js` is for tests only. The app’s `UncloudLicensePublicKey` is the production public key. Buying does not create an account.
 
 ## Files in the destination
 

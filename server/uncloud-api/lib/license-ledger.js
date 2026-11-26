@@ -2,10 +2,24 @@
 
 import { createSupabase } from './supabase.js';
 
+// License rows live in the uncloud-licenses Supabase project. Each LICENSE_SUPABASE_*
+// value wins; a missing one falls back to the account project's SUPABASE_* variable.
+export function licenseSupabaseConfig(env = process.env) {
+  const url = firstSet(env.LICENSE_SUPABASE_URL, env.SUPABASE_URL);
+  const secret = firstSet(env.LICENSE_SUPABASE_SECRET_KEY, env.SUPABASE_SECRET_KEY);
+  const publishable = firstSet(env.LICENSE_SUPABASE_PUBLISHABLE_KEY, env.SUPABASE_PUBLISHABLE_KEY);
+  return { url, secret, publishable };
+}
+
+function firstSet(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  }
+  return undefined;
+}
+
 export function supabaseLicenseLedger(env = process.env) {
-  const url = env.SUPABASE_URL;
-  const secret = env.SUPABASE_SECRET_KEY;
-  const publishable = env.SUPABASE_PUBLISHABLE_KEY;
+  const { url, secret, publishable } = licenseSupabaseConfig(env);
   if (!url || !secret || !publishable) {
     return {
       async findBySession() { throw new Error('ledger_not_configured'); },

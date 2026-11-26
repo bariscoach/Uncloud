@@ -1,6 +1,6 @@
-// TEST ONLY. This keypair is in the repo so unit tests can mint and verify licenses.
-// It is not a production secret. Replace LICENSE_SIGNING_PRIVATE_KEY and the app's
-// UncloudLicensePublicKey before turning UncloudLicenseGating on.
+// TEST ONLY. This keypair is for unit tests. It is not the production signing key.
+// The app verifies with UncloudLicensePublicKey. These tests pass this public key in
+// directly and do not read Info.plist.
 
 export const TEST_LICENSE_PRIVATE_KEY = 'MC4CAQAwBQYDK2VwBCIEICgXFrBsA0sKZFo7wqo0ztU/g7ap0AFaVrflcwW99jwD';
 export const TEST_LICENSE_PUBLIC_KEY = '9eTHD62q5241M5GcgIzPInNbF+/Jsi9c7emeztduWFQ=';

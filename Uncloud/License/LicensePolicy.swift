@@ -75,16 +75,12 @@ struct ParsedLicense: Equatable, Sendable {
 }
 
 enum LicensePublicKey {
-    /// Test key only. `UncloudLicensePublicKey` in Info.plist replaces it for a release.
-    /// Rotate it, and `LICENSE_SIGNING_PRIVATE_KEY`, before turning license limits on.
-    static let testRawBase64 = "9eTHD62q5241M5GcgIzPInNbF+/Jsi9c7emeztduWFQ="
-
+    /// Raw 32-byte Ed25519 public key from Info.plist (`UncloudLicensePublicKey`).
+    /// There is no built-in test key: a missing or wrong plist value verifies nothing.
     static func raw(bundle: Bundle = .main) -> Data? {
-        if let encoded = bundle.object(forInfoDictionaryKey: "UncloudLicensePublicKey") as? String,
-           let data = Data(base64Encoded: encoded), data.count == 32 {
-            return data
-        }
-        return Data(base64Encoded: testRawBase64)
+        guard let encoded = bundle.object(forInfoDictionaryKey: "UncloudLicensePublicKey") as? String,
+              let data = Data(base64Encoded: encoded), data.count == 32 else { return nil }
+        return data
     }
 }
 

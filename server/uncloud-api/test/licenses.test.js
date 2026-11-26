@@ -13,6 +13,7 @@ import {
   emailHash,
 } from '../lib/licenses.js';
 import { handleStripeWebhook, verifyStripeSignature, tierForPrice, licenseEmail } from '../lib/stripe-license.js';
+import { licenseSupabaseConfig } from '../lib/license-ledger.js';
 import { TEST_LICENSE_PRIVATE_KEY, TEST_LICENSE_PUBLIC_KEY, TEST_LICENSE_TOKEN } from './fixtures/license-key.js';
 
 const privateKey = loadPrivateKey(TEST_LICENSE_PRIVATE_KEY);
@@ -175,6 +176,40 @@ test('the license email carries the deep link and not a second account step', ()
   const message = licenseEmail({ to: 'buyer@example.com', key: TEST_LICENSE_TOKEN });
   assert.match(message.text, /uncloud:\/\/license\?key=/);
   assert.match(message.text, /does not need an account/);
+});
+
+test('the license ledger uses its own Supabase project and falls back to the account project', () => {
+  assert.deepEqual(licenseSupabaseConfig({
+    LICENSE_SUPABASE_URL: 'https://zkdykcghctegpeanslyz.supabase.co',
+    LICENSE_SUPABASE_SECRET_KEY: 'license-secret',
+    LICENSE_SUPABASE_PUBLISHABLE_KEY: 'license-public',
+    SUPABASE_URL: 'https://auth.supabase.co',
+    SUPABASE_SECRET_KEY: 'auth-secret',
+    SUPABASE_PUBLISHABLE_KEY: 'auth-public',
+  }), {
+    url: 'https://zkdykcghctegpeanslyz.supabase.co',
+    secret: 'license-secret',
+    publishable: 'license-public',
+  });
+  assert.deepEqual(licenseSupabaseConfig({
+    LICENSE_SUPABASE_URL: 'https://zkdykcghctegpeanslyz.supabase.co',
+    SUPABASE_SECRET_KEY: '  auth-secret  ',
+    SUPABASE_PUBLISHABLE_KEY: 'auth-public',
+  }), {
+    url: 'https://zkdykcghctegpeanslyz.supabase.co',
+    secret: 'auth-secret',
+    publishable: 'auth-public',
+  });
+  assert.deepEqual(licenseSupabaseConfig({
+    SUPABASE_URL: 'https://auth.supabase.co',
+    SUPABASE_SECRET_KEY: 'auth-secret',
+    SUPABASE_PUBLISHABLE_KEY: 'auth-public',
+  }), {
+    url: 'https://auth.supabase.co',
+    secret: 'auth-secret',
+    publishable: 'auth-public',
+  });
+  assert.equal(licenseSupabaseConfig({}).url, undefined);
 });
 
 test('the license routes name env vars and do not embed a live secret', () => {
