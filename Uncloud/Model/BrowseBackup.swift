@@ -465,6 +465,20 @@ final class BrowseBackup {
         let previous = entries
         let isExportRunning = isExportRunning
         let catalogProvider = iCloudCatalog
+        // The detached indexer is Sendable, so it cannot capture this MainActor object.
+        // These callbacks hop back here; the task below only uses them.
+        let exportIsRunning: @Sendable () async -> Bool = { @MainActor in
+            isExportRunning()
+        }
+        let setPausedFlag: @Sendable (Bool) async -> Void = { [weak self] paused in
+            await MainActor.run { self?.setPaused(paused) }
+        }
+        let reportProgress: @Sendable (Int, Int) -> Void = { [weak self] done, total in
+            Task { @MainActor in self?.setProgress(done: done, total: total, for: url) }
+        }
+        let showSnapshot: @Sendable ([String: BrowseEntry]) -> Void = { [weak self] snapshot in
+            Task { @MainActor in self?.showPartial(snapshot, for: url) }
+        }
         isIndexing = true
         indexTask = Task { [weak self] in
             do {
@@ -480,19 +494,19 @@ final class BrowseBackup {
                         iCloudMetadata: iCloud,
                         waitWhilePaused: {
                             var waited = false
-                            while await MainActor.run(body: { isExportRunning() }) {
+                            while await exportIsRunning() {
                                 waited = true
-                                await MainActor.run { self?.setPaused(true) }
+                                await setPausedFlag(true)
                                 try await Task.sleep(for: .seconds(2))
                             }
-                            if waited { await MainActor.run { self?.setPaused(false) } }
+                            if waited { await setPausedFlag(false) }
                         },
                         progress: { done, total in
-                            Task { @MainActor in self?.setProgress(done: done, total: total, for: url) }
+                            reportProgress(done, total)
                         },
                         persist: { snapshot in
                             try? store.save(snapshot, key: key)
-                            Task { @MainActor in self?.showPartial(snapshot, for: url) }
+                            showSnapshot(snapshot)
                         }
                     )
                 }.value

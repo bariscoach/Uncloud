@@ -180,7 +180,9 @@ enum BrowseIndexer {
                 continue
             }
             guard values?.isRegularFile == true else { continue }
-            let path = url.path(percentEncoded: false)
+            // The enumerator can report /var/... while the folder was resolved to /private/var/...
+            // (the sandboxed test host's temporary directory is one of those links). Compare resolved paths.
+            let path = url.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
             guard path.hasPrefix(prefix) else { continue }
             let relativePath = String(path.dropFirst(prefix.count))
             if ICloudDownloadPaths.hasDownloadExtension(relativePath), !isSidecar(relativePath) {
