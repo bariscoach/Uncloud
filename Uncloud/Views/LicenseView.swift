@@ -97,9 +97,7 @@ struct LicenseSettingsForm: View {
             LicenseStore.current.save(license)
             stored = license
             key = ""
-            status = license.confirmedOnline
-                ? "\(license.tier.displayName) is active on this Mac."
-                : "Saved on this Mac. Uncloud couldn’t confirm the key online."
+            status = LicenseActivation.savedMessage(license)
         case .rejected(let message):
             status = message
         }

@@ -114,4 +114,44 @@ struct LicenseTests {
         let ok = Data(#"{"valid":true,"tier":"family","seats":5}"#.utf8)
         #expect(LicenseVerifier.decode(ok) == .success(LicenseVerification(valid: true, tier: .family, seats: 5, reason: nil)))
     }
+
+    @Test("A successful activation names the tier, and an invalid key shows an error")
+    func activationNotice() {
+        let parsed = LicenseKey.parse(Self.signedPlus, publicKey: Self.testPublicKey)!
+        let now = Date(timeIntervalSince1970: 1_764_000_000)
+        let online = LicenseActivation.decide(
+            parsed: parsed,
+            remote: .success(LicenseVerification(valid: true, tier: .plus, seats: 1, reason: nil)),
+            now: now
+        )
+        guard case .saved(let license) = online else {
+            Issue.record("expected a confirmed save")
+            return
+        }
+        let confirmed = LicenseActivationNotice.activated(license)
+        #expect(confirmed.title == "Plus is active")
+        #expect(confirmed.message == "Your Plus license is now active on this Mac.")
+
+        let offline = LicenseActivation.decide(parsed: parsed, remote: .failure(.unavailable), now: now)
+        guard case .saved(let saved) = offline else {
+            Issue.record("expected an offline save")
+            return
+        }
+        #expect(LicenseActivationNotice.activated(saved).message == "Your Plus license is saved on this Mac. Uncloud couldn’t confirm the key online.")
+
+        let invalid = LicenseActivationNotice.failed(LicenseActivation.invalid)
+        #expect(invalid.title == "License not activated")
+        #expect(invalid.message == LicenseActivation.invalid)
+        #expect(LicenseActivationNotice.failed(LicenseActivation.unrecognized).message == LicenseActivation.unrecognized)
+    }
+
+    @Test("Release builds drop Stripe test checkout links")
+    func checkoutTestLinks() {
+        let test = "https://buy.stripe.com/test_5kQ28r5RY9448P64A4c3m00"
+        #expect(LicenseCheckout.url(from: test, allowStripeTestLinks: true)?.absoluteString == test)
+        #expect(LicenseCheckout.url(from: test, allowStripeTestLinks: false) == nil)
+        #expect(LicenseCheckout.url(from: "https://buy.stripe.com/aLiveLikePath", allowStripeTestLinks: false)?.host == "buy.stripe.com")
+        #expect(LicenseCheckout.url(from: "", allowStripeTestLinks: true) == nil)
+        #expect(LicenseCheckout.url(from: "http://buy.stripe.com/test_abc", allowStripeTestLinks: true) == nil)
+    }
 }

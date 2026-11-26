@@ -219,8 +219,30 @@ enum ExportQuota {
 }
 
 /// https checkout URLs from Info.plist. Missing or non-https values are unset.
+/// Stripe test payment links (buy.stripe.com/test_*) never come back for a Release build.
 enum LicenseCheckout {
-    static func url(for tier: LicenseTier, bundle: Bundle = .main) -> URL? {
+    static var allowsStripeTestLinks: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
+    #if DEBUG
+    /// Used only in Debug when Info.plist has no checkout URL, so local runs can still open test checkout.
+    static let debugTestURLs: [LicenseTier: String] = [
+        .plus: "https://buy.stripe.com/test_5kQ28r5RY9448P64A4c3m00",
+        .pro: "https://buy.stripe.com/test_bJe28r1BI3JKaXe7Mgc3m01",
+        .family: "https://buy.stripe.com/test_28E28rfsy6VW7L24A4c3m02",
+    ]
+    #endif
+
+    static func isStripeTestURL(_ url: URL) -> Bool {
+        url.host == "buy.stripe.com" && url.path.hasPrefix("/test_")
+    }
+
+    static func url(for tier: LicenseTier, bundle: Bundle = .main, allowStripeTestLinks: Bool = allowsStripeTestLinks) -> URL? {
         let key: String
         switch tier {
         case .plus: key = "UncloudCheckoutPlusURL"
@@ -228,13 +250,22 @@ enum LicenseCheckout {
         case .family: key = "UncloudCheckoutFamilyURL"
         case .free: return nil
         }
-        return url(from: bundle.object(forInfoDictionaryKey: key) as? String)
+        if let url = url(from: bundle.object(forInfoDictionaryKey: key) as? String, allowStripeTestLinks: allowStripeTestLinks) {
+            return url
+        }
+        #if DEBUG
+        if allowStripeTestLinks {
+            return url(from: debugTestURLs[tier], allowStripeTestLinks: true)
+        }
+        #endif
+        return nil
     }
 
-    static func url(from raw: String?) -> URL? {
+    static func url(from raw: String?, allowStripeTestLinks: Bool = allowsStripeTestLinks) -> URL? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), url.scheme == "https", let host = url.host, !host.isEmpty else { return nil }
+        if isStripeTestURL(url), !allowStripeTestLinks { return nil }
         return url
     }
 }

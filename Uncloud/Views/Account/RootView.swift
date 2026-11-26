@@ -6,6 +6,7 @@ struct RootView: View {
     @Environment(AccountModel.self) private var account
     @Environment(ExportModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var licenseNotice: LicenseActivationNotice?
 
     var body: some View {
         @Bindable var account = account
@@ -36,6 +37,17 @@ struct RootView: View {
             guard let key = LicenseDeepLink.key(from: url) else { return }
             Task { await activateLicense(key) }
         }
+        .alert(
+            licenseNotice?.title ?? "License",
+            isPresented: Binding(
+                get: { licenseNotice != nil },
+                set: { if !$0 { licenseNotice = nil } }
+            )
+        ) {
+            Button("OK") { licenseNotice = nil }
+        } message: {
+            Text(licenseNotice?.message ?? "")
+        }
         .onChange(of: account.phase) { _, phase in
             // A new account gets one line of announcement, since there is no separate welcome screen (plan B.1).
             if phase == .signedIn, account.isNewAccount {
@@ -45,11 +57,18 @@ struct RootView: View {
     }
 
     private func activateLicense(_ key: String) async {
-        guard let parsed = LicenseKey.parse(key) else { return }
+        guard let parsed = LicenseKey.parse(key) else {
+            licenseNotice = .failed(LicenseActivation.unrecognized)
+            return
+        }
         let remote = await LicenseVerifier.live(baseURL: LicenseVerifier.baseURL()).verify(parsed.key)
-        if case .saved(let license) = LicenseActivation.decide(parsed: parsed, remote: remote) {
+        switch LicenseActivation.decide(parsed: parsed, remote: remote) {
+        case .saved(let license):
             LicenseStore.current.save(license)
             model.isShowingLicensePaywall = false
+            licenseNotice = .activated(license)
+        case .rejected(let message):
+            licenseNotice = .failed(message)
         }
     }
 }

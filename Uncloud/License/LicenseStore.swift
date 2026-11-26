@@ -176,6 +176,13 @@ enum LicenseActivation {
     static let invalid = "That key isn’t valid."
     static let revoked = "That license was refunded and can’t be used."
 
+    static func savedMessage(_ license: StoredLicense) -> String {
+        if license.confirmedOnline {
+            return "Your \(license.tier.displayName) license is now active on this Mac."
+        }
+        return "Your \(license.tier.displayName) license is saved on this Mac. Uncloud couldn’t confirm the key online."
+    }
+
     /// The signature is checked before this is called. A network failure keeps a signed key.
     /// A revocation answer removes it. An unsigned key never reaches here.
     static func decide(
@@ -209,6 +216,33 @@ enum LicenseActivation {
             lastRevocationCheck: lastCheck,
             confirmedOnline: confirmedOnline
         )
+    }
+}
+
+/// Shown after a key is activated or rejected, including from an uncloud://license deep link.
+enum LicenseActivationNotice: Equatable, Identifiable {
+    case activated(StoredLicense)
+    case failed(String)
+
+    var id: String {
+        switch self {
+        case .activated(let license): "activated-\(license.jti)"
+        case .failed(let message): "failed-\(message)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .activated(let license): "\(license.tier.displayName) is active"
+        case .failed: "License not activated"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .activated(let license): LicenseActivation.savedMessage(license)
+        case .failed(let message): message
+        }
     }
 }
 
