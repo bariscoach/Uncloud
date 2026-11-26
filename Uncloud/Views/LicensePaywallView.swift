@@ -86,7 +86,7 @@ struct LicensePaywallView: View {
         switch LicenseActivation.decide(parsed: parsed, remote: remote) {
         case .saved(let license):
             LicenseStore.current.save(license)
-            status = "\(license.tier.displayName) is active on this Mac."
+            status = LicenseActivation.savedMessage(license)
             dismiss()
         case .rejected(let message):
             status = message

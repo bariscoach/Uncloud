@@ -29,11 +29,11 @@
 	<key>UncloudLicensePublicKey</key>
 	<string>ge6IXI11L3BF4Xiko3MgoG8Ri79wxsewcKLb6yVpy9c=</string>
 	<key>UncloudCheckoutPlusURL</key>
-	<string>https://buy.stripe.com/test_5kQ28r5RY9448P64A4c3m00</string>
+	<string></string>
 	<key>UncloudCheckoutProURL</key>
-	<string>https://buy.stripe.com/test_bJe28r1BI3JKaXe7Mgc3m01</string>
+	<string></string>
 	<key>UncloudCheckoutFamilyURL</key>
-	<string>https://buy.stripe.com/test_28E28rfsy6VW7L24A4c3m02</string>
+	<string></string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
