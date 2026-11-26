@@ -208,7 +208,13 @@ struct ExportCommands: Commands {
                 }
             }
 
-            // Support and the website stay available when signed out, so people can ask for help before they sign in.
+            // Support, upgrade, and the website stay available when signed out. A license is not an account.
+            Button("Upgrade…") {
+                UserDefaults.standard.set(SettingsTab.license.rawValue, forKey: SettingsTab.storageKey)
+                openSettings()
+                NSApp.activate()
+            }
+
             Button("Uncloud Website") {
                 NSWorkspace.shared.open(AccountLinks.website)
             }

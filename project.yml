@@ -22,6 +22,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSHumanReadableCopyright: Made by Baris Hiz
         UncloudAccountMode: $(UNCLOUD_ACCOUNT_MODE)
+        UncloudLicenseGating: false
         UncloudAPIBaseURL: $(UNCLOUD_API_BASE_URL)
         UncloudSupabaseURL: $(UNCLOUD_SUPABASE_URL)
         UncloudSupabasePublishableKey: $(UNCLOUD_SUPABASE_PUBLISHABLE_KEY)
@@ -107,6 +108,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UncloudAccountMode: "preview"
+        UncloudLicenseGating: false
     sources: *appSources
     settings:
       base:

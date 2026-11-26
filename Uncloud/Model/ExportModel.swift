@@ -336,7 +336,9 @@ final class ExportModel {
 
     private func sourceDidChange() {
         cancelAutoResume()
-        if !layout.isAvailable(for: source) {
+        if !LicensePolicy.layoutAvailable(
+            layout, source: source, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+        ) {
             setLayout(.month, reason: "source not available")
         }
         totalCount = 0
@@ -660,7 +662,7 @@ final class ExportModel {
         isChoosingExportSince = false
         guard canStart, !items.isEmpty else { return }
         record(.info, "Exporting photos taken from \(from.formatted(date: .abbreviated, time: .omitted)) to \(to.formatted(date: .abbreviated, time: .omitted)).")
-        startRun(selection: .only(Set(items.keys)), skipsDriveCheck: true, rankHints: items)
+        startRun(selection: .only(Set(items.keys)), skipsDriveCheck: true, rankHints: items, isDateRange: true)
     }
 
     /// Title of the primary action, shared by the Library toolbar and the Export menu.
@@ -742,7 +744,8 @@ final class ExportModel {
         resumesInterrupted: Bool = false,
         forcesFullCheck: Bool = false,
         skipsDriveCheck: Bool = false,
-        rankHints: [String: Int]? = nil
+        rankHints: [String: Int]? = nil,
+        isDateRange: Bool = false
     ) {
         guard canStart else { return }
         if phase == .paused {
@@ -764,7 +767,8 @@ final class ExportModel {
                         resumesInterrupted: resumesInterrupted,
                         forcesFullCheck: forcesFullCheck,
                         skipsDriveCheck: skipsDriveCheck,
-                        rankHints: rankHints
+                        rankHints: rankHints,
+                        isDateRange: isDateRange
                     )
                 }
             } else {
@@ -774,7 +778,8 @@ final class ExportModel {
                         resumesInterrupted: resumesInterrupted,
                         forcesFullCheck: forcesFullCheck,
                         skipsDriveCheck: skipsDriveCheck,
-                        rankHints: rankHints
+                        rankHints: rankHints,
+                        isDateRange: isDateRange
                     )
                 }
             }
@@ -865,6 +870,17 @@ final class ExportModel {
         record(.info, "Resumed.")
     }
 
+    /// How many items this selection would export, when the library count is known.
+    private func exportItemCount(_ selection: LibrarySelection) -> Int? {
+        switch selection {
+        case .only(let ids):
+            return ids.count
+        case .allExcept(let excluded):
+            guard let total = browser?.count else { return nil }
+            return max(0, total - excluded.count)
+        }
+    }
+
     /// `selection` overrides the saved selection for this run only (Export All Photos).
     /// `automatic` marks the run as started by automatic backup, once it has really started.
     /// `resumeAttempt` marks it as an automatic resume; any other run replaces a pending resume.
@@ -880,9 +896,30 @@ final class ExportModel {
         resumesInterrupted: Bool = false,
         forcesFullCheck: Bool = false,
         skipsDriveCheck: Bool = false,
-        rankHints rankHintOverride: [String: Int]? = nil
+        rankHints rankHintOverride: [String: Int]? = nil,
+        isDateRange: Bool = false
     ) async -> Bool {
+        let sidecars = writesSidecars && LicensePolicy.allows(
+            .xmpSidecars, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+        )
         guard !isExporting, !isEngineRunning else { return false }
+        if automatic, !LicensePolicy.allows(
+            .automaticBackups, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+        ) {
+            record(.info, LicensePolicy.automaticBackupRefusal)
+            return false
+        }
+        let runSelection = override ?? selection
+        if let refusal = LicensePolicy.exportRefusal(
+            selection: runSelection,
+            itemCount: exportItemCount(runSelection),
+            isDateRange: isDateRange,
+            tier: LicenseStore.standard.tier,
+            enforced: LicenseGating.isEnforced()
+        ) {
+            record(.warning, refusal)
+            return false
+        }
         // A folder organized another way than the setting is never exported into silently: the owner decides first.
         if let mismatch = folderLayoutMismatch() {
             if pendingLayoutChange == nil {
@@ -933,7 +970,9 @@ final class ExportModel {
         let isResuming = hasIncompleteRun
         record(.info, "\(isResuming ? "Resuming" : "Starting") export to “\(destination.displayName)”, \(layout.title.lowercased()).")
 
-        if !layout.isAvailable(for: source) {
+        if !LicensePolicy.layoutAvailable(
+            layout, source: source, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+        ) {
             setLayout(.month, reason: "source not available")
         }
         // Claimed before anything is awaited, so Cancel's watchdog covers this run from here on.
@@ -1021,7 +1060,7 @@ final class ExportModel {
             run = ExportEngine(
                 destination: destination.url,
                 layout: layout,
-                writesSidecars: writesSidecars,
+                writesSidecars: sidecars,
                 gate: gate,
                 selection: selection
             ).start()
@@ -1050,7 +1089,7 @@ final class ExportModel {
             run = ICloudExportEngine(
                 destination: destination.url,
                 layout: layout,
-                writesSidecars: writesSidecars,
+                writesSidecars: sidecars,
                 appleID: appleID ?? "",
                 gate: gate,
                 selection: selection,
@@ -1255,7 +1294,7 @@ final class ExportModel {
             source: source,
             account: account,
             layout: layout,
-            writesSidecars: writesSidecars,
+            writesSidecars: sidecars,
             selection: summary
         )
         session.libraryCount = source == .iCloud ? ICloudLibrary.cachedLibraryCount : nil
@@ -1983,6 +2022,12 @@ final class ExportModel {
     /// Copies new items without leaving the current screen.
     func backUpAutomatically(reason: String) {
         guard canBackUpAutomatically else { return }
+        guard LicensePolicy.allows(
+            .automaticBackups, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+        ) else {
+            record(.info, LicensePolicy.automaticBackupRefusal)
+            return
+        }
         // A run waiting to resume goes first, the way it was started, rather than being replaced.
         if autoResume != nil {
             resumeNow()
@@ -2229,7 +2274,9 @@ final class ExportModel {
     /// Changes the layout, or asks first (`pendingLayoutChange`) when the destination already has iCloud items in
     /// other layouts: icloudpd only looks at the new layout's paths, so the whole library downloads again.
     func requestLayoutChange(to newLayout: FolderLayout, reason: String = "picker") {
-        guard newLayout != layout, !isExporting, newLayout.isAvailable(for: source) else { return }
+        guard newLayout != layout, !isExporting, LicensePolicy.layoutAvailable(
+            newLayout, source: source, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()
+        ) else { return }
         if let confirmation = layoutChangeConfirmation(to: newLayout) {
             pendingLayoutChange = confirmation
         } else {

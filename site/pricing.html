@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pricing — Uncloud</title>
+  <meta name="description" content="Uncloud is free to start. Plus is $29 once, Pro is $49 once, and Family is $69 once. No subscription and no account.">
+  <meta name="robots" content="index,follow">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0A0A0C" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://www.tryuncloud.com/pricing">
+
+  <meta property="og:title" content="Pricing — Uncloud">
+  <meta property="og:description" content="Free to start. Plus $29, Pro $49, Family $69. Pay once.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://www.tryuncloud.com/pricing">
+  <meta property="og:site_name" content="Uncloud">
+  <meta property="og:image" content="https://www.tryuncloud.com/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Uncloud app icon with the words “Take Your Photos Home”">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Pricing — Uncloud">
+  <meta name="twitter:description" content="Free to start. Plus $29, Pro $49, Family $69. Pay once.">
+  <meta name="twitter:image" content="https://www.tryuncloud.com/og.png">
+
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+  <script type="module" src="pricing.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="/">
+        <img src="icon.png" width="24" height="24" alt="" decoding="async">
+        <span class="brand-name">Uncloud</span>
+      </a>
+      <nav class="topnav" aria-label="Sections">
+        <ul>
+          <li><a href="/#features">Features</a></li>
+          <li><a href="/pricing" aria-current="page">Pricing</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#install">Install</a></li>
+          <li><a href="/#faq">FAQ</a></li>
+        </ul>
+      </nav>
+      <a class="btn btn-sm topbar-download" href="https://github.com/bariscoach/Uncloud/releases/latest/download/Uncloud.dmg">Download<span class="sr-only"> Uncloud</span></a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section" aria-labelledby="pricing-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Pay once · No account needed</p>
+          <h1 class="h2" id="pricing-title">Pay once, drop your iCloud bill.</h1>
+          <p class="section-sub">The free app exports a first batch. Plus, Pro, and Family are one-time purchases, not a subscription. Your photos never touch Uncloud servers.</p>
+        </div>
+        <ul class="plans" data-reveal>
+          <li class="plan">
+            <p class="plan-kicker">Start here</p>
+            <h3>Free</h3>
+            <p class="plan-price">$0 <span>no account</span></p>
+            <ul>
+              <li>Manual export of about 1,000 items, or a date range</li>
+              <li>Browse the backup by date</li>
+              <li>Photos stay on your drive</li>
+            </ul>
+            <a class="btn" href="https://github.com/bariscoach/Uncloud/releases/latest/download/Uncloud.dmg">Download for Mac</a>
+          </li>
+          <li class="plan plan-featured">
+            <p class="plan-kicker">Most libraries</p>
+            <h3>Plus</h3>
+            <p class="plan-price">$29 <span>once · 1 Mac</span></p>
+            <ul>
+              <li>Unlimited full-library export</li>
+              <li>Automatic incremental backups</li>
+              <li>All folder layouts</li>
+              <li>Map and place browse</li>
+              <li>XMP sidecars</li>
+            </ul>
+            <p class="checkout-placeholder" id="checkout-plus">Checkout isn’t connected yet.</p>
+            <a class="btn" id="buy-plus" hidden href="/pricing">Buy Plus</a>
+          </li>
+          <li class="plan">
+            <p class="plan-kicker">Cleanup</p>
+            <h3>Pro</h3>
+            <p class="plan-price">$49 <span>once · 2 Macs</span></p>
+            <ul>
+              <li>Everything in Plus</li>
+              <li>Verified iCloud cleanup</li>
+              <li>Verify backup</li>
+              <li>A second destination</li>
+              <li>Email support</li>
+            </ul>
+            <p class="checkout-placeholder" id="checkout-pro">Checkout isn’t connected yet.</p>
+            <a class="btn" id="buy-pro" hidden href="/pricing">Buy Pro</a>
+          </li>
+          <li class="plan">
+            <p class="plan-kicker">Household</p>
+            <h3>Family</h3>
+            <p class="plan-price">$69 <span>once · 5 Macs</span></p>
+            <ul>
+              <li>Everything in Pro</li>
+              <li>Use it on 5 Macs</li>
+            </ul>
+            <p class="checkout-placeholder" id="checkout-family">Checkout isn’t connected yet.</p>
+            <a class="btn" id="buy-family" hidden href="/pricing">Buy Family</a>
+          </li>
+        </ul>
+        <p class="grandfather">If you already use Uncloud, you can get a lifetime Plus key. Enter it in the app under Settings › License. A license is not an account.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-row">
+        <p class="copy">© 2026 Uncloud</p>
+        <ul class="footer-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="https://uncloud-api.vercel.app/terms">Terms</a></li>
+        <li><a href="https://uncloud-api.vercel.app/privacy">Privacy</a></li>
+        <li><a href="mailto:barishiz@gmail.com">Contact</a></li>
+        <li><a href="https://github.com/bariscoach/Uncloud/releases">GitHub</a></li>
+        </ul>
+      </div>
+      <p class="made">Made by Baris Hiz. For inquiries and sponsorship: <a href="mailto:barishiz@gmail.com">barishiz@gmail.com</a></p>
+      <p class="disclaimer">Uncloud is an independent app and is not affiliated with, endorsed, sponsored, or approved by Apple Inc. Apple, iCloud, iCloud Photos and Mac are trademarks of Apple Inc., registered in the U.S. and other countries and regions.</p>
+    </div>
+  </footer>
+</body>
+</html>

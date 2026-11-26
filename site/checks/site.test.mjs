@@ -4,13 +4,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkoutLinks } from '../checkout-links.js';
+import { checkoutResponse } from '../api/checkout.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const html = readFileSync(join(root, 'index.html'), 'utf8');
 const css = readFileSync(join(root, 'styles.css'), 'utf8');
 const js = readFileSync(join(root, 'app.js'), 'utf8');
 const text = (s) => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-const SITE = 'https://getuncloud.vercel.app';
+const SITE = 'https://www.tryuncloud.com';
+const pricing = readFileSync(join(root, 'pricing.html'), 'utf8');
 const DMG = 'https://github.com/bariscoach/Uncloud/releases/latest/download/Uncloud.dmg';
 
 // Removes every block that starts with one of the given headers (brace matched).
@@ -38,8 +41,8 @@ test('document head is complete and points at the download page', () => {
   assert.match(html, /<meta charset="utf-8">/);
   assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
   assert.match(html, /<meta name="color-scheme" content="light dark">/);
-  assert.ok(html.includes('<title>Uncloud: Take Your Photos Home</title>'));
-  assert.ok(html.includes('<meta name="description" content="Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Free for Mac.">'));
+  assert.ok(html.includes('<title>Uncloud: Pay once, drop your iCloud bill</title>'));
+  assert.ok(html.includes('<meta name="description" content="Export iCloud Photos originals to your own drive. Free to start on Mac. Plus, Pro, and Family are one-time purchases.">'));
   assert.ok(html.includes(`<link rel="canonical" href="${SITE}/">`));
   assert.ok(html.includes('<meta name="theme-color" content="#0A0A0C" media="(prefers-color-scheme: dark)">'));
   for (const property of ['og:title', 'og:description', 'og:type', 'og:url', 'og:site_name', 'og:image', 'og:image:alt']) {
@@ -54,6 +57,7 @@ test('document head is complete and points at the download page', () => {
   assert.ok(html.includes(`<meta name="twitter:image" content="${SITE}/og.png">`));
   assert.doesNotMatch(html, /Coming soon/i, 'coming soon copy');
   assert.doesNotMatch(html, /https:\/\/uncloud\.vercel\.app/, 'old domain');
+  assert.doesNotMatch(html, /getuncloud\.vercel\.app/, 'login-walled host');
 });
 
 test('no inline script or style, no style attributes, and only allowed origins', () => {
@@ -75,6 +79,7 @@ test('the download link is in the top bar, the hero and the closing band', () =>
   const plain = text(html);
   assert.ok(plain.includes('Download Uncloud for Mac'), 'accessible name of the hero button');
   assert.ok(plain.includes('Version 0.1.27 · macOS 14 or later'), 'version and requirements');
+  assert.ok(html.includes('href="#install"'), 'install link stays next to the version');
   assert.ok(html.includes('href="https://github.com/bariscoach/Uncloud/releases"'), 'all versions link');
   assert.ok(html.includes('download'), 'download attribute on the hero');
 });
@@ -93,16 +98,18 @@ test('the install section has an id, the hero link, and three steps', () => {
 test('the hero, tiles, FAQ and disclaimer copy are present', () => {
   const plain = text(html);
   for (const line of [
-    'Take Your Photos Home',
-    'Export full-quality originals from iCloud Photos to your own drive, without filling up your Mac. Free.',
+    'Pay once, drop your iCloud bill',
+    'Export full-quality originals from iCloud Photos to a drive you own. Start free, then pay once instead of every month.',
     'How it works',
     'Everything your photos need',
-    'Free. No account, no sign-up.',
+    'Free to start. No account. Upgrades are one-time.',
     'Your photos stay yours',
+    'Your photos never touch Uncloud servers.',
     'Questions',
-    'Ready to take your photos home?',
     'Why does macOS warn me the first time?',
-    'Is it free?',
+    'What is free?',
+    'What do I pay?',
+    'I already use Uncloud. Do I have to pay?',
     '© 2026 Uncloud',
     'Uncloud is an independent app and is not affiliated with, endorsed, sponsored, or approved by Apple Inc.',
     'Apple, iCloud, iCloud Photos and Mac are trademarks of Apple Inc., registered in the U.S. and other countries and regions.',
@@ -110,14 +117,14 @@ test('the hero, tiles, FAQ and disclaimer copy are present', () => {
     assert.ok(plain.includes(line), `missing: ${line}`);
   }
   for (const title of [
-    'Export from iCloud', 'Export Photos by Date', 'Automatic Backups', 'Browse Backup', 'Delete from iCloud',
+    'Export from iCloud', 'Export Photos by Date', 'Automatic Backups', 'Browse by date', 'Delete from iCloud',
   ]) {
     assert.ok(html.includes(`<h3>${title}</h3>`), title);
   }
   for (const gone of ['Get notified at launch', 'Notify Me', 'Be First to Take Your Photos Home', 'Sound familiar?', 'When does Uncloud launch?']) {
     assert.ok(!plain.includes(gone), `still present: ${gone}`);
   }
-  assert.ok(html.includes('<h1 id="hero-title">Take your photos home.</h1>'), 'hero h1');
+  assert.ok(html.includes('<h1 id="hero-title">Pay once, drop your iCloud bill.</h1>'), 'hero h1');
 });
 
 test('sections have ids and the top bar links to them', () => {
@@ -125,23 +132,26 @@ test('sections have ids and the top bar links to them', () => {
     assert.ok(html.includes(`id="${id}"`), `section id ${id}`);
   }
   assert.match(html, /<nav class="topnav" aria-label="Sections">/);
-  for (const href of ['#features', '#privacy', '#install', '#faq']) {
+  for (const href of ['#features', '/pricing', '#privacy', '#install', '#faq']) {
     assert.ok(html.includes(`href="${href}"`), `nav link ${href}`);
   }
 });
 
 test('the hero has a secondary install button and no pulsing glow', () => {
-  assert.match(html, /<a class="btn btn-lg btn-ghost" href="#install">/);
+  assert.match(html, /<a class="btn btn-lg btn-ghost" href="\/pricing">/);
+  assert.match(html, /<a href="#install">How to install<\/a>/);
   assert.doesNotMatch(css, /glow-pulse|hero-float/);
   assert.doesNotMatch(html, /hero-wordmark/);
 });
 
-test('no payment, plan or removed-tool wording on the page', () => {
+test('the page states one-time prices and does not bring back removed tools', () => {
   const plain = text(html);
-  for (const pattern of [
-    /pric/i, /\$\d/, /\bPlus\b/, /\bbadge/i, /subscri/i, /stripe/i, /checkout/i, /\bplan\b/i,
-    /free up/i, /verify backup/i, /find duplicates/i, /\bduplicates\b/i,
-  ]) {
+  assert.match(plain, /\$29/);
+  assert.match(plain, /\$49/);
+  assert.match(plain, /\$69/);
+  assert.match(plain, /Not a subscription/);
+  assert.match(plain, /lifetime Plus/);
+  for (const pattern of [/stripe/i, /free up/i, /find duplicates/i, /\bduplicates\b/i, /forever/i]) {
     assert.doesNotMatch(plain, pattern, `found ${pattern}`);
   }
   assert.doesNotMatch(html, /class="[^"]*\bbadge/, 'badge class');
@@ -182,6 +192,7 @@ test('the stylesheet supports dark mode, reduced motion and the no-preference mo
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /@media \(prefers-reduced-motion: no-preference\)/);
   assert.match(css, /html\.js \[data-reveal\]/);
+  assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important/);
 });
 
 test('every animation is inside the no-preference block or a keyframes rule', () => {
@@ -221,4 +232,54 @@ test('the hero visual and the icons carry no text and are hidden from assistive 
 
 test('the page has one h1 and the section headings are h2', () => {
   assert.equal([...html.matchAll(/<h1[\s>]/g)].length, 1);
+});
+
+test('pricing is its own page, with four tiers and checkout placeholders', () => {
+  assert.equal([...pricing.matchAll(/<h1[\s>]/g)].length, 1);
+  assert.match(pricing, /<link rel="canonical" href="https:\/\/www\.tryuncloud\.com\/pricing">/);
+  assert.match(pricing, /<meta property="og:url" content="https:\/\/www\.tryuncloud\.com\/pricing">/);
+  assert.match(pricing, /<meta property="og:image" content="https:\/\/www\.tryuncloud\.com\/og\.png">/);
+  assert.match(pricing, /<script type="module" src="app\.js"><\/script>/);
+  assert.match(pricing, /<script type="module" src="pricing\.js"><\/script>/);
+  assert.doesNotMatch(pricing, /<script(?![^>]*\bsrc=)[^>]*>/, 'inline script');
+  const plain = text(pricing);
+  for (const name of ['Free', 'Plus', 'Pro', 'Family']) {
+    assert.ok(plain.includes(name), name);
+  }
+  assert.match(plain, /\$29/);
+  assert.match(plain, /\$49/);
+  assert.match(plain, /\$69/);
+  assert.match(plain, /Checkout isn’t connected yet/);
+  assert.match(plain, /lifetime Plus/);
+  assert.match(plain, /Your photos never touch Uncloud servers/);
+  assert.equal(pricing.split(`href="${DMG}"`).length - 1, 2);
+  const allowed = [SITE, 'https://uncloud-api.vercel.app', 'https://github.com/bariscoach/Uncloud'];
+  for (const [url] of pricing.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
+    assert.ok(allowed.some((origin) => url.startsWith(origin)), `third-party URL ${url}`);
+  }
+});
+
+test('robots.txt and sitemap.xml name the public site', () => {
+  const robots = readFileSync(join(root, 'robots.txt'), 'utf8');
+  const sitemap = readFileSync(join(root, 'sitemap.xml'), 'utf8');
+  assert.match(robots, /Allow: \//);
+  assert.match(robots, /Sitemap: https:\/\/www\.tryuncloud\.com\/sitemap\.xml/);
+  assert.match(sitemap, /<loc>https:\/\/www\.tryuncloud\.com\/<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/www\.tryuncloud\.com\/pricing<\/loc>/);
+});
+
+test('checkout URLs come from env, then the config file, and reject anything that is not https', () => {
+  const file = JSON.parse(readFileSync(join(root, 'checkout.config.json'), 'utf8'));
+  assert.deepEqual(file, { plus: '', pro: '', family: '' });
+  assert.deepEqual(checkoutLinks({}, file), { plus: null, pro: null, family: null });
+  assert.deepEqual(
+    checkoutLinks({ UNCLOUD_CHECKOUT_PLUS_URL: ' https://buy.example/plus ' }, { plus: 'https://file.example/plus' }),
+    { plus: 'https://buy.example/plus', pro: null, family: null },
+  );
+  assert.equal(checkoutLinks({}, { pro: 'http://buy.example/pro' }).pro, null);
+  assert.deepEqual(checkoutResponse({}, root), { plus: null, pro: null, family: null });
+  assert.equal(
+    checkoutResponse({ UNCLOUD_CHECKOUT_FAMILY_URL: 'https://buy.example/family' }, root).family,
+    'https://buy.example/family',
+  );
 });

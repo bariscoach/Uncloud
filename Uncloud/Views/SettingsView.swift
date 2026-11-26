@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The tabs of the Settings window. General, Backups and About always show; Account only when accounts are on (plan §3.5).
 enum SettingsTab: String, CaseIterable {
-    case general, backups, account, about
+    case general, backups, license, account, about
 
     /// The selected tab, remembered across launches and set by Uncloud ▸ Account Settings….
     static let storageKey = "uncloudSettingsTab"
@@ -28,6 +28,10 @@ struct SettingsView: View {
             BackupSettingsForm()
                 .tabItem { Label("Backups", systemImage: "externaldrive") }
                 .tag(SettingsTab.backups)
+
+            LicenseSettingsForm()
+                .tabItem { Label("License", systemImage: "key") }
+                .tag(SettingsTab.license)
 
             if account.mode != .off {
                 AccountSettingsForm(isExporting: model.isExporting || model.isEngineRunning)
@@ -102,9 +106,9 @@ struct BackupSettingsForm: View {
         Form {
             Section("Automatic Backups") {
                 Toggle("Export when the backup drive connects", isOn: $settings.backUpWhenDriveConnects)
-                    .disabled(model.destination == nil)
+                    .disabled(model.destination == nil || !automaticBackupsAllowed)
                 Toggle("Export once a day", isOn: $settings.backUpDaily)
-                    .disabled(model.destination == nil)
+                    .disabled(model.destination == nil || !automaticBackupsAllowed)
 
                 // The folder itself is changed in the Backup pane, so this only says where exports go.
                 if let destination = model.destination {
@@ -134,6 +138,10 @@ struct BackupSettingsForm: View {
         }
         .formStyle(.grouped)
         .frame(width: 460)
+    }
+
+    private var automaticBackupsAllowed: Bool {
+        LicensePolicy.allows(.automaticBackups, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced())
     }
 
     private var statusText: String {
