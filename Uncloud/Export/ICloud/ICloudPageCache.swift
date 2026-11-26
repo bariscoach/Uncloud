@@ -314,7 +314,10 @@ actor ICloudPageCache {
         }
         let digest = Self.digest(of: id)
         let files = (try? FileManager.default.contentsOfDirectory(at: previewDirectory, includingPropertiesForKeys: nil)) ?? []
-        return files.first { $0.deletingPathExtension().lastPathComponent == digest }
+        guard let found = files.first(where: { $0.deletingPathExtension().lastPathComponent == digest }) else { return nil }
+        // The directory listing's URL can be /var/... while previewFileLocation is /private/var/....
+        // Return the location the downloader uses, so the two calls name the same file.
+        return previewFileLocation(for: id, fileExtension: found.pathExtension)
     }
 
     /// Downloads the file at the item's URL from `source` and writes it to `file`. An expired signed URL (403 or 410)

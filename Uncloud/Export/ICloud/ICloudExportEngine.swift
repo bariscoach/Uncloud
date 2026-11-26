@@ -533,6 +533,10 @@ extension ICloudExportEngine {
         emit: @escaping @Sendable (ExportEvent) -> Void,
         budget: ExportItemBudget
     ) async throws {
+        // Copies, so later closures don't capture this engine. Declared before any closure:
+        // a closure above `let layout = layout` captures that local before it exists.
+        let destination = destination
+        let layout = layout
         let libraryCount = try await bridge.count()
         let known = Self.knownItems(in: destination, layout: layout)
         let account = ExportSession.accountHash(appleID: appleID)
@@ -605,8 +609,6 @@ extension ICloudExportEngine {
             emit(event)
         }
 
-        let destination = destination
-        let layout = layout
         // The local catalog follows this run's walks (R12g): the walk's pages are written as they arrive, and a
         // walk that visits everything proves deletions.
         let catalogWrites = CatalogWriteQueue(catalog: ICloudCatalogStore.shared(appleID: appleID))
