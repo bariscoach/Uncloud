@@ -354,6 +354,8 @@
 		E0FD0ECE037A97932FE5C679 /* LicenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5E02201BB47638E51DE63CC /* LicenseView.swift */; };
 		1831C4F575CA2ACD2A18D850 /* LicenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5E02201BB47638E51DE63CC /* LicenseView.swift */; };
 		69CBCB5CC8B96609B262A31A /* LicenseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 527DE84A94B7ABEEB725AB8A /* LicenseTests.swift */; };
+		79941F52ECD518465A41E6EC /* LicensePaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08575D7B3B01D952FD090AD /* LicensePaywallView.swift */; };
+		CE8E605AB66B7E90DF7E4A5C /* LicensePaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08575D7B3B01D952FD090AD /* LicensePaywallView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -592,6 +594,7 @@
 		4A20A9D89ED113E21DFDD392 /* LicenseStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseStore.swift; sourceTree = "<group>"; };
 		E5E02201BB47638E51DE63CC /* LicenseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseView.swift; sourceTree = "<group>"; };
 		527DE84A94B7ABEEB725AB8A /* LicenseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseTests.swift; sourceTree = "<group>"; };
+		E08575D7B3B01D952FD090AD /* LicensePaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePaywallView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -620,6 +623,7 @@
 				8F79DB331BE406BDDBA688C4 /* IconTile.swift */,
 				878A1648B154D699511DAEF5 /* LandingView.swift */,
 				E5E02201BB47638E51DE63CC /* LicenseView.swift */,
+				E08575D7B3B01D952FD090AD /* LicensePaywallView.swift */,
 				DB669F72B489554F906F4C1B /* LibraryGrid.swift */,
 				C261EC1F3BD6BBC68308A49F /* MainWindow.swift */,
 				655C300B76FB724B130CF7D1 /* MenuBarContent.swift */,
@@ -1190,6 +1194,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				79941F52ECD518465A41E6EC /* LicensePaywallView.swift in Sources */,
 				2C55A55051FE78727A67AE26 /* LicensePolicy.swift in Sources */,
 				57C24CD5CF3E4ED5B46A6267 /* LicenseStore.swift in Sources */,
 				E0FD0ECE037A97932FE5C679 /* LicenseView.swift in Sources */,
@@ -1322,6 +1327,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CE8E605AB66B7E90DF7E4A5C /* LicensePaywallView.swift in Sources */,
 				644430090694938D05AE08FF /* LicensePolicy.swift in Sources */,
 				62936999942257BF34C11111 /* LicenseStore.swift in Sources */,
 				1831C4F575CA2ACD2A18D850 /* LicenseView.swift in Sources */,

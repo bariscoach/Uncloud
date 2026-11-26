@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Free, Plus, Pro, and Family. Family includes every Pro feature, with more Macs.
@@ -64,29 +65,83 @@ enum LicenseFeature: String, CaseIterable, Sendable {
     case emailSupport
 }
 
-/// A key the stub understands: `UC1.<tier>.<seats>.<flag>.<nonce>`.
+/// A signature-checked license. An unsigned key never becomes one of these.
 struct ParsedLicense: Equatable, Sendable {
     var key: String
     var tier: LicenseTier
     var seats: Int
-    var grandfathered: Bool
+    var jti: String
+    var issuedAt: Date
+}
+
+enum LicensePublicKey {
+    /// Raw 32-byte Ed25519 public key from Info.plist (`UncloudLicensePublicKey`).
+    /// There is no built-in test key: a missing or wrong plist value verifies nothing.
+    static func raw(bundle: Bundle = .main) -> Data? {
+        guard let encoded = bundle.object(forInfoDictionaryKey: "UncloudLicensePublicKey") as? String,
+              let data = Data(base64Encoded: encoded), data.count == 32 else { return nil }
+        return data
+    }
 }
 
 enum LicenseKey {
-    /// The same shape `server/uncloud-api/lib/licenses.js` accepts. Grandfathered keys are lifetime Plus.
-    static func parse(_ raw: String) -> ParsedLicense? {
-        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = key.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 5, parts[0] == "UC1" else { return nil }
-        guard let tier = LicenseTier(rawValue: String(parts[1])), tier != .free else { return nil }
-        guard let seats = Int(parts[2]), String(seats) == String(parts[2]), seats == tier.includedMacs else { return nil }
-        let flag = parts[3]
-        guard flag == "s" || flag == "g" else { return nil }
-        if flag == "g", tier != .plus { return nil }
-        let nonce = parts[4]
-        guard (8...64).contains(nonce.count), nonce.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return nil }
-        return ParsedLicense(key: key, tier: tier, seats: seats, grandfathered: flag == "g")
+    /// Verifies the Ed25519 signature over the canonical payload. Returns nil for any unsigned or altered key.
+    static func parse(_ raw: String, publicKey: Data? = LicensePublicKey.raw()) -> ParsedLicense? {
+        let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "UC1",
+              let payload = base64URLDecode(String(parts[1])),
+              let signature = base64URLDecode(String(parts[2])),
+              signature.count == 64,
+              let publicKey, publicKey.count == 32,
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKey),
+              key.isValidSignature(signature, for: payload),
+              let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              int(object["v"]) == 1,
+              let tier = (object["tier"] as? String).flatMap(LicenseTier.init(rawValue:)),
+              tier != .free,
+              let seats = int(object["seats"]), seats == tier.includedMacs,
+              let jti = object["jti"] as? String, (4...128).contains(jti.count),
+              let issued = int(object["iat"])
+        else { return nil }
+        guard canonical(object) == String(data: payload, encoding: .utf8) else { return nil }
+        return ParsedLicense(key: token, tier: tier, seats: seats, jti: jti, issuedAt: Date(timeIntervalSince1970: TimeInterval(issued)))
     }
+
+    private static func int(_ value: Any?) -> Int? {
+        if let number = value as? Int { return number }
+        if let number = value as? NSNumber { return number.intValue }
+        return nil
+    }
+
+    /// The same key order as `canonicalLicenseJSON` on the server.
+    private static func canonical(_ object: [String: Any]) -> String? {
+        var parts: [String] = []
+        if let hash = object["emailHash"] as? String {
+            guard hash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else { return nil }
+            parts.append("\"emailHash\":\"\(hash)\"")
+        }
+        guard let issued = int(object["iat"]), let jti = object["jti"] as? String,
+              let seats = int(object["seats"]), let tier = object["tier"] as? String,
+              int(object["v"]) == 1 else { return nil }
+        parts.append("\"iat\":\(issued)")
+        parts.append("\"jti\":\"\(jti)\"")
+        parts.append("\"seats\":\(seats)")
+        parts.append("\"tier\":\"\(tier)\"")
+        parts.append("\"v\":1")
+        return "{\(parts.joined(separator: ","))}"
+    }
+
+    private static func base64URLDecode(_ text: String) -> Data? {
+        guard !text.isEmpty, text.unicodeScalars.allSatisfy({ CharacterSet.base64URL.contains($0) }) else { return nil }
+        var base64 = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        return Data(base64Encoded: base64)
+    }
+}
+
+private extension CharacterSet {
+    static let base64URL = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
 }
 
 /// One switch for paid limits. Off, which is the default, every feature stays available.
@@ -100,13 +155,17 @@ enum LicenseGating {
 
 enum LicensePolicy {
     static let freeItemCap = 1000
-    static let freeExportRefusal = "This export needs Uncloud Plus. Free includes about 1,000 items, or a date range."
-    static let automaticBackupRefusal = "Automatic backup didn’t run: it needs Uncloud Plus."
+    static let freeExportRefusal = "You’ve exported 1,000 photos for free. Unlock Uncloud to continue."
+    /// How long a signed key may be used without a successful revocation check.
+    static let revocationGrace: TimeInterval = 14 * 24 * 60 * 60
 
     static func allows(_ feature: LicenseFeature, tier: LicenseTier, enforced: Bool) -> Bool {
         if !enforced { return true }
         switch feature {
-        case .unlimitedExport, .automaticBackups, .allLayouts, .mapPlaceBrowse, .xmpSidecars:
+        case .automaticBackups:
+            // Automatic backup is a way of exporting. The 1,000-item cap is what stops it.
+            return true
+        case .unlimitedExport, .allLayouts, .mapPlaceBrowse, .xmpSidecars:
             return tier >= .plus
         case .verifiedICloudCleanup, .verifyBackup, .secondDestination, .emailSupport:
             return tier >= .pro
@@ -130,24 +189,32 @@ enum LicensePolicy {
         }
     }
 
-    /// Nil when the export may start. A date range is free at any size. A full library over the cap needs Plus.
-    static func exportRefusal(
-        selection: LibrarySelection,
-        itemCount: Int?,
-        isDateRange: Bool,
-        tier: LicenseTier,
-        enforced: Bool
-    ) -> String? {
-        guard enforced, tier < .plus else { return nil }
-        if isDateRange { return nil }
-        switch selection {
-        case .only:
-            if let itemCount, itemCount <= freeItemCap { return nil }
-            return freeExportRefusal
-        case .allExcept:
-            if let itemCount, itemCount <= freeItemCap { return nil }
-            return freeExportRefusal
+    /// A signed Plus, Pro, or Family key lifts the item cap while its revocation check is still fresh.
+    static func unlimited(tier: LicenseTier, activatedAt: Date?, lastCheck: Date?, now: Date, enforced: Bool) -> Bool {
+        guard enforced else { return true }
+        guard tier >= .plus else { return false }
+        guard let anchor = lastCheck ?? activatedAt else { return false }
+        return now.timeIntervalSince(anchor) <= revocationGrace
+    }
+}
+
+/// How many new items the next export may write. Every mode, including a date range, uses this.
+struct ExportAllowance: Equatable, Sendable {
+    /// Nil when the run is not capped.
+    var remaining: Int?
+    var blockStart: Bool
+    var showPaywall: Bool
+}
+
+enum ExportQuota {
+    static func allowance(exportedCount: Int, unlimited: Bool, enforced: Bool, cap: Int = LicensePolicy.freeItemCap) -> ExportAllowance {
+        if !enforced || unlimited {
+            return ExportAllowance(remaining: nil, blockStart: false, showPaywall: false)
         }
+        if exportedCount >= cap {
+            return ExportAllowance(remaining: 0, blockStart: true, showPaywall: true)
+        }
+        return ExportAllowance(remaining: cap - exportedCount, blockStart: false, showPaywall: false)
     }
 }
 

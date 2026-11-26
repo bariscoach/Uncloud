@@ -1,172 +1,223 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { route } from '../lib/http.js';
 import {
-  featuresFor,
-  parseLicenseKey,
-  verifyLicenseKey,
+  loadPrivateKey,
+  publicKeyFromPrivate,
+  mintLicense,
+  readSignedLicense,
+  verifyLicense,
   verifyLicenseRequest,
-  describeWebhook,
-  paymentWebhookRequest,
+  memoryLicenseLedger,
+  emailHash,
 } from '../lib/licenses.js';
+import { handleStripeWebhook, verifyStripeSignature, tierForPrice, licenseEmail } from '../lib/stripe-license.js';
+import { licenseSupabaseConfig } from '../lib/license-ledger.js';
+import { TEST_LICENSE_PRIVATE_KEY, TEST_LICENSE_PUBLIC_KEY, TEST_LICENSE_TOKEN } from './fixtures/license-key.js';
 
-const verify = route('POST', verifyLicenseRequest);
-const webhook = route('POST', paymentWebhookRequest);
+const privateKey = loadPrivateKey(TEST_LICENSE_PRIVATE_KEY);
+const publicKey = publicKeyFromPrivate(privateKey);
+const prices = {
+  plus: 'price_1UfrRNFQA2wOQUo52ZVB9O0z',
+  pro: 'price_1UfrRPFQA2wOQUo5QQnUjlGk',
+  family: 'price_1UfrRQFQA2wOQUo5CqAgSdqE',
+};
 
-async function post(handler, path, body, headers = {}) {
-  const response = await handler(new Request(`https://uncloud-api.vercel.app${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
-    body: JSON.stringify(body),
-  }));
-  return { status: response.status, body: await response.json() };
+function signHeader(raw, secret, now) {
+  const t = Math.floor(now / 1000);
+  const v1 = createHmac('sha256', secret).update(`${t}.${raw}`).digest('hex');
+  return `t=${t},v1=${v1}`;
 }
 
-test('a well-formed key parses to its tier, seats, and grandfather flag', () => {
-  assert.deepEqual(parseLicenseKey('  UC1.plus.1.g.EXISTING1\n'), {
-    key: 'UC1.plus.1.g.EXISTING1',
-    tier: 'plus',
-    seats: 1,
-    grandfathered: true,
+function deps(overrides = {}) {
+  const emails = [];
+  return {
+    emails,
+    ledger: memoryLicenseLedger(),
+    webhookSecret: 'whsec_test_only',
+    privateKey,
+    prices,
+    now: () => Date.parse('2026-11-26T00:00:00Z'),
+    sendEmail: async (message) => { emails.push(message); },
+    ...overrides,
+  };
+}
+
+test('a signed key verifies, and a shape-only key does not', () => {
+  const parsed = readSignedLicense(TEST_LICENSE_TOKEN, publicKey);
+  assert.equal(parsed.tier, 'plus');
+  assert.equal(parsed.seats, 1);
+  assert.equal(parsed.jti, 'cs_test_vector');
+  assert.equal(readSignedLicense('UC1.plus.1.g.EXISTING1', publicKey), null);
+  assert.equal(readSignedLicense(TEST_LICENSE_TOKEN.slice(0, -2) + 'AA', publicKey), null);
+  const minted = mintLicense({
+    tier: 'family', seats: 5, jti: 'cs_test_family', iat: 1764000000, email: 'Buyer@Example.com', privateKey,
   });
-  assert.deepEqual(parseLicenseKey('UC1.pro.2.s.abcd1234'), {
-    key: 'UC1.pro.2.s.abcd1234',
-    tier: 'pro',
-    seats: 2,
-    grandfathered: false,
-  });
-  assert.equal(parseLicenseKey('UC1.family.5.s.FamilyKey1').seats, 5);
+  const family = readSignedLicense(minted, publicKey);
+  assert.equal(family.tier, 'family');
+  assert.equal(family.seats, 5);
+  assert.equal(family.emailHash, emailHash('buyer@example.com'));
 });
 
-test('malformed keys are rejected', () => {
-  for (const key of [
-    '',
-    'plus',
-    'UC1.plus.1.s.short',
-    'UC1.plus.2.s.abcd1234',
-    'UC1.pro.1.s.abcd1234',
-    'UC1.family.5.g.abcd1234',
-    'UC1.pro.02.s.abcd1234',
-    'UC1.free.1.s.abcd1234',
-    'UC1.plus.1.x.abcd1234',
-    'UC1.plus.1.s.abcd1234.extra',
-  ]) {
-    assert.equal(parseLicenseKey(key), null, key);
-  }
-  assert.equal(parseLicenseKey(1), null);
-});
+test('verify reports revocation and rejects a bad signature', async () => {
+  const ledger = memoryLicenseLedger();
+  const key = mintLicense({ tier: 'pro', seats: 2, jti: 'cs_test_pro', iat: 1764000000, privateKey });
+  assert.equal(verifyLicense(key, { publicKey, isRevoked: () => false }).valid, true);
+  await ledger.revoke('cs_test_pro', 'charge.refunded');
+  const revoked = verifyLicense(key, { publicKey, isRevoked: (jti) => jti === 'cs_test_pro' });
+  assert.equal(revoked.valid, false);
+  assert.equal(revoked.reason, 'revoked');
 
-test('features follow the tier, and family includes Pro', () => {
-  assert.deepEqual(featuresFor('plus'), [
-    'unlimitedExport', 'automaticBackups', 'allLayouts', 'mapPlaceBrowse', 'xmpSidecars',
-  ]);
-  assert.ok(featuresFor('pro').includes('verifiedICloudCleanup'));
-  assert.ok(featuresFor('pro').includes('verifyBackup'));
-  assert.ok(featuresFor('pro').includes('secondDestination'));
-  assert.ok(featuresFor('pro').includes('emailSupport'));
-  assert.deepEqual(featuresFor('family'), featuresFor('pro'));
-  assert.deepEqual(featuresFor('free'), []);
-});
-
-test('verify accepts a grandfather Plus key without an account', async () => {
-  const { status, body } = await post(verify, '/v1/licenses/verify', { key: 'UC1.plus.1.g.EXISTING1' }, {
-    authorization: 'Bearer not-an-account',
-  });
-  assert.equal(status, 200);
-  assert.equal(body.valid, true);
-  assert.equal(body.mode, 'stub');
-  assert.equal(body.tier, 'plus');
-  assert.equal(body.seats, 1);
-  assert.equal(body.grandfathered, true);
-  assert.equal(body.accountRequired, false);
-  assert.ok(body.features.includes('automaticBackups'));
-});
-
-test('verify reports an unrecognized key without storing it', async () => {
-  const { status, body } = await post(verify, '/v1/licenses/verify', { key: 'nope' });
-  assert.equal(status, 200);
-  assert.deepEqual(body, {
-    valid: false,
-    mode: 'stub',
-    reason: 'unrecognized_key',
-    accountRequired: false,
-  });
-  assert.equal(verifyLicenseKey('nope').valid, false);
-});
-
-test('verify rejects a body that is not an object', async () => {
-  const response = await verify(new Request('https://uncloud-api.vercel.app/v1/licenses/verify', {
+  const response = await verifyLicenseRequest(new Request('https://uncloud-api.vercel.app/v1/licenses/verify', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: '[]',
-  }));
-  assert.equal(response.status, 400);
+    body: JSON.stringify({ key: 'UC1.plus.1.g.EXISTING1' }),
+  }), { publicKey, isRevoked: async () => false });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).reason, 'invalid_signature');
 });
 
-test('verify does not allow GET', async () => {
-  const response = await verify(new Request('https://uncloud-api.vercel.app/v1/licenses/verify'));
-  assert.equal(response.status, 405);
+test('verify without a signing key is not configured', async () => {
+  const response = await verifyLicenseRequest(new Request('https://uncloud-api.vercel.app/v1/licenses/verify', {
+    method: 'POST',
+    body: JSON.stringify({ key: TEST_LICENSE_TOKEN }),
+  }), {});
+  assert.equal(response.status, 503);
 });
 
-test('a Lemon Squeezy style order is acknowledged and not fulfilled', async () => {
-  const payload = {
-    meta: { event_name: 'order_created', custom_data: { user_id: 1 } },
+test('the Stripe signature covers the raw body and rejects a stale timestamp', () => {
+  const raw = '{"id":"evt_1"}';
+  const now = Date.parse('2026-11-26T00:00:00Z');
+  const header = signHeader(raw, 'whsec_test_only', now);
+  assert.equal(verifyStripeSignature({ rawBody: raw, header, secret: 'whsec_test_only', now }), true);
+  assert.equal(verifyStripeSignature({ rawBody: raw + ' ', header, secret: 'whsec_test_only', now }), false);
+  assert.equal(verifyStripeSignature({
+    rawBody: raw, header, secret: 'whsec_test_only', now: now + 10 * 60 * 1000,
+  }), false);
+});
+
+test('checkout.session.completed mints one key, emails it, and is idempotent', async () => {
+  const context = deps();
+  const event = {
+    type: 'checkout.session.completed',
     data: {
-      type: 'orders',
-      attributes: {
-        user_email: 'buyer@example.com',
-        first_order_item: { product_name: 'Uncloud Plus', variant_name: 'Plus' },
+      object: {
+        id: 'cs_test_paid',
+        payment_status: 'paid',
+        payment_intent: 'pi_test_paid',
+        customer_details: { email: 'buyer@example.com' },
+        line_items: { data: [{ price: { id: prices.plus } }] },
       },
     },
   };
-  const { status, body } = await post(webhook, '/v1/webhooks/payments', payload);
-  assert.equal(status, 200);
-  assert.equal(body.received, true);
-  assert.equal(body.fulfilled, false);
-  assert.equal(body.mode, 'stub');
-  assert.equal(body.provider, 'lemonsqueezy');
-  assert.equal(body.event, 'order_created');
-  assert.equal(body.tier, 'plus');
-  assert.equal(body.signatureChecked, false);
-  assert.equal(JSON.stringify(body).includes('buyer@example.com'), false);
-  assert.equal(JSON.stringify(body).includes('user_id'), false);
+  const raw = JSON.stringify(event);
+  const header = signHeader(raw, context.webhookSecret, context.now());
+  const first = await handleStripeWebhook(raw, header, context);
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).duplicate, false);
+  assert.equal(context.emails.length, 1);
+  assert.match(context.emails[0].text, /uncloud:\/\/license\?key=/);
+  assert.match(context.emails[0].from, /noreply@tryuncloud.com/);
+  const stored = await context.ledger.findBySession('cs_test_paid');
+  assert.equal(readSignedLicense(stored.key, publicKey).tier, 'plus');
+  assert.equal(stored.seats, 1);
+
+  const second = await handleStripeWebhook(raw, header, context);
+  assert.equal((await second.json()).duplicate, true);
+  assert.equal(context.emails.length, 1);
 });
 
-test('a Paddle style transaction is acknowledged and not fulfilled', async () => {
-  const described = describeWebhook({
-    event_type: 'transaction.completed',
+test('a refund revokes the key and verify then rejects it', async () => {
+  const context = deps();
+  const paid = {
+    type: 'checkout.session.completed',
     data: {
-      id: 'txn_123',
-      customer_id: 'ctm_123',
-      custom_data: { tier: 'family' },
-      items: [{ price: { name: 'Uncloud Family', custom_data: { tier: 'family' } } }],
+      object: {
+        id: 'cs_test_refund',
+        payment_status: 'paid',
+        payment_intent: 'pi_test_refund',
+        customer_details: { email: 'buyer@example.com' },
+        line_items: { data: [{ price: { id: prices.family } }] },
+      },
     },
-  });
-  assert.equal(described.provider, 'paddle');
-  assert.equal(described.tier, 'family');
-  const { body } = await post(webhook, '/v1/webhooks/payments', {
-    event_type: 'transaction.completed',
-    data: { custom_data: { tier: 'pro' }, items: [] },
-  });
-  assert.equal(body.provider, 'paddle');
-  assert.equal(body.tier, 'pro');
-  assert.equal(body.fulfilled, false);
+  };
+  const rawPaid = JSON.stringify(paid);
+  await handleStripeWebhook(rawPaid, signHeader(rawPaid, context.webhookSecret, context.now()), context);
+  const stored = await context.ledger.findByPaymentIntent('pi_test_refund');
+  assert.equal(verifyLicense(stored.key, { publicKey, isRevoked: () => false }).tier, 'family');
+
+  const refund = { type: 'charge.refunded', data: { object: { payment_intent: 'pi_test_refund' } } };
+  const rawRefund = JSON.stringify(refund);
+  const response = await handleStripeWebhook(rawRefund, signHeader(rawRefund, context.webhookSecret, context.now()), context);
+  assert.equal((await response.json()).revoked, true);
+  assert.equal(await context.ledger.isRevoked(stored.jti), true);
+  assert.equal(verifyLicense(stored.key, {
+    publicKey,
+    isRevoked: (jti) => jti === stored.jti,
+  }).reason, 'revoked');
 });
 
-test('an unknown webhook still returns the stub and stores nothing', async () => {
-  const { status, body } = await post(webhook, '/v1/webhooks/payments', { hello: 'there' });
-  assert.equal(status, 200);
-  assert.equal(body.provider, 'unknown');
-  assert.equal(body.tier, null);
-  assert.equal(body.fulfilled, false);
-  assert.match(body.reason, /stores nothing/);
+test('an unknown price and a bad signature are refused', async () => {
+  const context = deps();
+  const event = {
+    type: 'checkout.session.completed',
+    data: { object: { id: 'cs_test_other', payment_status: 'paid', line_items: { data: [{ price: { id: 'price_other' } }] } } },
+  };
+  const raw = JSON.stringify(event);
+  const unknown = await handleStripeWebhook(raw, signHeader(raw, context.webhookSecret, context.now()), context);
+  assert.equal(unknown.status, 400);
+  const bad = await handleStripeWebhook(raw, 't=1,v1=nope', context);
+  assert.equal(bad.status, 400);
+  assert.deepEqual(tierForPrice(prices.pro, prices), { tier: 'pro', seats: 2 });
 });
 
-test('the license routes are real files, not the removed Stripe paths', () => {
+test('the license email carries the deep link and not a second account step', () => {
+  const message = licenseEmail({ to: 'buyer@example.com', key: TEST_LICENSE_TOKEN });
+  assert.match(message.text, /uncloud:\/\/license\?key=/);
+  assert.match(message.text, /does not need an account/);
+});
+
+test('the license ledger uses its own Supabase project and falls back to the account project', () => {
+  assert.deepEqual(licenseSupabaseConfig({
+    LICENSE_SUPABASE_URL: 'https://zkdykcghctegpeanslyz.supabase.co',
+    LICENSE_SUPABASE_SECRET_KEY: 'license-secret',
+    LICENSE_SUPABASE_PUBLISHABLE_KEY: 'license-public',
+    SUPABASE_URL: 'https://auth.supabase.co',
+    SUPABASE_SECRET_KEY: 'auth-secret',
+    SUPABASE_PUBLISHABLE_KEY: 'auth-public',
+  }), {
+    url: 'https://zkdykcghctegpeanslyz.supabase.co',
+    secret: 'license-secret',
+    publishable: 'license-public',
+  });
+  assert.deepEqual(licenseSupabaseConfig({
+    LICENSE_SUPABASE_URL: 'https://zkdykcghctegpeanslyz.supabase.co',
+    SUPABASE_SECRET_KEY: '  auth-secret  ',
+    SUPABASE_PUBLISHABLE_KEY: 'auth-public',
+  }), {
+    url: 'https://zkdykcghctegpeanslyz.supabase.co',
+    secret: 'auth-secret',
+    publishable: 'auth-public',
+  });
+  assert.deepEqual(licenseSupabaseConfig({
+    SUPABASE_URL: 'https://auth.supabase.co',
+    SUPABASE_SECRET_KEY: 'auth-secret',
+    SUPABASE_PUBLISHABLE_KEY: 'auth-public',
+  }), {
+    url: 'https://auth.supabase.co',
+    secret: 'auth-secret',
+    publishable: 'auth-public',
+  });
+  assert.equal(licenseSupabaseConfig({}).url, undefined);
+});
+
+test('the license routes name env vars and do not embed a live secret', () => {
   const verifySource = readFileSync(new URL('../api/v1/licenses/verify.js', import.meta.url), 'utf8');
   const webhookSource = readFileSync(new URL('../api/v1/webhooks/payments.js', import.meta.url), 'utf8');
-  assert.match(verifySource, /verifyLicenseRequest/);
-  assert.match(webhookSource, /paymentWebhookRequest/);
-  assert.doesNotMatch(verifySource + webhookSource, /sk_live|whsec_|STRIPE_SECRET|api_key/i);
+  assert.match(verifySource, /LICENSE_SIGNING_PRIVATE_KEY/);
+  assert.match(webhookSource, /STRIPE_WEBHOOK_SECRET/);
+  assert.match(webhookSource, /RESEND_API_KEY/);
+  assert.doesNotMatch(verifySource + webhookSource, /sk_live_|whsec_[A-Za-z0-9]{8}/);
+  assert.equal(TEST_LICENSE_PUBLIC_KEY, '9eTHD62q5241M5GcgIzPInNbF+/Jsi9c7emeztduWFQ=');
 });

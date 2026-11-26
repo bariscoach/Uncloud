@@ -4,143 +4,114 @@ import Testing
 
 @Suite("License")
 struct LicenseTests {
-    @Test("Keys match the API stub, including a grandfathered Plus key")
-    func parseKeys() {
-        let plus = LicenseKey.parse("  UC1.plus.1.g.EXISTING1\n")
-        #expect(plus == ParsedLicense(key: "UC1.plus.1.g.EXISTING1", tier: .plus, seats: 1, grandfathered: true))
-        #expect(LicenseKey.parse("UC1.pro.2.s.abcd1234")?.tier == .pro)
-        #expect(LicenseKey.parse("UC1.family.5.s.FamilyKey1")?.seats == 5)
-        for key in [
-            "", "plus", "UC1.plus.1.s.short", "UC1.plus.2.s.abcd1234", "UC1.pro.1.s.abcd1234",
-            "UC1.family.5.g.abcd1234", "UC1.pro.02.s.abcd1234", "UC1.free.1.s.abcd1234",
-        ] {
-            #expect(LicenseKey.parse(key) == nil)
-        }
+    /// Matches server/uncloud-api/test/fixtures/license-key.js. Not the app's Info.plist key.
+    private static let testPublicKey = Data(base64Encoded: "9eTHD62q5241M5GcgIzPInNbF+/Jsi9c7emeztduWFQ=")!
+    private static let signedPlus = "UC1.eyJpYXQiOjE3NjQwMDAwMDAsImp0aSI6ImNzX3Rlc3RfdmVjdG9yIiwic2VhdHMiOjEsInRpZXIiOiJwbHVzIiwidiI6MX0.G7-VNyTkGua4Q8s27S-GtBJ_ZsaDKrAh5WK11qN4iHanE6ZdNgJ-JJY_hgD7IrY1lgRQqXW5kzpJmELwDP5GCQ"
+
+    @Test("Only a signed key activates, including offline")
+    func signedKey() {
+        let parsed = LicenseKey.parse(Self.signedPlus, publicKey: Self.testPublicKey)
+        #expect(parsed?.tier == .plus)
+        #expect(parsed?.seats == 1)
+        #expect(parsed?.jti == "cs_test_vector")
+        #expect(LicenseKey.parse("UC1.plus.1.g.EXISTING1", publicKey: Self.testPublicKey) == nil)
+        #expect(LicenseKey.parse(Self.signedPlus + "x", publicKey: Self.testPublicKey) == nil)
+        let production = Data(base64Encoded: "ge6IXI11L3BF4Xiko3MgoG8Ri79wxsewcKLb6yVpy9c=")!
+        #expect(LicenseKey.parse(Self.signedPlus, publicKey: production) == nil)
+        let deepLink = LicenseDeepLink.key(from: URL(string: "uncloud://license?key=\(Self.signedPlus)")!)
+        #expect(deepLink == Self.signedPlus)
+        #expect(LicenseDeepLink.key(from: URL(string: "https://www.tryuncloud.com/license")!) == nil)
     }
 
-    @Test("Limits are off unless enforcement is on")
+    @Test("The free allowance is 1,000 items in every mode, then the paywall")
+    func quota() {
+        let open = ExportQuota.allowance(exportedCount: 0, unlimited: false, enforced: true)
+        #expect(open.remaining == 1000)
+        #expect(!open.blockStart)
+        let last = ExportQuota.allowance(exportedCount: 999, unlimited: false, enforced: true)
+        #expect(last.remaining == 1)
+        let blocked = ExportQuota.allowance(exportedCount: 1000, unlimited: false, enforced: true)
+        #expect(blocked.blockStart)
+        #expect(blocked.showPaywall)
+        #expect(blocked.remaining == 0)
+        let over = ExportQuota.allowance(exportedCount: 5000, unlimited: false, enforced: true)
+        #expect(over.blockStart)
+        let licensed = ExportQuota.allowance(exportedCount: 5000, unlimited: true, enforced: true)
+        #expect(licensed.remaining == nil)
+        #expect(!licensed.blockStart)
+        let off = ExportQuota.allowance(exportedCount: 5000, unlimited: false, enforced: false)
+        #expect(off.remaining == nil)
+        #expect(!off.showPaywall)
+    }
+
+    @Test("A signed key lifts the cap for 14 days without a revocation check")
+    func grace() {
+        let now = Date(timeIntervalSince1970: 1_764_000_000)
+        let recent = now.addingTimeInterval(-2 * 24 * 60 * 60)
+        let stale = now.addingTimeInterval(-(15 * 24 * 60 * 60))
+        #expect(LicensePolicy.unlimited(tier: .plus, activatedAt: recent, lastCheck: nil, now: now, enforced: true))
+        #expect(!LicensePolicy.unlimited(tier: .plus, activatedAt: stale, lastCheck: nil, now: now, enforced: true))
+        #expect(LicensePolicy.unlimited(tier: .plus, activatedAt: stale, lastCheck: recent, now: now, enforced: true))
+        #expect(!LicensePolicy.unlimited(tier: .free, activatedAt: recent, lastCheck: recent, now: now, enforced: true))
+        #expect(LicensePolicy.unlimited(tier: .free, activatedAt: nil, lastCheck: nil, now: now, enforced: false))
+    }
+
+    @Test("Limits other than the item cap stay behind the flag")
     func gatingDefaultsOff() {
         #expect(LicenseGating.isEnforced() == false)
         for feature in LicenseFeature.allCases {
             #expect(LicensePolicy.allows(feature, tier: .free, enforced: false))
         }
-        #expect(!LicensePolicy.allows(.automaticBackups, tier: .free, enforced: true))
-        #expect(LicensePolicy.allows(.automaticBackups, tier: .plus, enforced: true))
+        #expect(LicensePolicy.allows(.automaticBackups, tier: .free, enforced: true))
+        #expect(!LicensePolicy.allows(.mapPlaceBrowse, tier: .free, enforced: true))
+        #expect(LicensePolicy.allows(.mapPlaceBrowse, tier: .plus, enforced: true))
         #expect(!LicensePolicy.allows(.verifiedICloudCleanup, tier: .plus, enforced: true))
         #expect(LicensePolicy.allows(.verifiedICloudCleanup, tier: .pro, enforced: true))
-        #expect(LicensePolicy.allows(.secondDestination, tier: .family, enforced: true))
-        #expect(LicensePolicy.allows(.emailSupport, tier: .family, enforced: true))
-        #expect(LicensePolicy.allows(.verifyBackup, tier: .pro, enforced: true))
     }
 
-    @Test("Free keeps By Month and date browse; Plus unlocks the rest")
-    func layoutsAndBrowse() {
-        #expect(LicensePolicy.layoutAvailable(.month, source: .iCloud, tier: .free, enforced: true))
-        #expect(!LicensePolicy.layoutAvailable(.album, source: .iCloud, tier: .free, enforced: true))
-        #expect(LicensePolicy.layoutAvailable(.album, source: .iCloud, tier: .plus, enforced: true))
-        #expect(LicensePolicy.layoutAvailable(.place, source: .photosLibrary, tier: .plus, enforced: true))
-        #expect(!LicensePolicy.layoutAvailable(.place, source: .iCloud, tier: .family, enforced: true))
-        #expect(LicensePolicy.layoutAvailable(.place, source: .photosLibrary, tier: .free, enforced: false))
-        #expect(LicensePolicy.allowsBrowse(.dates, tier: .free, enforced: true))
-        #expect(!LicensePolicy.allowsBrowse(.map, tier: .free, enforced: true))
-        #expect(!LicensePolicy.allowsBrowse(.places, tier: .free, enforced: true))
-        #expect(LicensePolicy.allowsBrowse(.map, tier: .plus, enforced: true))
+    @Test("The export counter lives in the store the app is given")
+    func counter() {
+        let store = MemoryExportCountStore()
+        #expect(store.load() == 0)
+        store.add(40)
+        store.add(960)
+        #expect(store.load() == 1000)
+        store.add(0)
+        #expect(store.load() == 1000)
+        let allowance = ExportQuota.allowance(exportedCount: store.load(), unlimited: false, enforced: true)
+        #expect(allowance.blockStart)
     }
 
-    @Test("A full library over the cap needs Plus, and a date range does not")
-    func exportCap() {
-        #expect(LicensePolicy.exportRefusal(
-            selection: .everything, itemCount: 1000, isDateRange: false, tier: .free, enforced: true
-        ) == nil)
-        #expect(LicensePolicy.exportRefusal(
-            selection: .everything, itemCount: 1001, isDateRange: false, tier: .free, enforced: true
-        ) == LicensePolicy.freeExportRefusal)
-        #expect(LicensePolicy.exportRefusal(
-            selection: .everything, itemCount: nil, isDateRange: false, tier: .free, enforced: true
-        ) == LicensePolicy.freeExportRefusal)
-        #expect(LicensePolicy.exportRefusal(
-            selection: .only(["a"]), itemCount: 5000, isDateRange: true, tier: .free, enforced: true
-        ) == nil)
-        #expect(LicensePolicy.exportRefusal(
-            selection: .only(["a", "b"]), itemCount: 2, isDateRange: false, tier: .free, enforced: true
-        ) == nil)
-        #expect(LicensePolicy.exportRefusal(
-            selection: .everything, itemCount: 50_000, isDateRange: false, tier: .plus, enforced: true
-        ) == nil)
-        #expect(LicensePolicy.exportRefusal(
-            selection: .everything, itemCount: 50_000, isDateRange: false, tier: .free, enforced: false
-        ) == nil)
-    }
-
-    @Test("A license is saved on this Mac and can be removed")
-    func storeRoundTrip() throws {
-        let name = "license-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defer { defaults.removePersistentDomain(forName: name) }
-        let store = LicenseStore(defaults: defaults)
-        #expect(store.load() == nil)
-        #expect(store.tier == .free)
-        let license = StoredLicense(key: "UC1.pro.2.s.abcd1234", tier: .pro, seats: 2, grandfathered: false, confirmedOnline: true)
-        store.save(license)
-        #expect(store.load() == license)
-        #expect(store.tier == .pro)
-        store.clear()
-        #expect(store.load() == nil)
-    }
-
-    @Test("The server’s answer is kept, and a network failure still saves a well-formed key")
+    @Test("An unavailable server still saves a signed key, and a revocation does not")
     func activation() {
-        let parsed = LicenseKey.parse("UC1.plus.1.s.abcd1234")!
-        let accepted = LicenseActivation.decide(
-            parsed: parsed,
-            remote: .success(LicenseVerification(valid: true, tier: .plus, seats: 1, grandfathered: false))
-        )
-        guard case .saved(let saved) = accepted else {
-            Issue.record("expected a saved license")
-            return
-        }
-        #expect(saved.confirmedOnline)
-        #expect(saved.tier == .plus)
-
-        let offline = LicenseActivation.decide(parsed: parsed, remote: .failure(.unavailable))
-        guard case .saved(let local) = offline else {
+        let parsed = LicenseKey.parse(Self.signedPlus, publicKey: Self.testPublicKey)!
+        let now = Date(timeIntervalSince1970: 1_764_000_000)
+        let offline = LicenseActivation.decide(parsed: parsed, remote: .failure(.unavailable), now: now)
+        guard case .saved(let saved) = offline else {
             Issue.record("expected an offline save")
             return
         }
-        #expect(!local.confirmedOnline)
+        #expect(!saved.confirmedOnline)
+        #expect(saved.jti == "cs_test_vector")
+        #expect(saved.lastRevocationCheck == nil)
 
-        let rejected = LicenseActivation.decide(parsed: parsed, remote: .failure(.invalid))
-        #expect(rejected == .rejected(LicenseActivation.invalid))
+        let revoked = LicenseActivation.decide(parsed: parsed, remote: .failure(.revoked), now: now)
+        #expect(revoked == .rejected(LicenseActivation.revoked))
 
-        let mismatch = LicenseActivation.decide(
-            parsed: parsed,
-            remote: .success(LicenseVerification(valid: true, tier: .pro, seats: 2, grandfathered: false))
-        )
-        #expect(mismatch == .rejected(LicenseActivation.invalid))
+        let store = MemoryLicenseStore()
+        if case .saved(let license) = offline {
+            store.save(license)
+            #expect(store.load()?.tier == .plus)
+            store.clear()
+            #expect(store.load() == nil)
+        }
     }
 
-    @Test("The verify response decodes without an account")
-    func decodeVerification() throws {
-        let data = Data(#"{"valid":true,"mode":"stub","tier":"family","seats":5,"grandfathered":false,"accountRequired":false}"#.utf8)
-        let decoded = LicenseVerifier.decode(data)
-        #expect(decoded == .success(LicenseVerification(valid: true, tier: .family, seats: 5, grandfathered: false)))
-        let invalid = LicenseVerifier.decode(Data(#"{"valid":false,"reason":"unrecognized_key"}"#.utf8))
-        #expect(invalid == .failure(.invalid))
-    }
-
-    @Test("Checkout links must be https, and an empty value is a placeholder")
-    func checkoutURLs() {
-        #expect(LicenseCheckout.url(from: nil) == nil)
-        #expect(LicenseCheckout.url(from: "  ") == nil)
-        #expect(LicenseCheckout.url(from: "http://buy.example/plus") == nil)
-        #expect(LicenseCheckout.url(from: "https://buy.example/plus") == URL(string: "https://buy.example/plus"))
-        #expect(LicenseCheckout.url(for: .free) == nil)
-    }
-
-    @Test("The public site link matches the marketing site")
-    func website() {
-        #expect(LicenseLinks.website == URL(string: "https://www.tryuncloud.com"))
-        #expect(AccountLinks.website == LicenseLinks.website)
-        #expect(LicenseLinks.pricing == URL(string: "https://www.tryuncloud.com/pricing"))
+    @Test("The verify response treats a revoked key as unusable")
+    func decodeVerification() {
+        let data = Data(#"{"valid":false,"reason":"revoked","accountRequired":false}"#.utf8)
+        #expect(LicenseVerifier.decode(data) == .failure(.revoked))
+        let ok = Data(#"{"valid":true,"tier":"family","seats":5}"#.utf8)
+        #expect(LicenseVerifier.decode(ok) == .success(LicenseVerification(valid: true, tier: .family, seats: 5, reason: nil)))
     }
 }

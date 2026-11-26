@@ -13,13 +13,8 @@ struct LicenseSettingsForm: View {
                 LabeledContent("Plan", value: planTitle)
                 if let stored {
                     LabeledContent("Macs", value: stored.seats == 1 ? "1 Mac" : "\(stored.seats) Macs")
-                    if stored.grandfathered {
-                        Text("Lifetime Plus for an existing Uncloud user.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                     if !stored.confirmedOnline {
-                        Text("Saved on this Mac. Uncloud couldn’t confirm the key online.")
+                        Text("Saved on this Mac. Uncloud will confirm it hasn’t been refunded the next time you’re online.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -44,7 +39,7 @@ struct LicenseSettingsForm: View {
                 }
                 if stored != nil {
                     Button("Remove License", role: .destructive) {
-                        LicenseStore.standard.clear()
+                        LicenseStore.current.clear()
                         stored = nil
                         status = "Removed from this Mac."
                     }
@@ -80,12 +75,11 @@ struct LicenseSettingsForm: View {
         }
         .formStyle(.grouped)
         .frame(width: 460)
-        .onAppear { stored = LicenseStore.standard.load() }
+        .onAppear { stored = LicenseStore.current.load() }
     }
 
     private var planTitle: String {
         guard let stored else { return LicenseTier.free.displayName }
-        if stored.grandfathered, stored.tier == .plus { return "Lifetime Plus" }
         return stored.tier.displayName
     }
 
@@ -100,7 +94,7 @@ struct LicenseSettingsForm: View {
         let remote = await LicenseVerifier.live(baseURL: LicenseVerifier.baseURL()).verify(parsed.key)
         switch LicenseActivation.decide(parsed: parsed, remote: remote) {
         case .saved(let license):
-            LicenseStore.standard.save(license)
+            LicenseStore.current.save(license)
             stored = license
             key = ""
             status = license.confirmedOnline

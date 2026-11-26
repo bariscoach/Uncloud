@@ -45,6 +45,9 @@ struct MainWindow: View {
         .sheet(isPresented: $model.isChoosingExportSince) {
             ExportRangeSheet()
         }
+        .sheet(isPresented: $model.isShowingLicensePaywall) {
+            LicensePaywallView()
+        }
         .sheet(item: $model.introSheet) { sheet in
             switch sheet {
             case .gettingStarted:

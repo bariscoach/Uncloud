@@ -31,7 +31,7 @@ struct BrowseBackupView: View {
             }
         }
         .onAppear {
-            if !LicensePolicy.allowsBrowse(browse.mode, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()) {
+            if !LicensePolicy.allowsBrowse(browse.mode, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced()) {
                 browse.mode = .dates
             }
             sync()
@@ -57,7 +57,7 @@ struct BrowseBackupView: View {
     private func modePicker(_ browse: BrowseBackup) -> some View {
         Picker("View", selection: Bindable(browse).mode) {
             ForEach(BrowseBackup.Mode.allCases.filter {
-                LicensePolicy.allowsBrowse($0, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced())
+                LicensePolicy.allowsBrowse($0, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced())
             }) { mode in
                 Text(mode.title).tag(mode)
             }

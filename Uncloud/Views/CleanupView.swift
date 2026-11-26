@@ -8,7 +8,7 @@ struct CleanupView: View {
 
     var body: some View {
         Group {
-            if !LicensePolicy.allows(.verifiedICloudCleanup, tier: LicenseStore.standard.tier, enforced: LicenseGating.isEnforced()) {
+            if !LicensePolicy.allows(.verifiedICloudCleanup, tier: LicenseStore.tier, enforced: LicenseGating.isEnforced()) {
                 ContentUnavailableView {
                     Label("Uncloud Pro", systemImage: "key")
                 } description: {
